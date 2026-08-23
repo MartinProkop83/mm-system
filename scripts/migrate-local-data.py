@@ -4,10 +4,9 @@ import json
 import os
 import pathlib
 import sqlite3
+import subprocess
 import sys
 import time
-import urllib.error
-import urllib.request
 
 
 PROJECT = pathlib.Path(__file__).resolve().parents[1]
@@ -21,28 +20,19 @@ SITES_BYPASS_TOKEN = os.environ["MM_SITES_BYPASS_TOKEN"]
 
 def post(payload):
     body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    request = urllib.request.Request(
-        IMPORT_URL,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {IMPORT_TOKEN}",
-            "OAI-Sites-Authorization": f"Bearer {SITES_BYPASS_TOKEN}",
-            "Content-Type": "application/json",
-        },
-    )
-    for attempt in range(4):
-        try:
-            with urllib.request.urlopen(request, timeout=90) as response:
-                return json.loads(response.read())
-        except urllib.error.HTTPError as error:
-            details = error.read().decode("utf-8", "replace")
-            if error.code < 500 or attempt == 3:
-                raise RuntimeError(f"HTTP {error.code}: {details}") from error
-        except (urllib.error.URLError, TimeoutError) as error:
-            if attempt == 3:
-                raise RuntimeError(str(error)) from error
-        time.sleep(2 ** attempt)
+    command = [
+        "curl", "--silent", "--show-error", "--fail-with-body", "--retry", "3",
+        "--connect-timeout", "20", "--max-time", "120", "--request", "POST",
+        "--header", f"Authorization: Bearer {IMPORT_TOKEN}",
+        "--header", f"OAI-Sites-Authorization: Bearer {SITES_BYPASS_TOKEN}",
+        "--header", "Content-Type: application/json", "--data-binary", "@-", IMPORT_URL,
+    ]
+    result = subprocess.run(command, input=body, capture_output=True, check=False)
+    if result.returncode:
+        stderr = result.stderr.decode("utf-8", "replace")
+        stdout = result.stdout.decode("utf-8", "replace")
+        raise RuntimeError(f"{stderr}\n{stdout}".strip())
+    return json.loads(result.stdout)
 
 
 def chunks(rows, size=25):

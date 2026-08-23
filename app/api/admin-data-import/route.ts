@@ -89,9 +89,14 @@ export async function POST(request: Request) {
     }
     const binary = atob(payload.data);
     const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    await getAssetsBucket().put(payload.key, bytes, {
-      httpMetadata: { contentType: payload.contentType || "application/octet-stream" },
-    });
+    try {
+      await getAssetsBucket().put(payload.key, bytes, {
+        httpMetadata: { contentType: payload.contentType || "application/octet-stream" },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return Response.json({ error: message }, { status: 500 });
+    }
     return Response.json({ key: payload.key, size: bytes.byteLength });
   }
 
