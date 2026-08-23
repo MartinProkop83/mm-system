@@ -338,6 +338,8 @@ test("one-time production data import is token protected and excludes unknown ta
   assert.match(route, /importableTables\.has/);
   assert.match(route, /INSERT OR REPLACE/);
   assert.match(route, /getAssetsBucket\(\)\.put/);
+  const database = await readFile(new URL("../db/index.ts", import.meta.url), "utf8");
+  assert.match(database, /UPLOADS/);
 });
 
 test("clothing catalog stores configurable sizes, photos and appears on mechanic cards", async () => {
@@ -452,7 +454,7 @@ test("MM Travel shares race records, supports round trips, accommodation routing
   assert.match(runtimeSchema, /track_distance_km REAL/);
   assert.match(runtimeSchema, /ALTER TABLE race_accommodations ADD COLUMN booking_url/);
   assert.match(runtimeSchema, /UPDATE race_flights SET trip_kind = direction/);
-  assert.match(hosting, /"r2": "ASSETS"/);
+  assert.match(hosting, /"r2": "UPLOADS"/);
   assert.match(mechanicRoute, /mechanicPassengerId/);
   assert.match(mechanicRoute, /travel: \{/);
   assert.match(mechanicRoute, /FROM race_accommodations/);

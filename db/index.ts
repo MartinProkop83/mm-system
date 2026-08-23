@@ -23,10 +23,10 @@ export function getD1() {
 }
 
 export function getAssetsBucket() {
-  const bucket = (env as unknown as { ASSETS?: R2Bucket }).ASSETS;
+  const bucket = (env as unknown as { UPLOADS?: R2Bucket }).UPLOADS;
   if (!bucket) {
     throw new Error(
-      "Cloudflare R2 binding `ASSETS` is unavailable. Set the `r2` field in .openai/hosting.json to `ASSETS`."
+      "Cloudflare R2 binding `UPLOADS` is unavailable. Set the `r2` field in .openai/hosting.json to `UPLOADS`."
     );
   }
 
