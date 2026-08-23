@@ -1,0 +1,1 @@
+ALTER TABLE `mechanic_clothing_assignments` ADD `assigned_at` integer DEFAULT 0 NOT NULL;

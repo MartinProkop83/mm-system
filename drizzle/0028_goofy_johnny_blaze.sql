@@ -1,0 +1,1 @@
+ALTER TABLE `race_flights` ADD `return_reservation_code` text DEFAULT '' NOT NULL;

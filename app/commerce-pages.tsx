@@ -1,0 +1,110 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
+
+type Locale = "cs" | "en";
+type Role = "superadmin" | "boss" | "mechanic";
+export type CustomerRecord = { id: string; name: string; phone: string; email: string; address: string; companyId: string; vatId: string; notes: string; saleCount?: number; createdAt: number; updatedAt: number };
+export type ServiceCatalogRecord = { id: string; name: string; description: string; descriptionCs: string; descriptionEn: string; priceCzkCents: number; priceEurCents: number; createdAt: number; updatedAt: number };
+export type InventoryPartRecord = { id: string; code: string; name: string; categories: string[]; quantity: number; unit: string; priceCzkCents: number; priceEurCents: number; notes: string; imageUrl: string; createdAt: number; updatedAt: number };
+
+type PageKind = "customers" | "services" | "inventory";
+type CommerceRecord = CustomerRecord | ServiceCatalogRecord | InventoryPartRecord;
+
+const configs = {
+  customers: { endpoint: "/api/customers", responseKey: "customers", eyebrow: "MM CUSTOMER DIRECTORY", titleCs: "Zákazníci", titleEn: "Customers", subtitleCs: "Kontakty a historie odběratelů vytvořených ručně i automaticky z prodeje.", subtitleEn: "Contacts and buyer history created manually or automatically from sales." },
+  services: { endpoint: "/api/service-catalog", responseKey: "services", eyebrow: "MM SERVICE PRICING", titleCs: "Servisní ceník", titleEn: "Service price list", subtitleCs: "Předdefinované servisní práce a pevné ceny bez DPH v CZK a EUR.", subtitleEn: "Preset service work and fixed net prices in CZK and EUR." },
+  inventory: { endpoint: "/api/inventory", responseKey: "parts", eyebrow: "MM PARTS STOCK", titleCs: "Sklad dílů", titleEn: "Parts inventory", subtitleCs: "Díly dostupné pro prodej. Uložený prodej množství automaticky odečte.", subtitleEn: "Parts available for sales. A saved sale automatically decrements stock." },
+} as const;
+
+export function CustomersPage(props: { locale: Locale; role: Role }) { return <CommercePage kind="customers" {...props} />; }
+export function ServiceCatalogPage(props: { locale: Locale; role: Role }) { return <CommercePage kind="services" {...props} />; }
+export function InventoryPage(props: { locale: Locale; role: Role }) { return <CommercePage kind="inventory" {...props} />; }
+
+function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; role: Role }) {
+  const config = configs[kind]; const canManage = role !== "mechanic";
+  const [items, setItems] = useState<CommerceRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(false);
+  const [editing, setEditing] = useState<CommerceRecord | "new" | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<ClothingPhotoPreview | null>(null);
+  async function load() {
+    setLoading(true);
+    try { const response = await fetch(config.endpoint, { cache: "no-store" }); const result = await response.json() as Record<string, CommerceRecord[]>; if (!response.ok) throw new Error(); setItems(result[config.responseKey] ?? []); setError(false); }
+    catch { setError(true); } finally { setLoading(false); }
+  }
+  useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [kind]);
+  async function remove(item: CommerceRecord) {
+    if (role !== "superadmin" || !window.confirm(locale === "cs" ? "Opravdu záznam archivovat? Historie prodejů zůstane zachována." : "Archive this record? Sales history remains preserved.")) return;
+    const response = await fetch(config.endpoint, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id }) });
+    if (!response.ok) return window.alert(locale === "cs" ? "Záznam se nepodařilo archivovat." : "Could not archive the record.");
+    await load();
+  }
+  return <div className="commerce-page">
+    <section className="panel commerce-summary"><div><span className="eyebrow">{config.eyebrow}</span><h2>{locale === "cs" ? config.titleCs : config.titleEn}</h2><p>{locale === "cs" ? config.subtitleCs : config.subtitleEn}</p></div><div><strong>{items.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
+    <section className="panel data-panel commerce-list">
+      {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
+      {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
+      {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{locale === "cs" ? "Zatím bez záznamů" : "No records yet"}</h2></div>}
+      {!loading && !error && items.length > 0 && kind === "inventory" && <InventoryGrid locale={locale} role={role} items={items as InventoryPartRecord[]} onEdit={setEditing} onDelete={(item) => { void remove(item); }} onPreview={setPhotoPreview} />}
+      {!loading && !error && items.length > 0 && kind !== "inventory" && <CommerceTable kind={kind} locale={locale} role={role} items={items} onEdit={setEditing} onDelete={(item) => { void remove(item); }} />}
+    </section>
+    {editing && <CommerceForm key={editing === "new" ? `new-${kind}` : editing.id} kind={kind} locale={locale} item={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}
+    {photoPreview && <ClothingLightbox preview={photoPreview} onClose={() => setPhotoPreview(null)} />}
+  </div>;
+}
+
+function InventoryGrid({ locale, role, items, onEdit, onDelete, onPreview }: { locale: Locale; role: Role; items: InventoryPartRecord[]; onEdit: (item: CommerceRecord) => void; onDelete: (item: CommerceRecord) => void; onPreview: (preview: ClothingPhotoPreview) => void }) {
+  return <div className="inventory-card-grid">{items.map((item) => <article className="inventory-part-card" key={item.id}>
+    <ClothingPhoto imageUrl={item.imageUrl} name={item.name} fallback={item.code.slice(0, 2)} className="inventory-part-photo" onOpen={onPreview} />
+    <div className="inventory-part-main"><span>{item.code}</span><h3>{item.name}</h3><p>{item.notes || (locale === "cs" ? "Bez doplňujícího popisu" : "No additional description")}</p><div className="inventory-category-chips">{(item.categories.length ? item.categories : ["ALL"]).map((category) => <b key={category}>{category === "ALL" ? (locale === "cs" ? "Všechny motory" : "All engines") : category}</b>)}</div></div>
+    <div className="inventory-part-values"><span className={item.quantity === 0 ? "stock-value empty" : item.quantity < 3 ? "stock-value low" : "stock-value"}>{item.quantity} {item.unit}</span><div><small>CZK</small><strong>{formatMoney(item.priceCzkCents, "CZK", locale)}</strong></div><div><small>EUR</small><strong>{formatMoney(item.priceEurCents, "EUR", locale)}</strong></div></div>
+    {role !== "mechanic" && <footer><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit díl" : "Edit part"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</footer>}
+  </article>)}</div>;
+}
+
+function CommerceTable({ kind, locale, role, items, onEdit, onDelete }: { kind: PageKind; locale: Locale; role: Role; items: CommerceRecord[]; onEdit: (item: CommerceRecord) => void; onDelete: (item: CommerceRecord) => void }) {
+  const headers = kind === "customers"
+    ? [locale === "cs" ? "Zákazník" : "Customer", locale === "cs" ? "Kontakt" : "Contact", "IČO / DIČ", locale === "cs" ? "Adresa" : "Address", locale === "cs" ? "Prodeje" : "Sales"]
+    : kind === "services"
+      ? [locale === "cs" ? "Servis" : "Service", locale === "cs" ? "Popis" : "Description", "CZK bez DPH", "EUR bez DPH"]
+      : [locale === "cs" ? "Kód" : "Code", locale === "cs" ? "Díl" : "Part", locale === "cs" ? "Skladem" : "In stock", "CZK bez DPH", "EUR bez DPH", locale === "cs" ? "Poznámka" : "Notes"];
+  return <div className="table-wrap"><table className="engine-table commerce-table"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
+}
+
+function commerceCells(kind: PageKind, record: CommerceRecord, locale: Locale): React.ReactNode[] {
+  if (kind === "customers") { const item = record as CustomerRecord; return [<strong key="name">{item.name}</strong>, <span className="stacked-cell" key="contact"><strong>{item.phone || "—"}</strong><small>{item.email || "—"}</small></span>, <span className="stacked-cell" key="ids"><strong>{item.companyId || "—"}</strong><small>{item.vatId || "—"}</small></span>, item.address || "—", String(item.saleCount ?? 0)]; }
+  if (kind === "services") { const item = record as ServiceCatalogRecord; return [<strong key="name">{item.name}</strong>, <span className="stacked-cell service-description-cell" key="description"><span><b>CZ</b>{item.descriptionCs || item.description || "—"}</span><span><b>EN</b>{item.descriptionEn || "—"}</span></span>, formatMoney(item.priceCzkCents, "CZK", locale), formatMoney(item.priceEurCents, "EUR", locale)]; }
+  const item = record as InventoryPartRecord; return [<strong key="code">{item.code}</strong>, item.name, <span className={item.quantity === 0 ? "stock-value empty" : item.quantity < 3 ? "stock-value low" : "stock-value"} key="stock">{item.quantity} {item.unit}</span>, formatMoney(item.priceCzkCents, "CZK", locale), formatMoney(item.priceEurCents, "EUR", locale), item.notes || "—"];
+}
+
+function CommerceForm({ kind, locale, item, onClose, onSaved }: { kind: PageKind; locale: Locale; item: CommerceRecord | null; onClose: () => void; onSaved: () => void }) {
+  const config = configs[kind]; const [saving, setSaving] = useState(false); const [error, setError] = useState("");
+  const inventoryItem = kind === "inventory" ? item as InventoryPartRecord | null : null;
+  const [partCategories, setPartCategories] = useState<string[]>(inventoryItem?.categories?.length ? inventoryItem.categories : ["ALL"]);
+  const [partImage, setPartImage] = useState<File | null>(null); const [partImagePreview, setPartImagePreview] = useState(inventoryItem?.imageUrl ?? ""); const [removePartImage, setRemovePartImage] = useState(false);
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setSaving(true); setError(""); const form = new FormData(event.currentTarget); const payload: Record<string, unknown> = Object.fromEntries(form.entries());
+    if (kind !== "customers") { payload.priceCzkCents = Math.round(Number(payload.priceCzk) * 100); payload.priceEurCents = Math.round(Number(payload.priceEur) * 100); delete payload.priceCzk; delete payload.priceEur; }
+    if (kind === "inventory") { payload.quantity = Number(payload.quantity); payload.categories = partCategories; }
+    try { const response = await fetch(config.endpoint, { method: item ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, id: item?.id }) }); const result = await response.json() as { id?: string; error?: string }; if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
+      if (kind === "inventory" && partImage) { const upload = new FormData(); upload.set("partId", result.id); upload.set("image", partImage); const imageResponse = await fetch("/api/inventory-image", { method: "POST", body: upload }); if (!imageResponse.ok) throw new Error((await imageResponse.json() as { error?: string }).error || "Image upload failed"); }
+      else if (kind === "inventory" && removePartImage && inventoryItem?.imageUrl) { const imageResponse = await fetch("/api/inventory-image", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ partId: result.id }) }); if (!imageResponse.ok) throw new Error((await imageResponse.json() as { error?: string }).error || "Image delete failed"); }
+      onSaved(); }
+    catch (saveError) { setError(localizeError(saveError instanceof Error ? saveError.message : "Save failed", locale)); setSaving(false); }
+  }
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal commerce-modal" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">{config.eyebrow}</span><h2>{item ? (locale === "cs" ? "Upravit záznam" : "Edit record") : (locale === "cs" ? "Nový záznam" : "New record")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid">{kind === "customers" ? <CustomerFields item={item as CustomerRecord | null} locale={locale} /> : kind === "services" ? <ServiceFields item={item as ServiceCatalogRecord | null} locale={locale} /> : <PartFields item={inventoryItem} locale={locale} categories={partCategories} onCategories={setPartCategories} imagePreview={partImagePreview} onImage={(file) => { setPartImage(file); setRemovePartImage(false); if (file) setPartImagePreview(URL.createObjectURL(file)); }} onRemoveImage={() => { setPartImage(null); setPartImagePreview(""); setRemovePartImage(Boolean(inventoryItem?.imageUrl)); }} />}</div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Uložit" : "Save")}</button></div></form></section></div>;
+}
+
+function CustomerFields({ item, locale }: { item: CustomerRecord | null; locale: Locale }) { return <><label><span>{locale === "cs" ? "Jméno / firma" : "Name / company"} *</span><input name="name" defaultValue={item?.name ?? ""} required autoFocus /></label><label><span>{locale === "cs" ? "Telefon" : "Phone"}</span><input name="phone" defaultValue={item?.phone ?? ""} /></label><label><span>E-mail</span><input name="email" type="email" defaultValue={item?.email ?? ""} /></label><label><span>IČO</span><input name="companyId" defaultValue={item?.companyId ?? ""} /></label><label><span>DIČ</span><input name="vatId" defaultValue={item?.vatId ?? ""} /></label><label className="full-field"><span>{locale === "cs" ? "Adresa" : "Address"}</span><input name="address" defaultValue={item?.address ?? ""} /></label><label className="full-field"><span>{locale === "cs" ? "Poznámka" : "Notes"}</span><textarea name="notes" rows={3} defaultValue={item?.notes ?? ""} /></label></>; }
+function ServiceFields({ item, locale }: { item: ServiceCatalogRecord | null; locale: Locale }) { return <><label className="full-field"><span>{locale === "cs" ? "Název / kód servisu" : "Service name / code"} *</span><input name="name" defaultValue={item?.name ?? ""} required autoFocus /></label><label className="full-field"><span>Popis služby (CZ)</span><textarea name="descriptionCs" rows={3} defaultValue={item?.descriptionCs ?? item?.description ?? ""} placeholder="Např. výměna pístu včetně materiálu…" /></label><label className="full-field"><span>Service description (EN)</span><textarea name="descriptionEn" rows={3} defaultValue={item?.descriptionEn ?? ""} placeholder="E.g. piston replacement including materials…" /></label><MoneyFields czk={item?.priceCzkCents} eur={item?.priceEurCents} locale={locale} /></>; }
+function PartFields({ item, locale, categories, onCategories, imagePreview, onImage, onRemoveImage }: { item: InventoryPartRecord | null; locale: Locale; categories: string[]; onCategories: (categories: string[]) => void; imagePreview: string; onImage: (file: File | null) => void; onRemoveImage: () => void }) {
+  const allEngines = categories.includes("ALL"); const engineCategories = ["MINI", "OKJ", "OKN", "OK", "KZ"];
+  return <><label><span>{locale === "cs" ? "Kód dílu" : "Part code"} *</span><input name="code" defaultValue={item?.code ?? ""} required autoFocus /></label><label><span>{locale === "cs" ? "Název dílu" : "Part name"} *</span><input name="name" defaultValue={item?.name ?? ""} required /></label>
+    <fieldset className="inventory-category-field full-field"><legend>{locale === "cs" ? "Pro jaké typy motorů je díl" : "Compatible engine types"} *</legend><div><label className="all-engines"><input type="checkbox" checked={allEngines} onChange={(event) => onCategories(event.target.checked ? ["ALL"] : [])} /><span>{locale === "cs" ? "Všechny typy motorů" : "All engine types"}</span></label>{engineCategories.map((category) => <label key={category}><input type="checkbox" checked={!allEngines && categories.includes(category)} disabled={allEngines} onChange={(event) => onCategories(event.target.checked ? [...categories.filter((value) => value !== "ALL"), category] : categories.filter((value) => value !== category))} /><span>{category}</span></label>)}</div><small>{locale === "cs" ? "Pokud díl pasuje všude, stačí první volba. Jinak zaškrtni jednu nebo více kategorií." : "Choose All engines for universal parts, otherwise select one or more categories."}</small></fieldset>
+    <label><span>{locale === "cs" ? "Množství skladem" : "Stock quantity"}</span><input name="quantity" type="number" min="0" step="1" defaultValue={item?.quantity ?? 0} required /></label><label><span>{locale === "cs" ? "Jednotka" : "Unit"}</span><input name="unit" defaultValue={item?.unit ?? "ks"} /></label><MoneyFields czk={item?.priceCzkCents} eur={item?.priceEurCents} locale={locale} />
+    <div className="inventory-image-field full-field"><span>{locale === "cs" ? "Fotografie dílu" : "Part photo"}</span><div className="inventory-image-editor">{imagePreview ? <img src={imagePreview} alt={item?.name || (locale === "cs" ? "Náhled dílu" : "Part preview")} /> : <span>FOTO</span>}<div><label className="inventory-file-button"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => onImage(event.target.files?.[0] ?? null)} /><b>{imagePreview ? (locale === "cs" ? "Vybrat jinou fotku" : "Choose another photo") : (locale === "cs" ? "Vybrat fotku" : "Choose photo")}</b></label>{imagePreview && <button type="button" onClick={onRemoveImage}>{locale === "cs" ? "Odstranit fotografii" : "Remove photo"}</button>}<small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 10 MB. V přehledu bude čtvercová ikona přibližně poloviční oproti oblečení." : "PNG, JPG or WebP, max 10 MB. The inventory uses a square icon about half the clothing size."}</small></div></div></div>
+    <label className="full-field"><span>{locale === "cs" ? "Popis / poznámka" : "Description / notes"}</span><textarea name="notes" rows={3} defaultValue={item?.notes ?? ""} placeholder={locale === "cs" ? "Např. rozměr, výrobce nebo další upřesnění…" : "E.g. size, maker or other details…"} /></label></>;
+}
+function MoneyFields({ czk = 0, eur = 0, locale }: { czk?: number; eur?: number; locale: Locale }) { return <><label><span>{locale === "cs" ? "Cena bez DPH" : "Net price"} (CZK)</span><input name="priceCzk" type="number" min="0" step="0.01" defaultValue={(czk / 100).toFixed(2)} required /></label><label><span>{locale === "cs" ? "Cena bez DPH" : "Net price"} (EUR)</span><input name="priceEur" type="number" min="0" step="0.01" defaultValue={(eur / 100).toFixed(2)} required /></label></>; }
+function formatMoney(cents: number, currency: "CZK" | "EUR", locale: Locale) { return new Intl.NumberFormat(locale === "cs" ? "cs-CZ" : "en-GB", { style: "currency", currency, maximumFractionDigits: 2 }).format(cents / 100); }
+function localizeError(error: string, locale: Locale) { if (locale === "en") return error; const map: Record<string, string> = { "Customer name is required": "Vyplň jméno nebo firmu zákazníka.", "Invalid customer email": "E-mail zákazníka nemá platný formát.", "Customer email already exists": "Zákazník s tímto e-mailem už existuje.", "Service name is required": "Vyplň název servisu.", "Service already exists": "Tento servis už v ceníku existuje.", "Part code and name are required": "Vyplň kód a název dílu.", "Part code already exists": "Díl s tímto kódem už existuje.", "Select at least one engine category": "Zaškrtni alespoň jednu kategorii motoru nebo volbu Všechny typy motorů.", "Image must be PNG, JPG or WebP": "Fotka musí být PNG, JPG nebo WebP.", "Image is larger than 10 MB": "Fotka je větší než 10 MB." }; return map[error] ?? error; }

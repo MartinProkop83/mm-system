@@ -1,0 +1,1 @@
+ALTER TABLE `race_entries` ADD `is_confirmed` integer DEFAULT false NOT NULL;

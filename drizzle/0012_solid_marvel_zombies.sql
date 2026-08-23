@@ -1,0 +1,1 @@
+ALTER TABLE `race_templates` ADD `calendar_color` text DEFAULT 'blue' NOT NULL;

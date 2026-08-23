@@ -1,0 +1,1 @@
+CREATE INDEX `travel_attachments_entity_idx` ON `travel_attachments` (`entity_type`,`entity_id`,`created_at`);
