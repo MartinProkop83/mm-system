@@ -331,6 +331,15 @@ test("user access is managed by superadmins and prevents an accidental lockout",
   assert.match(serverAuth, /SELECT COUNT\(\*\) AS count FROM app_users WHERE is_active = 1/);
 });
 
+test("one-time production data import is token protected and excludes unknown tables", async () => {
+  const route = await readFile(new URL("../app/api/admin-data-import/route.ts", import.meta.url), "utf8");
+  assert.match(route, /MM_DATA_IMPORT_TOKEN/);
+  assert.match(route, /OAI-Sites-Authorization|authorization/);
+  assert.match(route, /importableTables\.has/);
+  assert.match(route, /INSERT OR REPLACE/);
+  assert.match(route, /getAssetsBucket\(\)\.put/);
+});
+
 test("clothing catalog stores configurable sizes, photos and appears on mechanic cards", async () => {
   const [dashboard, page, route, imageRoute, mechanicPage, mechanicRoute, schema, runtimeSchema] = await Promise.all([
     readFile(dashboardUrl, "utf8"),
