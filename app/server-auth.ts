@@ -21,6 +21,10 @@ type UserRow = {
   locale: "cs" | "en";
 };
 
+const AUTOMATED_IDENTITY_EMAILS = new Set([
+  "sites-screenshot-service-noreply@chatgpt.com",
+]);
+
 export async function getAppUser(): Promise<AppUser | null> {
   const chatGPTUser = await getChatGPTUser();
   const identity = chatGPTUser ?? await developmentIdentity();
@@ -30,6 +34,19 @@ export async function getAppUser(): Promise<AppUser | null> {
   const d1 = getD1();
   const email = identity.email.trim().toLowerCase();
   const fullName = identity.fullName?.trim() || identity.displayName || email;
+
+  if (AUTOMATED_IDENTITY_EMAILS.has(email)) {
+    await d1
+      .prepare("UPDATE app_users SET is_active = 0, updated_at = ? WHERE email = ? AND is_active = 1")
+      .bind(Date.now(), email)
+      .run();
+    return null;
+  }
+
+  await d1
+    .prepare("UPDATE app_users SET is_active = 0, updated_at = ? WHERE email = ? AND is_active = 1")
+    .bind(Date.now(), "sites-screenshot-service-noreply@chatgpt.com")
+    .run();
 
   const existing = await d1
     .prepare("SELECT id, email, full_name, role, locale FROM app_users WHERE email = ? AND is_active = 1 LIMIT 1")
@@ -47,7 +64,9 @@ export async function getAppUser(): Promise<AppUser | null> {
     return mapUser(existing);
   }
 
-  const countRow = await d1.prepare("SELECT COUNT(*) AS count FROM app_users").first<{ count: number }>();
+  const countRow = await d1
+    .prepare("SELECT COUNT(*) AS count FROM app_users WHERE is_active = 1")
+    .first<{ count: number }>();
   if ((countRow?.count ?? 0) > 0) return null;
 
   const now = Date.now();
