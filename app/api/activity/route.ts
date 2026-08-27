@@ -33,7 +33,7 @@ function activitySubject(row: ActivityRow, details: Record<string, unknown>) {
   const sources = [after, details, before];
   const subjectFields = [
     "title", "fullName", "full_name", "name", "raceName", "race_name", "code",
-    "saleNumber", "sale_number", "customerName", "customer_name", "driverName",
+    "saleNumber", "sale_number", "rentalNumber", "rental_number", "customerName", "customer_name", "holder", "driverName",
     "driver_name_snapshot", "teamName", "team_name_snapshot", "mechanicName",
     "mechanic_name_snapshot", "vehicleName", "vehicle_name_snapshot", "description",
     "flightNumber", "flight_number", "company", "serviceType", "service_type", "email",
@@ -72,6 +72,7 @@ export async function GET() {
              race_type.name,
              circuit.name,
              sale.sale_number,
+             equipment_rental.rental_number,
              race_mechanic.mechanic_name_snapshot,
              race_vehicle.vehicle_name_snapshot,
              race_extra.resource_code_snapshot,
@@ -99,6 +100,7 @@ export async function GET() {
     LEFT JOIN race_templates race_type ON l.entity_type = 'raceType' AND race_type.id = l.entity_id
     LEFT JOIN circuits circuit ON l.entity_type = 'circuit' AND circuit.id = l.entity_id
     LEFT JOIN sales sale ON l.entity_type = 'sale' AND sale.id = l.entity_id
+    LEFT JOIN equipment_rentals equipment_rental ON l.entity_type = 'equipment_rental' AND equipment_rental.id = l.entity_id
     LEFT JOIN race_mechanics race_mechanic ON l.entity_type = 'race_mechanic' AND race_mechanic.id = l.entity_id
     LEFT JOIN race_vehicles race_vehicle ON l.entity_type = 'race_vehicle' AND race_vehicle.id = l.entity_id
     LEFT JOIN race_extras race_extra ON l.entity_type = 'race_extra' AND race_extra.id = l.entity_id

@@ -13,9 +13,11 @@ import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pages";
+import { RentalPage } from "./rental-page";
+import { RentalHistory } from "./rental-history";
 
 type Locale = "cs" | "en";
-type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
+type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "equipmentRentals" | "service" | "sales" | "inventory" | "documents" | "settings";
 type EngineFilter = "ALL" | "MINI" | "OKJ" | "OKN" | "OK" | "KZ";
 type EngineDetailTab = "overview" | "technical" | "service" | "hours" | "history" | "documents";
 
@@ -76,6 +78,7 @@ type EngineRecord = {
   assignedDriver?: string;
   assignedRace?: string;
   assignmentStatus?: "assigned" | "history" | "none";
+  currentRental?: { rentalId: string; rentalNumber: string; rentalHolder: string; driverName: string; handoverDate: string; plannedReturnDate: string; status: string } | null;
   createdAt: number;
   updatedAt: number;
 };
@@ -189,6 +192,7 @@ const copy = {
     accommodation: "Ubytování",
     flights: "Letenky",
     rentals: "Pronájem aut",
+    equipmentRentals: "Pronájem",
     service: "Servis",
     sales: "Prodej",
     inventory: "Sklad",
@@ -299,6 +303,7 @@ const copy = {
     accommodation: "Accommodation",
     flights: "Flights",
     rentals: "Car rental",
+    equipmentRentals: "Rental",
     service: "Service",
     sales: "Sales",
     inventory: "Inventory",
@@ -408,6 +413,7 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "accommodation", mark: "⌂" },
   { id: "flights", mark: "✈" },
   { id: "rentals", mark: "▱" },
+  { id: "equipmentRentals", mark: "↔" },
   { id: "service", mark: "◇" },
   { id: "sales", mark: "¤" },
   { id: "inventory", mark: "□" },
@@ -641,6 +647,7 @@ export default function Home() {
             onAdd={openNewEngine}
             onEdit={openEngineEdit}
             onOpen={(engine) => setDetailEngineId(engine.id)}
+            onOpenRentals={() => { setDetailEngineId(null); setView("equipmentRentals"); }}
           />
         )}
         {view === "engines" && detailEngine && (
@@ -669,6 +676,7 @@ export default function Home() {
         {view === "accommodation" && <LogisticsPage kind="accommodation" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "flights" && <LogisticsPage kind="flight" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "rentals" && <LogisticsPage kind="rental" locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "equipmentRentals" && <RentalPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "service" && <ServiceCatalogPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
@@ -680,7 +688,7 @@ export default function Home() {
             onCurrentUserUpdated={(user) => setSession((current) => current ? { ...current, ...user } : current)}
           />
         )}
-        {!(["dashboard", "tasks", "calendar", "engines", "races", "raceTypes", "circuits", "teams", "customers", "drivers", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "sales", "inventory", "settings"] as View[]).includes(view) && (
+        {!(["dashboard", "tasks", "calendar", "engines", "races", "raceTypes", "circuits", "teams", "customers", "drivers", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "equipmentRentals", "service", "sales", "inventory", "settings"] as View[]).includes(view) && (
           <section className="placeholder-panel">
             <span className="placeholder-mark">{nav.find((item) => item.id === view)?.mark}</span>
             <h2>{title}</h2>
@@ -725,28 +733,32 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
   const [catalog, setCatalog] = useState<DashboardCatalog>({ drivers: [], carburetors: [] });
   const [dashboardTasks, setDashboardTasks] = useState<WorkItem[]>([]);
   const [dashboardActivity, setDashboardActivity] = useState<ActivityRecord[]>([]);
+  const [activeRentals, setActiveRentals] = useState<Array<{ id: string; rentalNumber: string; customerName: string; plannedReturnDate: string; isOverdue: boolean; status: string; items: Array<{ id: string; itemType: string; code: string; driverName?: string }> }>>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     async function loadDashboard() {
       try {
-        const [racesResponse, catalogResponse, tasksResponse, activityResponse] = await Promise.all([
+        const [racesResponse, catalogResponse, tasksResponse, activityResponse, rentalsResponse] = await Promise.all([
           fetch("/api/races", { cache: "no-store" }),
           fetch("/api/catalog", { cache: "no-store" }),
           fetch("/api/tasks", { cache: "no-store" }),
           fetch("/api/activity", { cache: "no-store" }),
+          fetch("/api/equipment-rentals", { cache: "no-store" }),
         ]);
-        if (!racesResponse.ok || !catalogResponse.ok || !tasksResponse.ok || !activityResponse.ok) throw new Error("Dashboard load failed");
+        if (!racesResponse.ok || !catalogResponse.ok || !tasksResponse.ok || !activityResponse.ok || !rentalsResponse.ok) throw new Error("Dashboard load failed");
         const raceData = (await racesResponse.json()) as { races: DashboardRace[] };
         const catalogData = (await catalogResponse.json()) as DashboardCatalog;
         const taskData = (await tasksResponse.json()) as { tasks: WorkItem[] };
         const activityData = (await activityResponse.json()) as { activity: ActivityRecord[] };
+        const rentalData = (await rentalsResponse.json()) as { rentals: Array<{ id: string; rentalNumber: string; customerName: string; plannedReturnDate: string; isOverdue: boolean; status: string; items: Array<{ id: string; itemType: string; code: string; driverName?: string }> }> };
         if (!active) return;
         setDashboardRaces(raceData.races);
         setCatalog(catalogData);
         setDashboardTasks(taskData.tasks);
         setDashboardActivity(activityData.activity);
+        setActiveRentals(rentalData.rentals.filter((rental) => !["returned", "cancelled"].includes(rental.status)));
       } catch {
         if (active) showNotice(locale === "cs" ? "Dashboard se nepodařilo aktualizovat." : "Dashboard could not be refreshed.");
       } finally {
@@ -823,6 +835,11 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         </div>
       </section>
 
+      <section className="panel dashboard-rentals-panel">
+        <div className="panel-heading"><span>{locale === "cs" ? "Aktivní pronájmy techniky" : "Active equipment rentals"}</span><a href="#equipment-rentals" onClick={(event) => { event.preventDefault(); onOpenView("equipmentRentals"); }}>{t.viewAll}</a></div>
+        {activeRentals.length ? <div className="dashboard-rental-list">{activeRentals.map((rental) => <button key={rental.id} type="button" className={rental.isOverdue ? "overdue" : ""} onClick={() => onOpenView("equipmentRentals")} title={`${rental.rentalNumber} · ${rental.customerName}`}><span><strong>{rental.items.filter((item) => item.itemType === "engine").map((item) => item.code).join(", ") || rental.items.map((item) => item.code).filter(Boolean).join(", ")}</strong><small>{rental.rentalNumber}{rental.items.find((item) => item.driverName)?.driverName ? ` · ${rental.items.find((item) => item.driverName)?.driverName}` : ""}</small></span><span><b>{rental.customerName}</b><small>{locale === "cs" ? "vrácení" : "return"}: {dashboardDate(rental.plannedReturnDate, locale)}</small></span><em>{rental.isOverdue ? (locale === "cs" ? "Po termínu" : "Overdue") : rental.status === "preparing" ? (locale === "cs" ? "Rezervováno" : "Reserved") : (locale === "cs" ? "Půjčeno" : "Rented")}</em></button>)}</div> : <p className="dashboard-list-empty">{locale === "cs" ? "Momentálně není půjčený žádný motor ani karburátor." : "No engine or carburetor is currently rented."}</p>}
+      </section>
+
       <section className="panel race-list-panel">
         <div className="panel-heading"><span>{t.upcomingRaces}</span><a href="#races" onClick={(event) => { event.preventDefault(); onOpenView("races"); }}>{t.viewAll}</a></div>
         <div className="race-list">
@@ -857,6 +874,7 @@ function Engines({
   onAdd,
   onEdit,
   onOpen,
+  onOpenRentals,
 }: {
   locale: Locale;
   engines: EngineRecord[];
@@ -867,6 +885,7 @@ function Engines({
   onAdd: () => void;
   onEdit: (engine: EngineRecord) => void;
   onOpen: (engine: EngineRecord) => void;
+  onOpenRentals: () => void;
 }) {
   const t = copy[locale];
   const [filter, setFilter] = useState<EngineFilter>("ALL");
@@ -931,7 +950,7 @@ function Engines({
         {!loading && !error && visibleEngines.length > 0 && (
           <div className="table-wrap">
             <table className="engine-table">
-              <thead><tr><th>{t.code}</th><th>{t.engineFamily}</th><th>{t.ignition}</th><th>{t.hoursTracking}</th><th>{locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"}</th><th>{t.status}</th>{canManage && <th className="action-column">{t.actions}</th>}</tr></thead>
+              <thead><tr><th>{t.code}</th><th>{t.engineFamily}</th><th>{t.ignition}</th><th>{t.hoursTracking}</th><th>{locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"}</th><th>{locale === "cs" ? "Půjčení" : "Rental"}</th><th>{t.status}</th>{canManage && <th className="action-column">{t.actions}</th>}</tr></thead>
               <tbody>{visibleEngines.map((engine) => {
                 const usesHours = !["MINI", "OKJ"].includes(engine.family);
                 const ready = engine.status === "ready" && !engine.soldAt;
@@ -944,6 +963,7 @@ function Engines({
                     <td>{ignitionLabel(engine.ignition, locale)}</td>
                     <td>{usesHours ? formatHours(engine.totalMinutes) : t.byRaces}</td>
                     <td>{engine.assignedDriver ? <span className="carb-assignment-cell"><strong>{engine.assignedDriver}</strong><small>{engine.assignedRace || "—"}</small>{engine.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"}</td>
+                    <td>{engine.currentRental ? <button className="engine-rental-badge" type="button" title={`${engine.currentRental.rentalNumber} · ${engine.currentRental.rentalHolder} · ${engine.currentRental.handoverDate}–${engine.currentRental.plannedReturnDate}`} onClick={(event) => { event.stopPropagation(); onOpenRentals(); }}><strong>{engine.currentRental.status === "preparing" ? (locale === "cs" ? "Rezervováno" : "Reserved") : (locale === "cs" ? "Půjčeno" : "Rented")}</strong><small>{engine.currentRental.rentalHolder}</small></button> : <span className="rental-available">{locale === "cs" ? "Volný" : "Available"}</span>}</td>
                     <td><span className={engine.soldAt ? "status-pill neutral" : ready ? "status-pill success" : "status-pill warning-pill"}>{engine.soldAt ? (locale === "cs" ? "Prodáno" : "Sold") : ready ? t.ready : t.due}</span></td>
                     {canManage && <td className="action-column"><button className="table-action" type="button" onClick={(event) => { event.stopPropagation(); onEdit(engine); }}>{t.edit}{role === "superadmin" ? " ···" : ""}</button></td>}
                   </tr>
@@ -1147,6 +1167,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
               <DetailField label="Reeds" value={engine.reeds || noValue} />
             </div>
           </section>
+          <RentalHistory locale={locale} itemType="engine" resourceId={engine.id} title={locale === "cs" ? "Aktuální pronájem motoru" : "Current engine rental"} />
         </div>
       )}
 
@@ -1190,6 +1211,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
         <section className="panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">RACE HISTORY</span><h2>{t.historyTab}</h2><p>{locale === "cs" ? "Závody, piloti a spárované karburátory zůstávají trvale v kartě motoru." : "Races, drivers and paired carburetors remain permanently in the engine card."}</p></div></div>
           {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez závodu" : "No races yet"}</strong><p>{locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."}</p></div>}
+          <RentalHistory locale={locale} itemType="engine" resourceId={engine.id} />
           <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">AUDIT</span><h3>{locale === "cs" ? "Změny karty" : "Card changes"}</h3></div></div>
           <div className="history-list"><div><i /><span><strong>{locale === "cs" ? "Motor založen v systému" : "Engine created in the system"}</strong><small>{formatTimestamp(engine.createdAt, locale)}</small></span></div>{engine.updatedAt !== engine.createdAt && <div><i /><span><strong>{locale === "cs" ? "Poslední změna údajů" : "Latest data update"}</strong><small>{formatTimestamp(engine.updatedAt, locale)}</small></span></div>}</div>
         </section>
@@ -1590,7 +1612,7 @@ function activityDescription(item: ActivityRecord, locale: Locale) {
     remove_from_race: "Odebrání ze závodu", void: "Stornování", delete_logo: "Odstranění loga", delete_image: "Odstranění obrázku",
     upload_logo: "Nahrání loga", upload_image: "Nahrání obrázku", set_engine_baseline: "Nastavení výchozího stavu",
     log_usage: "Zápis motohodin", correct_usage: "Oprava motohodin", correct_service: "Oprava servisu",
-    update_technical: "Úprava technických údajů",
+    update_technical: "Úprava technických údajů", return_items: "Vrácení položek",
   };
   const entitiesCs: Record<string, string> = {
     task: "úkolu", race: "závodu", race_entry: "pilota v závodě", race_mechanic: "mechanika",
@@ -1599,14 +1621,14 @@ function activityDescription(item: ActivityRecord, locale: Locale) {
     driver: "pilota", team: "týmu", mechanic: "mechanika", vehicle: "auta", raceType: "typu závodu",
     race_followup_notes: "poznámek k závodu", accommodation: "ubytování", flight: "letenky", rental: "pronájmu auta",
     app_user: "uživatele", circuit: "tratě", race_finance: "financí závodu", engine_usage: "motohodin motoru", clothing_item: "oblečení", clothing_assignment: "oblečení mechanika",
-    engine_service: "servisu motoru",
+    engine_service: "servisu motoru", equipment_rental: "pronájmu techniky",
   };
   const actionsEn: Record<string, string> = {
     create: "Created", update: "Updated", archive: "Archived", delete: "Deleted", service: "Service logged",
     assign: "Assigned", confirm: "Confirmed", unconfirm: "Unconfirmed", remove_from_race: "Removed from race", void: "Voided",
     upload_logo: "Uploaded logo for", upload_image: "Uploaded image for", delete_logo: "Removed logo from", delete_image: "Removed image from",
     set_engine_baseline: "Set baseline for", log_usage: "Logged usage for", correct_usage: "Corrected usage for",
-    correct_service: "Corrected service for", update_technical: "Updated technical data for",
+    correct_service: "Corrected service for", update_technical: "Updated technical data for", return_items: "Returned items for",
   };
   const entitiesEn: Record<string, string> = {
     task: "task", race: "race", race_entry: "race driver", race_mechanic: "mechanic", race_vehicle: "vehicle",
@@ -1614,7 +1636,7 @@ function activityDescription(item: ActivityRecord, locale: Locale) {
     carburetor: "carburetor", carburetorType: "carburetor type", driver: "driver", team: "team", mechanic: "mechanic",
     vehicle: "vehicle", raceType: "race type", race_followup_notes: "race notes", accommodation: "accommodation",
     flight: "flight", rental: "car rental", app_user: "user", circuit: "circuit", race_finance: "race finance", clothing_item: "clothing item", clothing_assignment: "mechanic clothing",
-    engine_usage: "engine usage", engine_service: "engine service",
+    engine_usage: "engine usage", engine_service: "engine service", equipment_rental: "equipment rental",
   };
   if (locale === "en") return `${actionsEn[item.action] ?? "Changed"} ${entitiesEn[item.entityType] ?? "record"}${item.subject ? ` · ${item.subject}` : ""}`;
   return `${actionsCs[item.action] ?? "Změna"} ${entitiesCs[item.entityType] ?? "záznamu"}${item.subject ? ` · ${item.subject}` : ""}`;
@@ -1697,6 +1719,10 @@ function parseIsoDate(value: string) {
 function dashboardDateRange(start: string, end: string, locale: Locale) {
   const formatter = new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
   return start === end ? formatter.format(parseIsoDate(start)) : `${formatter.format(parseIsoDate(start))} – ${formatter.format(parseIsoDate(end))}`;
+}
+
+function dashboardDate(value: string, locale: Locale) {
+  return new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB").format(parseIsoDate(value));
 }
 
 function raceCountdown(race: DashboardRace, today: string, locale: Locale) {

@@ -514,6 +514,65 @@ export const customers = sqliteTable("customers", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const equipmentRentals = sqliteTable("equipment_rentals", {
+  id: text("id").primaryKey(),
+  rentalNumber: text("rental_number").notNull().unique(),
+  customerId: text("customer_id"),
+  teamId: text("team_id"),
+  customerNameSnapshot: text("customer_name_snapshot").notNull(),
+  createdDate: text("created_date").notNull(),
+  handoverDate: text("handover_date").notNull(),
+  plannedReturnDate: text("planned_return_date").notNull(),
+  actualReturnDate: text("actual_return_date"),
+  currency: text("currency", { enum: ["CZK", "EUR"] }).notNull().default("CZK"),
+  totalCents: integer("total_cents").notNull().default(0),
+  paymentMethod: text("payment_method", { enum: ["cash", "card", "bank_transfer", "invoice", "other"] }).notNull().default("cash"),
+  isPaid: integer("is_paid", { mode: "boolean" }).notNull().default(false),
+  depositCents: integer("deposit_cents").notNull().default(0),
+  status: text("status", { enum: ["preparing", "sent", "active", "overdue", "returned", "cancelled"] }).notNull().default("preparing"),
+  notes: text("notes").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("equipment_rentals_customer_idx").on(table.customerId, table.handoverDate),
+  index("equipment_rentals_team_idx").on(table.teamId, table.handoverDate),
+  index("equipment_rentals_status_idx").on(table.status, table.plannedReturnDate),
+]);
+
+export const equipmentRentalItems = sqliteTable("equipment_rental_items", {
+  id: text("id").primaryKey(),
+  rentalId: text("rental_id").notNull(),
+  itemType: text("item_type", { enum: ["engine", "carburetor", "equipment"] }).notNull(),
+  resourceId: text("resource_id"),
+  codeSnapshot: text("code_snapshot").notNull().default(""),
+  description: text("description").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  dailyPriceCents: integer("daily_price_cents").notNull().default(0),
+  billableDays: integer("billable_days"),
+  driverId: text("driver_id"),
+  driverNameSnapshot: text("driver_name_snapshot").notNull().default(""),
+  returnedDate: text("returned_date"),
+}, (table) => [
+  index("equipment_rental_items_rental_idx").on(table.rentalId),
+  index("equipment_rental_items_resource_idx").on(table.itemType, table.resourceId, table.rentalId),
+]);
+
+export const equipmentRentalShipments = sqliteTable("equipment_rental_shipments", {
+  id: text("id").primaryKey(),
+  rentalId: text("rental_id").notNull(),
+  direction: text("direction", { enum: ["outbound", "return"] }).notNull(),
+  transportMode: text("transport_mode", { enum: ["carrier", "self"] }).notNull().default("carrier"),
+  carrier: text("carrier").notNull().default(""),
+  trackingUrl: text("tracking_url").notNull().default(""),
+  costCents: integer("cost_cents").notNull().default(0),
+  currency: text("currency", { enum: ["CZK", "EUR"] }).notNull().default("CZK"),
+  status: text("status", { enum: ["planned", "in_transit", "delivered"] }).notNull().default("planned"),
+}, (table) => [
+  index("equipment_rental_shipments_rental_idx").on(table.rentalId, table.direction),
+]);
+
 export const serviceCatalog = sqliteTable("service_catalog", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

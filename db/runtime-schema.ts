@@ -567,6 +567,59 @@ async function createRuntimeSchema() {
       )
     `),
     d1.prepare(`
+      CREATE TABLE IF NOT EXISTS equipment_rentals (
+        id TEXT PRIMARY KEY NOT NULL,
+        rental_number TEXT NOT NULL UNIQUE,
+        customer_id TEXT,
+        team_id TEXT,
+        customer_name_snapshot TEXT NOT NULL,
+        created_date TEXT NOT NULL,
+        handover_date TEXT NOT NULL,
+        planned_return_date TEXT NOT NULL,
+        actual_return_date TEXT,
+        currency TEXT NOT NULL DEFAULT 'CZK' CHECK (currency IN ('CZK', 'EUR')),
+        total_cents INTEGER NOT NULL DEFAULT 0,
+        payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'card', 'bank_transfer', 'invoice', 'other')),
+        is_paid INTEGER NOT NULL DEFAULT 0,
+        deposit_cents INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'preparing' CHECK (status IN ('preparing', 'sent', 'active', 'overdue', 'returned', 'cancelled')),
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        updated_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS equipment_rental_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        rental_id TEXT NOT NULL,
+        item_type TEXT NOT NULL CHECK (item_type IN ('engine', 'carburetor', 'equipment')),
+        resource_id TEXT,
+        code_snapshot TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        daily_price_cents INTEGER NOT NULL DEFAULT 0,
+        billable_days INTEGER,
+        driver_id TEXT,
+        driver_name_snapshot TEXT NOT NULL DEFAULT '',
+        returned_date TEXT
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS equipment_rental_shipments (
+        id TEXT PRIMARY KEY NOT NULL,
+        rental_id TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('outbound', 'return')),
+        transport_mode TEXT NOT NULL DEFAULT 'carrier' CHECK (transport_mode IN ('carrier', 'self')),
+        carrier TEXT NOT NULL DEFAULT '',
+        tracking_url TEXT NOT NULL DEFAULT '',
+        cost_cents INTEGER NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'CZK' CHECK (currency IN ('CZK', 'EUR')),
+        status TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'in_transit', 'delivered'))
+      )
+    `),
+    d1.prepare(`
       CREATE TABLE IF NOT EXISTS service_catalog (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
@@ -645,6 +698,12 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS sale_items_resource_idx ON sale_items (item_type, resource_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS customers_name_idx ON customers (name)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS customers_email_unique_idx ON customers (LOWER(email)) WHERE email != '' AND archived_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS equipment_rentals_customer_idx ON equipment_rentals (customer_id, handover_date)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS equipment_rentals_team_idx ON equipment_rentals (team_id, handover_date)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS equipment_rentals_status_idx ON equipment_rentals (status, planned_return_date)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS equipment_rental_items_rental_idx ON equipment_rental_items (rental_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS equipment_rental_items_resource_idx ON equipment_rental_items (item_type, resource_id, rental_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS equipment_rental_shipments_rental_idx ON equipment_rental_shipments (rental_id, direction)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_catalog_name_unique_idx ON service_catalog (LOWER(name)) WHERE archived_at IS NULL"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS inventory_parts_code_unique ON inventory_parts (code)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS audit_logs_entity_idx ON audit_logs (entity_type, entity_id)"),
@@ -804,6 +863,15 @@ async function createRuntimeSchema() {
   await d1.prepare("CREATE INDEX IF NOT EXISTS sales_race_idx ON sales (race_id, sale_date)").run();
   await d1.prepare("CREATE INDEX IF NOT EXISTS sales_customer_idx ON sales (customer_id, sale_date)").run();
   await d1.prepare("CREATE INDEX IF NOT EXISTS sales_team_idx ON sales (team_id, sale_date)").run();
+
+  const rentalItemColumns = await d1.prepare("PRAGMA table_info(equipment_rental_items)").all<{ name: string }>();
+  const existingRentalItemColumns = new Set(rentalItemColumns.results.map((column: { name: string }) => column.name));
+  const rentalItemAdditions = [
+    ["billable_days", "ALTER TABLE equipment_rental_items ADD COLUMN billable_days INTEGER"],
+    ["driver_id", "ALTER TABLE equipment_rental_items ADD COLUMN driver_id TEXT"],
+    ["driver_name_snapshot", "ALTER TABLE equipment_rental_items ADD COLUMN driver_name_snapshot TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existingRentalItemColumns.has(name));
+  if (rentalItemAdditions.length > 0) await d1.batch(rentalItemAdditions.map(([, statement]) => d1.prepare(statement)));
 
   const saleItemColumns = await d1.prepare("PRAGMA table_info(sale_items)").all<{ name: string }>();
   const existingSaleItemColumns = new Set(saleItemColumns.results.map((column: { name: string }) => column.name));

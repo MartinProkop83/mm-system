@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
+import { RentalHistory } from "./rental-history";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
-export type CustomerRecord = { id: string; name: string; phone: string; email: string; address: string; companyId: string; vatId: string; notes: string; saleCount?: number; createdAt: number; updatedAt: number };
+export type CustomerRecord = { id: string; name: string; phone: string; email: string; address: string; companyId: string; vatId: string; notes: string; saleCount?: number; rentalCount?: number; createdAt: number; updatedAt: number };
 export type ServiceCatalogRecord = { id: string; name: string; description: string; descriptionCs: string; descriptionEn: string; priceCzkCents: number; priceEurCents: number; createdAt: number; updatedAt: number };
 export type InventoryPartRecord = { id: string; code: string; name: string; categories: string[]; quantity: number; unit: string; priceCzkCents: number; priceEurCents: number; notes: string; imageUrl: string; createdAt: number; updatedAt: number };
 
@@ -26,11 +27,14 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
   const config = configs[kind]; const canManage = role !== "mechanic";
   const [items, setItems] = useState<CommerceRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(false);
   const [editing, setEditing] = useState<CommerceRecord | "new" | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerRecord | null>(null);
   const [photoPreview, setPhotoPreview] = useState<ClothingPhotoPreview | null>(null);
   async function load() {
+    let loaded: CommerceRecord[] = [];
     setLoading(true);
-    try { const response = await fetch(config.endpoint, { cache: "no-store" }); const result = await response.json() as Record<string, CommerceRecord[]>; if (!response.ok) throw new Error(); setItems(result[config.responseKey] ?? []); setError(false); }
+    try { const response = await fetch(config.endpoint, { cache: "no-store" }); const result = await response.json() as Record<string, CommerceRecord[]>; if (!response.ok) throw new Error(); loaded = result[config.responseKey] ?? []; setItems(loaded); setError(false); }
     catch { setError(true); } finally { setLoading(false); }
+    return loaded;
   }
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [kind]);
   async function remove(item: CommerceRecord) {
@@ -39,6 +43,7 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
     if (!response.ok) return window.alert(locale === "cs" ? "Záznam se nepodařilo archivovat." : "Could not archive the record.");
     await load();
   }
+  if (kind === "customers" && selectedCustomer) return <div className="commerce-page customer-card-page"><button className="detail-back" type="button" onClick={() => setSelectedCustomer(null)}>← {locale === "cs" ? "Zpět na zákazníky" : "Back to customers"}</button><section className="panel commerce-summary"><div><span className="eyebrow">MM CUSTOMER CARD</span><h2>{selectedCustomer.name}</h2><p>{[selectedCustomer.email, selectedCustomer.phone, selectedCustomer.address].filter(Boolean).join(" · ") || (locale === "cs" ? "Bez kontaktních údajů" : "No contact details")}</p></div>{canManage && <button className="secondary-compact" type="button" onClick={() => setEditing(selectedCustomer)}>{locale === "cs" ? "Upravit zákazníka" : "Edit customer"}</button>}</section><RentalHistory locale={locale} customerId={selectedCustomer.id} />{editing && <CommerceForm kind="customers" locale={locale} item={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); const refreshed = (await load()).find((item) => item.id === selectedCustomer.id) as CustomerRecord | undefined; if (refreshed) setSelectedCustomer(refreshed); }} />}</div>;
   return <div className="commerce-page">
     <section className="panel commerce-summary"><div><span className="eyebrow">{config.eyebrow}</span><h2>{locale === "cs" ? config.titleCs : config.titleEn}</h2><p>{locale === "cs" ? config.subtitleCs : config.subtitleEn}</p></div><div><strong>{items.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
     <section className="panel data-panel commerce-list">
@@ -46,7 +51,7 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
       {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
       {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{locale === "cs" ? "Zatím bez záznamů" : "No records yet"}</h2></div>}
       {!loading && !error && items.length > 0 && kind === "inventory" && <InventoryGrid locale={locale} role={role} items={items as InventoryPartRecord[]} onEdit={setEditing} onDelete={(item) => { void remove(item); }} onPreview={setPhotoPreview} />}
-      {!loading && !error && items.length > 0 && kind !== "inventory" && <CommerceTable kind={kind} locale={locale} role={role} items={items} onEdit={setEditing} onDelete={(item) => { void remove(item); }} />}
+      {!loading && !error && items.length > 0 && kind !== "inventory" && <CommerceTable kind={kind} locale={locale} role={role} items={items} onOpen={(item) => { if (kind === "customers") setSelectedCustomer(item as CustomerRecord); }} onEdit={setEditing} onDelete={(item) => { void remove(item); }} />}
     </section>
     {editing && <CommerceForm key={editing === "new" ? `new-${kind}` : editing.id} kind={kind} locale={locale} item={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}
     {photoPreview && <ClothingLightbox preview={photoPreview} onClose={() => setPhotoPreview(null)} />}
@@ -62,17 +67,17 @@ function InventoryGrid({ locale, role, items, onEdit, onDelete, onPreview }: { l
   </article>)}</div>;
 }
 
-function CommerceTable({ kind, locale, role, items, onEdit, onDelete }: { kind: PageKind; locale: Locale; role: Role; items: CommerceRecord[]; onEdit: (item: CommerceRecord) => void; onDelete: (item: CommerceRecord) => void }) {
+function CommerceTable({ kind, locale, role, items, onOpen, onEdit, onDelete }: { kind: PageKind; locale: Locale; role: Role; items: CommerceRecord[]; onOpen: (item: CommerceRecord) => void; onEdit: (item: CommerceRecord) => void; onDelete: (item: CommerceRecord) => void }) {
   const headers = kind === "customers"
-    ? [locale === "cs" ? "Zákazník" : "Customer", locale === "cs" ? "Kontakt" : "Contact", "IČO / DIČ", locale === "cs" ? "Adresa" : "Address", locale === "cs" ? "Prodeje" : "Sales"]
+    ? [locale === "cs" ? "Zákazník" : "Customer", locale === "cs" ? "Kontakt" : "Contact", "IČO / DIČ", locale === "cs" ? "Adresa" : "Address", locale === "cs" ? "Prodeje / pronájmy" : "Sales / rentals"]
     : kind === "services"
       ? [locale === "cs" ? "Servis" : "Service", locale === "cs" ? "Popis" : "Description", "CZK bez DPH", "EUR bez DPH"]
       : [locale === "cs" ? "Kód" : "Code", locale === "cs" ? "Díl" : "Part", locale === "cs" ? "Skladem" : "In stock", "CZK bez DPH", "EUR bez DPH", locale === "cs" ? "Poznámka" : "Notes"];
-  return <div className="table-wrap"><table className="engine-table commerce-table"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="engine-table commerce-table"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id} className={kind === "customers" ? "clickable-row" : ""} onClick={() => onOpen(item)}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td onClick={(event) => event.stopPropagation()}><div className="record-actions">{kind === "customers" && <button type="button" onClick={() => onOpen(item)}>{locale === "cs" ? "Karta" : "Card"}</button>}<button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
 }
 
 function commerceCells(kind: PageKind, record: CommerceRecord, locale: Locale): React.ReactNode[] {
-  if (kind === "customers") { const item = record as CustomerRecord; return [<strong key="name">{item.name}</strong>, <span className="stacked-cell" key="contact"><strong>{item.phone || "—"}</strong><small>{item.email || "—"}</small></span>, <span className="stacked-cell" key="ids"><strong>{item.companyId || "—"}</strong><small>{item.vatId || "—"}</small></span>, item.address || "—", String(item.saleCount ?? 0)]; }
+  if (kind === "customers") { const item = record as CustomerRecord; return [<strong key="name">{item.name}</strong>, <span className="stacked-cell" key="contact"><strong>{item.phone || "—"}</strong><small>{item.email || "—"}</small></span>, <span className="stacked-cell" key="ids"><strong>{item.companyId || "—"}</strong><small>{item.vatId || "—"}</small></span>, item.address || "—", <span className="stacked-cell" key="counts"><strong>{item.saleCount ?? 0} / {item.rentalCount ?? 0}</strong><small>{locale === "cs" ? "prodeje / pronájmy" : "sales / rentals"}</small></span>]; }
   if (kind === "services") { const item = record as ServiceCatalogRecord; return [<strong key="name">{item.name}</strong>, <span className="stacked-cell service-description-cell" key="description"><span><b>CZ</b>{item.descriptionCs || item.description || "—"}</span><span><b>EN</b>{item.descriptionEn || "—"}</span></span>, formatMoney(item.priceCzkCents, "CZK", locale), formatMoney(item.priceEurCents, "EUR", locale)]; }
   const item = record as InventoryPartRecord; return [<strong key="code">{item.code}</strong>, item.name, <span className={item.quantity === 0 ? "stock-value empty" : item.quantity < 3 ? "stock-value low" : "stock-value"} key="stock">{item.quantity} {item.unit}</span>, formatMoney(item.priceCzkCents, "CZK", locale), formatMoney(item.priceEurCents, "EUR", locale), item.notes || "—"];
 }

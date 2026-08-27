@@ -111,7 +111,7 @@ export async function GET() {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
-  const [result, assignmentResult] = await Promise.all([
+  const [result, assignmentResult, rentalResult] = await Promise.all([
     d1.prepare(`
       SELECT id, code, category, family, ignition, kz_generation AS kzGeneration,
              current_configuration AS currentConfiguration, upgrade_code AS upgradeCode, label_color AS labelColor,
@@ -137,6 +137,15 @@ export async function GET() {
       FROM race_entries e JOIN races r ON r.id = e.race_id
       WHERE r.status != 'archived'
     `).all<EngineAssignmentRow>(),
+    d1.prepare(`
+      SELECT item.resource_id AS engineId, item.driver_name_snapshot AS driverName,
+             r.id AS rentalId, r.rental_number AS rentalNumber,
+             r.customer_name_snapshot AS rentalHolder, r.handover_date AS handoverDate,
+             r.planned_return_date AS plannedReturnDate, r.status
+      FROM equipment_rental_items item JOIN equipment_rentals r ON r.id = item.rental_id
+      WHERE item.item_type = 'engine' AND item.resource_id IS NOT NULL
+        AND item.returned_date IS NULL AND r.status NOT IN ('cancelled', 'returned')
+    `).all<{ engineId: string; driverName: string; rentalId: string; rentalNumber: string; rentalHolder: string; handoverDate: string; plannedReturnDate: string; status: string }>(),
   ]);
 
   const assignments = assignmentResult.results;
@@ -148,11 +157,14 @@ export async function GET() {
       .filter((assignment) => assignment.raceStatus !== "completed" && assignment.endDate >= today)
       .sort((left, right) => left.startDate.localeCompare(right.startDate))[0];
     const latest = current ?? matches.sort((left, right) => right.startDate.localeCompare(left.startDate))[0];
+    const currentRental = rentalResult.results.find((rental) => rental.engineId === engineId && rental.status !== "preparing")
+      ?? rentalResult.results.find((rental) => rental.engineId === engineId);
     return {
       ...engine,
       assignedDriver: latest?.driverName ?? "",
       assignedRace: latest?.raceName ?? "",
       assignmentStatus: current ? "assigned" : latest ? "history" : "none",
+      currentRental: currentRental ?? null,
     };
   });
 

@@ -14,7 +14,8 @@ export async function GET() {
     SELECT c.id, c.name, c.phone, c.email, c.address, c.company_id AS companyId,
            c.vat_id AS vatId, c.notes, c.created_at AS createdAt, c.updated_at AS updatedAt,
            COUNT(CASE WHEN s.voided_at IS NULL THEN 1 END) AS saleCount,
-           COALESCE(SUM(CASE WHEN s.voided_at IS NULL THEN s.total_cents ELSE 0 END), 0) AS totalCents
+           COALESCE(SUM(CASE WHEN s.voided_at IS NULL THEN s.total_cents ELSE 0 END), 0) AS totalCents,
+           (SELECT COUNT(*) FROM equipment_rentals rental WHERE rental.customer_id = c.id AND rental.status != 'cancelled') AS rentalCount
     FROM customers c LEFT JOIN sales s ON s.customer_id = c.id
     WHERE c.archived_at IS NULL
     GROUP BY c.id ORDER BY c.name COLLATE NOCASE

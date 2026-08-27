@@ -83,7 +83,7 @@ async function loadEquipmentAssignments() {
     { resourceType: "carburetor", column: "carburetor_2_id" },
     { resourceType: "carburetor", column: "carburetor_3_id" },
   ] as const;
-  const [slotResults, extraResults] = await Promise.all([
+  const [slotResults, extraResults, rentalResults] = await Promise.all([
     Promise.all(slots.map((slot) => d1.prepare(`
       SELECT '${slot.resourceType}' AS resourceType, e.${slot.column} AS resourceId, e.id AS entryId,
              e.driver_name_snapshot AS driverName, r.id AS raceId, r.name AS raceName,
@@ -98,8 +98,23 @@ async function loadEquipmentAssignments() {
       FROM race_extras x JOIN races r ON r.id = x.race_id
       WHERE r.status != 'archived'
     `).all(),
+    d1.prepare(`
+      SELECT item.item_type AS resourceType, item.resource_id AS resourceId,
+             'rental:' || item.id AS entryId, item.driver_name_snapshot AS driverName,
+             '' AS raceId, r.rental_number AS raceName, r.handover_date AS startDate,
+             r.planned_return_date AS endDate, r.status AS raceStatus, 0 AS isExtra,
+             1 AS isRental, r.customer_name_snapshot AS rentalHolder,
+             r.rental_number AS rentalNumber
+      FROM equipment_rental_items item JOIN equipment_rentals r ON r.id = item.rental_id
+      WHERE item.item_type IN ('engine', 'carburetor') AND item.resource_id IS NOT NULL
+        AND item.returned_date IS NULL AND r.status != 'cancelled' AND r.status != 'returned'
+    `).all(),
   ]);
-  return [...slotResults.flatMap((result) => result.results), ...extraResults.results];
+  return [
+    ...slotResults.flatMap((result) => result.results).map((row) => ({ ...row, isRental: 0, rentalHolder: "", rentalNumber: "" })),
+    ...extraResults.results.map((row) => ({ ...row, isRental: 0, rentalHolder: "", rentalNumber: "" })),
+    ...rentalResults.results,
+  ];
 }
 
 export async function POST(request: Request) {
@@ -327,6 +342,16 @@ async function findDriverConflict(driverId: string, target: RaceRow, excludeEntr
 
 async function findEquipmentConflict(type: "engine" | "carburetor", resourceId: string, target: RaceRow, excludeEntryId: string) {
   const d1 = getD1();
+  const rental = await d1.prepare(`
+    SELECT r.rental_number AS rentalNumber, r.customer_name_snapshot AS holder
+    FROM equipment_rental_items item JOIN equipment_rentals r ON r.id = item.rental_id
+    WHERE item.item_type = ? AND item.resource_id = ? AND item.returned_date IS NULL
+      AND r.status NOT IN ('cancelled', 'returned')
+      AND (r.status IN ('sent', 'active', 'overdue')
+        OR (r.handover_date <= ? AND r.planned_return_date >= ?))
+    LIMIT 1
+  `).bind(type, resourceId, target.endDate, target.startDate).first<{ rentalNumber: string; holder: string }>();
+  if (rental) return `${type === "engine" ? "Engine" : "Carburetor"} is rented in ${rental.rentalNumber} to ${rental.holder} and has not been returned`;
   const prefix = type === "engine" ? "engine" : "carburetor";
   const rows = await d1.prepare(`SELECT e.id, r.id AS raceId, r.name, r.start_date AS startDate, r.end_date AS endDate FROM race_entries e JOIN races r ON r.id = e.race_id WHERE (e.${prefix}_1_id = ? OR e.${prefix}_2_id = ? OR e.${prefix}_3_id = ?) AND e.id != ? AND r.status != 'archived'`).bind(resourceId, resourceId, resourceId, excludeEntryId).all<{ id: string; raceId: string; name: string; startDate: string; endDate: string }>();
   const extras = await d1.prepare(`SELECT x.id, r.id AS raceId, r.name, r.start_date AS startDate, r.end_date AS endDate FROM race_extras x JOIN races r ON r.id = x.race_id WHERE x.resource_type = ? AND x.resource_id = ? AND r.status != 'archived'`).bind(type, resourceId).all<{ id: string; raceId: string; name: string; startDate: string; endDate: string }>();

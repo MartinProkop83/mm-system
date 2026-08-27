@@ -96,6 +96,9 @@ type EquipmentAssignment = {
   endDate: string;
   raceStatus: RaceRecord["status"];
   isExtra: number;
+  isRental: number;
+  rentalHolder: string;
+  rentalNumber: string;
 };
 type RacePlan = { race: Pick<RaceRecord, "id" | "name" | "startDate" | "endDate" | "departureDate" | "returnDate" | "status">; entries: RaceEntry[]; mechanics: AssignedMechanic[]; vehicles: AssignedVehicle[]; extras: RaceExtra[]; equipmentAssignments: EquipmentAssignment[] };
 
@@ -462,7 +465,7 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
     </div>
     {canViewFinance && detailTab === "finance" && <RaceFinancePanel race={race} locale={locale} />}
     {entryForm && <EntryForm locale={locale} raceId={race.id} category={entryForm.category} entry={entryForm.entry} drivers={catalog.drivers} onClose={() => setEntryForm(null)} onSaved={async () => { setEntryForm(null); await loadPlan(); await onRaceChanged(); }} />}
-    {extraForm && <ExtraForm locale={locale} raceId={race.id} category={extraForm} engines={engines} carburetors={catalog.carburetors} onClose={() => setExtraForm(null)} onSaved={async () => { setExtraForm(null); await loadPlan(); }} />}
+    {extraForm && plan && <ExtraForm locale={locale} raceId={race.id} category={extraForm} engines={engines} carburetors={catalog.carburetors} plan={plan} onClose={() => setExtraForm(null)} onSaved={async () => { setExtraForm(null); await loadPlan(); }} />}
   </div>;
 }
 
@@ -694,11 +697,14 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
 function equipmentOption(choice: { id: string; code: string; family: string; currentConfiguration?: string; upgradeCode?: string; labelColor?: string }, type: "engine" | "carburetor", entry: RaceEntry, selectedIds: string[], position: number, plan: RacePlan, locale: Locale) {
   const assignments = (plan.equipmentAssignments ?? []).filter((assignment) => assignment.resourceType === type && assignment.resourceId === choice.id);
   const own = assignments.find((assignment) => assignment.entryId === entry.id);
-  const conflict = assignments.find((assignment) => assignment.entryId !== entry.id && (assignment.raceId === plan.race.id || dateIntervalsOverlap(assignment.startDate, assignment.endDate, plan.race.startDate, plan.race.endDate)));
+  const conflict = assignments.find((assignment) => assignment.entryId !== entry.id && (assignment.isRental
+    ? assignment.raceStatus !== "preparing" || dateIntervalsOverlap(assignment.startDate, assignment.endDate, plan.race.startDate, plan.race.endDate)
+    : assignment.raceId === plan.race.id || dateIntervalsOverlap(assignment.startDate, assignment.endDate, plan.race.startDate, plan.race.endDate)));
   const latest = [...assignments].sort((left, right) => right.startDate.localeCompare(left.startDate))[0];
   const usedInAnotherSlot = selectedIds.some((selectedId, index) => index !== position - 1 && selectedId === choice.id);
   const assignment = own ?? conflict ?? latest;
   if (usedInAnotherSlot) return { disabled: true, tone: "busy", description: `${choice.family} · ${locale === "cs" ? "už vybrán u tohoto pilota" : "already selected for this driver"}` };
+  if (conflict?.isRental) return { disabled: true, tone: "busy", description: `🔒 ${choice.family} · ${locale === "cs" ? "pronajato" : "rented"}: ${conflict.rentalHolder} · ${conflict.rentalNumber} · ${locale === "cs" ? "čeká na vrácení" : "awaiting return"}` };
   if (!assignment) return { disabled: false, tone: "available", description: `${choice.family} · ${locale === "cs" ? "volný" : "available"}` };
   const person = assignment.isExtra ? (locale === "cs" ? "Extra vybavení" : "Extra equipment") : assignment.driverName;
   const place = `${person || "—"} · ${assignment.raceName}`;
@@ -809,7 +815,7 @@ function EntryForm({ locale, raceId, category, entry, drivers, onClose, onSaved 
     <label className="full-field"><span>{locale === "cs" ? "Poznámka k pilotovi" : "Driver note"}</span><textarea name="notes" rows={2} defaultValue={entry?.notes ?? ""} /></label></div>{error && <p className="form-error">{error}</p>}<ModalActions locale={locale} saving={saving} onClose={onClose} /></form></Modal>;
 }
 
-function ExtraForm({ locale, raceId, category, engines, carburetors, onClose, onSaved }: { locale: Locale; raceId: string; category: string; engines: EngineChoice[]; carburetors: CarburetorRecord[]; onClose: () => void; onSaved: () => void }) {
+function ExtraForm({ locale, raceId, category, engines, carburetors, plan, onClose, onSaved }: { locale: Locale; raceId: string; category: string; engines: EngineChoice[]; carburetors: CarburetorRecord[]; plan: RacePlan; onClose: () => void; onSaved: () => void }) {
   const [type, setType] = useState<"engine" | "carburetor">("engine");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -829,7 +835,7 @@ function ExtraForm({ locale, raceId, category, engines, carburetors, onClose, on
       setSaving(false);
     }
   }
-  return <Modal title={`${locale === "cs" ? "Extra vybavení" : "Extra equipment"} · ${category}`} onClose={onClose}><form onSubmit={submit}><div className="form-grid"><label><span>{locale === "cs" ? "Typ" : "Type"}</span><select value={type} onChange={(event) => setType(event.target.value as "engine" | "carburetor")}><option value="engine">{locale === "cs" ? "Motor" : "Engine"}</option>{category !== "KZ" && <option value="carburetor">{locale === "cs" ? "Karburátor" : "Carburetor"}</option>}</select></label><label><span>{locale === "cs" ? "Vyber vybavení" : "Select equipment"} *</span><select name="resourceId" required key={type}><option value="">—</option>{resources.map((item) => <option key={item.id} value={item.id}>{type === "engine" ? equipmentDisplay(item.code, (item as EngineChoice).currentConfiguration, (item as EngineChoice).upgradeCode) : item.code}</option>)}</select></label><label className="full-field"><span>{locale === "cs" ? "Poznámka" : "Notes"}</span><textarea name="notes" rows={2} /></label></div>{error && <p className="form-error">{error}</p>}<ModalActions locale={locale} saving={saving} onClose={onClose} /></form></Modal>;
+  return <Modal title={`${locale === "cs" ? "Extra vybavení" : "Extra equipment"} · ${category}`} onClose={onClose}><form onSubmit={submit}><div className="form-grid"><label><span>{locale === "cs" ? "Typ" : "Type"}</span><select value={type} onChange={(event) => setType(event.target.value as "engine" | "carburetor")}><option value="engine">{locale === "cs" ? "Motor" : "Engine"}</option>{category !== "KZ" && <option value="carburetor">{locale === "cs" ? "Karburátor" : "Carburetor"}</option>}</select></label><label><span>{locale === "cs" ? "Vyber vybavení" : "Select equipment"} *</span><select name="resourceId" required key={type}><option value="">—</option>{resources.map((item) => { const rental = plan.equipmentAssignments.find((assignment) => assignment.isRental && assignment.resourceType === type && assignment.resourceId === item.id && (assignment.raceStatus !== "preparing" || dateIntervalsOverlap(assignment.startDate, assignment.endDate, plan.race.startDate, plan.race.endDate))); return <option key={item.id} value={item.id} disabled={Boolean(rental)}>{type === "engine" ? equipmentDisplay(item.code, (item as EngineChoice).currentConfiguration, (item as EngineChoice).upgradeCode) : item.code}{rental ? ` · 🔒 ${locale === "cs" ? "pronajato" : "rented"} ${rental.rentalHolder}` : ""}</option>; })}</select></label><label className="full-field"><span>{locale === "cs" ? "Poznámka" : "Notes"}</span><textarea name="notes" rows={2} /></label></div>{error && <p className="form-error">{error}</p>}<ModalActions locale={locale} saving={saving} onClose={onClose} /></form></Modal>;
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
@@ -849,6 +855,7 @@ async function showApiError(response: Response, locale: Locale) {
 function localizeError(error: string, locale: Locale) {
   if (locale === "en") return error;
   if (error.includes("already assigned to")) return error.replace("Driver", "Pilot").replace("Engine", "Motor").replace("Carburetor", "Karburátor").replace("Mechanic", "Mechanik").replace("Vehicle", "Auto").replace("is already assigned to", "už je přiřazen k závodu");
+  if (error.includes("is rented in")) return error.replace("Engine", "Motor").replace("Carburetor", "Karburátor").replace("is rented in", "je pronajatý v").replace("to", "komu").replace("and has not been returned", "a dosud nebyl vrácen");
   const translations: Record<string, string> = {
     "Race, track and country are required": "Vyber závod a zemi a vyplň trať.",
     "Race preset not found": "Vybraný závod už není v databázi. Vyber jej znovu.",
