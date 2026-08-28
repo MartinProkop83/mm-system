@@ -1,6 +1,7 @@
 import { chatGPTSignInPath, chatGPTSignOutPath, getChatGPTUser } from "./chatgpt-auth";
 import MMDashboard from "./mm-dashboard";
 import { getAppUser } from "./server-auth";
+import { NativeImage } from "./native-image";
 
 export const dynamic = "force-dynamic";
 
@@ -11,7 +12,7 @@ export default async function Page() {
     return (
       <main className="sign-in-page">
         <section className="sign-in-card">
-          <div className="sign-in-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /></div>
+          <div className="sign-in-brand"><NativeImage src="/machac-motors-logo.jpg" alt="Macháč Motors" loading="eager" /></div>
           <span className="settings-kicker">MM SYSTEM · SECURE ACCESS</span>
           <h1>Přihlášení do systému</h1>
           <p>Přihlaste se ověřeným ChatGPT účtem. Do systému budou vpuštěni pouze uživatelé povolení superadminem.</p>

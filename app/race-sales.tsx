@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CatalogData } from "./catalog-pages";
 import { SaleForm, paymentMethodLabel, saleItemDescription, type EngineChoice, type SaleRecord } from "./sales-page";
+import { NativeImage } from "./native-image";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -19,7 +20,7 @@ export function RaceSalesPanel({ race, locale, role }: { race: RaceInfo; locale:
   const [editing, setEditing] = useState<SaleRecord | "new" | null>(null);
   const canManage = role !== "mechanic" && (race.status !== "completed" || role === "superadmin");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [salesResponse, enginesResponse, catalogResponse] = await Promise.all([
@@ -37,9 +38,9 @@ export function RaceSalesPanel({ race, locale, role }: { race: RaceInfo; locale:
     } finally {
       setLoading(false);
     }
-  }
+  }, [race.id]);
 
-  useEffect(() => { void load(); }, [race.id]);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   async function voidSale(sale: SaleRecord) {
     if (role !== "superadmin" || sale.voidedAt) return;
@@ -54,15 +55,15 @@ export function RaceSalesPanel({ race, locale, role }: { race: RaceInfo; locale:
     await load();
   }
 
-  const activeSales = sales.filter((sale) => !sale.voidedAt);
-  const totals = useMemo(() => (["CZK", "EUR"] as const).map((currency) => ({ currency, cents: activeSales.filter((sale) => sale.currency === currency).reduce((sum, sale) => sum + sale.totalCents, 0) })).filter((total) => total.cents > 0), [sales]);
+  const activeSales = useMemo(() => sales.filter((sale) => !sale.voidedAt), [sales]);
+  const totals = useMemo(() => (["CZK", "EUR"] as const).map((currency) => ({ currency, cents: activeSales.filter((sale) => sale.currency === currency).reduce((sum, sale) => sum + sale.totalCents, 0) })).filter((total) => total.cents > 0), [activeSales]);
   const unpaidCount = activeSales.filter((sale) => !sale.isPaid).length;
   const undeliveredCount = activeSales.filter((sale) => !sale.isDelivered).length;
 
   return <>
     <section className="panel race-sales-panel race-sales-print-page">
       <header className="race-sales-header">
-        <div className="race-sales-title"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div><span className="eyebrow">MM SALES · RACE</span><h2>{locale === "cs" ? "Prodej a servis na závodě" : "Race sales and service"}</h2><p>{race.name} · {race.track} · {formatRaceDates(race.startDate, race.endDate, locale)}</p></div></div>
+        <div className="race-sales-title"><NativeImage src="/machac-motors-logo.jpg" alt="Macháč Motors" loading="eager" /><div><span className="eyebrow">MM SALES · RACE</span><h2>{locale === "cs" ? "Prodej a servis na závodě" : "Race sales and service"}</h2><p>{race.name} · {race.track} · {formatRaceDates(race.startDate, race.endDate, locale)}</p></div></div>
         <div className="race-sales-summary"><span>{activeSales.length} {locale === "cs" ? "objednávek" : "orders"}</span>{totals.map((total) => <strong key={total.currency}>{formatMoney(total.cents, total.currency, locale)}</strong>)}{undeliveredCount > 0 && <em>{undeliveredCount} {locale === "cs" ? "nepředáno" : "not delivered"}</em>}{unpaidCount > 0 && <em>{unpaidCount} {locale === "cs" ? "nezaplaceno" : "unpaid"}</em>}</div>
         {canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Nová objednávka" : "New order"}</button>}
       </header>

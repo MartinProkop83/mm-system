@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -38,7 +38,7 @@ export function TaskPage({ locale, role, currentUser }: { locale: Locale; role: 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [tasksResponse, racesResponse, catalogResponse] = await Promise.all([
@@ -59,9 +59,9 @@ export function TaskPage({ locale, role, currentUser }: { locale: Locale; role: 
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   const now = localIsoMinute(new Date());
   const today = now.slice(0, 10);

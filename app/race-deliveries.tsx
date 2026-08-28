@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { NativeImage } from "./native-image";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -48,7 +49,7 @@ export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; lo
   const canManage = role !== "mechanic" && (race.status !== "completed" || role === "superadmin");
   const canEditNotes = race.status !== "completed" || role === "superadmin";
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const response = await fetch(`/api/race-deliveries?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
@@ -58,16 +59,16 @@ export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; lo
     } finally {
       setLoading(false);
     }
-  }
+  }, [race.id]);
 
-  async function loadFollowupNotes() {
+  const loadFollowupNotes = useCallback(async () => {
     const response = await fetch(`/api/race-followup-notes?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
     if (!response.ok) return;
     const result = await response.json() as { notes?: RaceFollowupNotes };
     setFollowupNotes(result.notes ?? emptyFollowupNotes);
-  }
+  }, [race.id]);
 
-  useEffect(() => { void load(); void loadFollowupNotes(); }, [race.id]);
+  useEffect(() => { void Promise.resolve().then(() => Promise.all([load(), loadFollowupNotes()])); }, [load, loadFollowupNotes]);
 
   async function saveFollowupNotes() {
     setNotesSaving(true);
@@ -111,7 +112,7 @@ export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; lo
   return <>
     <section className="panel race-deliveries-print-page">
       <header className="race-deliveries-heading">
-        <div className="delivery-print-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div><span className="eyebrow">MM RACE CONTROL</span><h2>{locale === "cs" ? "Předávky a platby" : "Deliveries and payments"}</h2><p>{race.name} · {formatRaceDates(race.startDate, race.endDate, locale)} · {race.track}</p></div></div>
+        <div className="delivery-print-brand"><NativeImage src="/machac-motors-logo.jpg" alt="Macháč Motors" loading="eager" /><div><span className="eyebrow">MM RACE CONTROL</span><h2>{locale === "cs" ? "Předávky a platby" : "Deliveries and payments"}</h2><p>{race.name} · {formatRaceDates(race.startDate, race.endDate, locale)} · {race.track}</p></div></div>
         <div className="race-deliveries-summary"><span>{deliveries.length} {locale === "cs" ? "položek" : "items"}</span>{totals.map((item) => <strong key={item.currency}>{formatMoney(item.cents, item.currency, locale)}</strong>)}{undeliveredCount > 0 && <em>{undeliveredCount} {locale === "cs" ? "nepředáno" : "not delivered"}</em>}{unpaidCount > 0 && <em>{unpaidCount} {locale === "cs" ? "nezaplaceno" : "unpaid"}</em>}</div>
         {canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing(null)}>＋ {locale === "cs" ? "Přidat položku" : "Add item"}</button>}
       </header>

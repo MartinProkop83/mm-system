@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CountrySelect } from "./country-select";
 import { countryFlag } from "./countries";
 import { CarburetorDetail } from "./carburetor-detail";
@@ -35,8 +35,6 @@ export type CatalogData = {
 type CatalogItem = RaceTypeRecord | TeamRecord | DriverRecord | MechanicRecord | VehicleRecord | CarburetorRecord;
 
 const categoryOrder = ["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"];
-const carburetorFamilies = ["BABY", "MINI", "OKJ", "OKN", "OK", "KZ"];
-
 const labels = {
   cs: {
     raceType: ["Typy závodů", "Typ závodu"], team: ["Týmy", "Tým"], driver: ["Piloti", "Pilot"], mechanic: ["Mechanici", "Mechanik"], vehicle: ["Auta", "Auto"], carburetor: ["Karburátory", "Karburátor"],
@@ -67,7 +65,7 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
   const items = useMemo(() => kind === "driver" ? data.drivers.filter((driver) => driverMatchesFilter(driver, driverFilter)) : allItems, [allItems, data.drivers, driverFilter, kind]);
   const canManage = role !== "mechanic";
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const [response, typesResponse] = await Promise.all([fetch("/api/catalog", { cache: "no-store" }), fetch("/api/carburetor-types", { cache: "no-store" })]);
@@ -81,9 +79,9 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   const selectedCarburetor = kind === "carburetor" ? data.carburetors.find((item) => item.id === selectedCarburetorId) ?? null : null;
   const selectedMechanic = kind === "mechanic" ? data.mechanics.find((item) => item.id === selectedMechanicId) ?? null : null;

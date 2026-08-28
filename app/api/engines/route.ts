@@ -6,15 +6,6 @@ const allowedStatuses = new Set(["ready", "service_soon", "service", "rebuild", 
 const allowedFamilies = new Set(["MINI", "OKJ", "OKN", "OKN-J", "OK", "KZ"]);
 const allowedIgnitions = new Set(["", "PVL", "SELETTRA"]);
 const allowedMiniConfigurations = new Set(["MINI", "MINI 3", "MINI 4", "BABY", "BABY 3", "BABY 4"]);
-const upgradePrefixes: Record<string, string> = {
-  OKJ: "A",
-  OK: "B",
-  OKN: "C",
-  "OKN-J": "C",
-  KZ: "D",
-  MINI: "E",
-};
-
 type EnginePayload = {
   id?: string;
   code?: string;

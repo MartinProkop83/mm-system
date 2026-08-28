@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { countryFlag } from "./countries";
 import { RaceLogoBadge } from "./race-logo-badge";
+import { NativeImage } from "./native-image";
 
 type Locale = "cs" | "en";
 type Currency = "CZK" | "EUR";
@@ -85,7 +86,7 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setLoadError("");
     try {
@@ -117,9 +118,9 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
     } finally {
       setLoading(false);
     }
-  }
+  }, [race.id]);
 
-  useEffect(() => { void load(); }, [race.id]);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   function update(entryId: string, change: Partial<FinanceEntry>) {
     setEntries((current) => current.map((entry) => {
@@ -195,7 +196,7 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
   return <section className="panel race-finance-panel">
     <header className="race-finance-heading">
       <div className="race-finance-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow">MM FINANCE</span><h2>{locale === "cs" ? "Finance závodu" : "Race finance"}</h2><p>{race.name} · {formatDateRange(race.startDate, race.endDate, locale)} · {countryFlag(race.countryCode)} {race.track}</p></div></div>
-      <img className="race-finance-logo" src="/machac-motors-logo.jpg" alt="Macháč Motors" />
+      <NativeImage className="race-finance-logo" src="/machac-motors-logo.jpg" alt="Macháč Motors" loading="eager" />
       <button className="secondary-compact no-print" type="button" onClick={printFinance}>⌁ {locale === "cs" ? "Vytisknout finance" : "Print finance"}</button>
     </header>
 

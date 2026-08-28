@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CatalogPage } from "./catalog-pages";
 import { RacePage } from "./race-pages";
 import { SalesPage } from "./sales-page";
@@ -10,6 +10,7 @@ import { LogisticsPage } from "./logistics-pages";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { TaskPage, type WorkItem } from "./task-pages";
 import { CircuitsPage } from "./circuits-page";
+import { NativeImage } from "./native-image";
 import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pages";
@@ -441,8 +442,10 @@ export default function Home() {
   const visibleNav = useMemo(() => nav.filter((item) => item.id !== "settings" || session?.role === "superadmin"), [session?.role]);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("mm-locale");
-    if (saved === "cs" || saved === "en") setLocale(saved);
+    void Promise.resolve().then(() => {
+      const saved = window.localStorage.getItem("mm-locale");
+      if (saved === "cs" || saved === "en") setLocale(saved);
+    });
   }, []);
 
   useEffect(() => {
@@ -461,7 +464,7 @@ export default function Home() {
   }, [locale]);
 
   useEffect(() => {
-    setCurrentHour(new Date().getHours());
+    void Promise.resolve().then(() => setCurrentHour(new Date().getHours()));
     const timer = window.setInterval(() => setCurrentHour(new Date().getHours()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -496,10 +499,10 @@ export default function Home() {
   const title = useMemo(() => t[view], [t, view]);
   const detailEngine = useMemo(() => engineRows.find((engine) => engine.id === detailEngineId) ?? null, [engineRows, detailEngineId]);
 
-  function showNotice(message: string) {
+  const showNotice = useCallback((message: string) => {
     setNotice(message);
     window.setTimeout(() => setNotice(null), 2400);
-  }
+  }, []);
 
   function signOut() {
     if (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1") {
@@ -564,7 +567,7 @@ export default function Home() {
     <main className="app-shell">
       <aside className="sidebar">
         <div className="brand" aria-label="Macháč Motors">
-          <img className="brand-logo" src="/machac-motors-logo.jpg" alt="Macháč Motors" />
+          <NativeImage className="brand-logo" src="/machac-motors-logo.jpg" alt="Macháč Motors" loading="eager" />
         </div>
 
         <nav className="main-nav" aria-label={locale === "cs" ? "Hlavní navigace" : "Main navigation"}>
@@ -615,7 +618,7 @@ export default function Home() {
       <section className="workspace">
         <header className="topbar">
           <div>
-            <p className="mobile-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><span>MM SYSTEM</span></p>
+            <p className="mobile-brand"><NativeImage src="/machac-motors-logo.jpg" alt="Macháč Motors" loading="eager" /><span>MM SYSTEM</span></p>
             <h1>{view === "dashboard" ? timeGreeting(locale, session?.fullName ?? "Martin Prokop", currentHour ?? 8) : view === "engines" && detailEngine ? `${locale === "cs" ? "Motor" : "Engine"} ${detailEngine.code}` : title}</h1>
             <p>{view === "dashboard" ? t.subtitle : view === "engines" && detailEngine ? `TM Racing · ${detailEngine.family}` : locale === "cs" ? "Centrální správa Macháč Motors" : "Macháč Motors central management"}</p>
           </div>
@@ -767,7 +770,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
     }
     void loadDashboard();
     return () => { active = false; };
-  }, [locale]);
+  }, [locale, showNotice]);
 
   const today = localIsoDate(new Date());
   const upcoming = dashboardRaces
@@ -1777,19 +1780,6 @@ function formatDisplayDate(value: string | null, locale: Locale) {
 function formatTimestamp(value: number, locale: Locale) {
   if (!value) return locale === "cs" ? "Datum není dostupné" : "Date unavailable";
   return new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function servicePartEnglish(part: string) {
-  const labels: Record<string, string> = {
-    "Píst": "Piston",
-    "Gufera": "Oil seals",
-    "Ložiska kliky": "Crank bearings",
-    "Kompletní ojnice": "Complete connecting rod",
-    "Horní klec ojnice": "Upper rod cage",
-    "Těsnění válce": "Cylinder gasket",
-    "Těsnění hlavy": "Head gasket",
-  };
-  return labels[part] ?? part;
 }
 
 function todayInputValue() {

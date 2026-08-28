@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
+import { NativeImage } from "./native-image";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -49,7 +50,7 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
   const [seeding, setSeeding] = useState(false);
   const canManage = role !== "mechanic";
 
-  async function load() {
+  const load = useCallback(async () => {
     try {
       const response = await fetch("/api/clothing", { cache: "no-store" });
       if (!response.ok) throw new Error("load failed");
@@ -62,9 +63,9 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
 
   const selectedMechanic = data.mechanics.find((item) => item.id === selectedMechanicId) ?? null;
   const selectedAssignments = useMemo(
@@ -158,12 +159,6 @@ function AssignmentCard({ item, assignment, mechanicId, index, canManage, locale
   const [notes, setNotes] = useState(assignment?.notes ?? "");
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    setSize(assignment?.size ?? item.sizes[0] ?? "");
-    setQuantity(assignment?.quantity ?? item.defaultQuantity);
-    setNotes(assignment?.notes ?? "");
-  }, [assignment?.id, assignment?.size, assignment?.quantity, assignment?.notes, item.defaultQuantity, item.sizes]);
-
   async function save() {
     setSaving(true);
     try {
@@ -246,7 +241,7 @@ function ItemModal({ locale, role, item, onClose, onSaved }: { locale: Locale; r
       <label><span>{locale === "cs" ? "Název položky" : "Item name"}</span><input autoFocus required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder={locale === "cs" ? "Např. Týmová bunda" : "E.g. Team jacket"} /></label>
       <label><span>{locale === "cs" ? "Výchozí počet kusů" : "Default quantity"}</span><input required type="number" min="1" max="20" value={defaultQuantity} onChange={(event) => setDefaultQuantity(Number(event.target.value) || 1)} /></label>
       <label className="full-field"><span>{locale === "cs" ? "Dostupné velikosti" : "Available sizes"}</span><input required value={sizes} onChange={(event) => setSizes(event.target.value)} placeholder="XS, S, M, L, XL, XXL" /><small className="field-help">{locale === "cs" ? "Příklad číselných velikostí: 38, 39, 40, 41, 42" : "Numeric size example: 38, 39, 40, 41, 42"}</small></label>
-      <div className="full-field clothing-image-field"><span>{locale === "cs" ? "Fotografie oblečení" : "Clothing photo"}</span><div className="clothing-image-editor">{imagePreview ? <img src={imagePreview} alt={name || (locale === "cs" ? "Náhled oblečení" : "Clothing preview")} /> : <span className="clothing-image-placeholder">FOTO</span>}<div><label className="clothing-file-button"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const next = event.target.files?.[0] ?? null; setImage(next); setRemoveCurrentImage(false); if (next) setImagePreview(URL.createObjectURL(next)); }} /><b>{imagePreview ? (locale === "cs" ? "Vybrat jinou fotku" : "Choose another photo") : (locale === "cs" ? "Vybrat fotku" : "Choose photo")}</b></label>{imagePreview && <button type="button" onClick={() => { setImage(null); setImagePreview(""); setRemoveCurrentImage(Boolean(item?.imageUrl)); }}>{locale === "cs" ? "Odstranit fotografii" : "Remove photo"}</button>}<small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 10 MB. Fotka se použije jako ikona i velký náhled." : "PNG, JPG or WebP, max 10 MB. Used as both icon and large preview."}</small></div></div></div>
+      <div className="full-field clothing-image-field"><span>{locale === "cs" ? "Fotografie oblečení" : "Clothing photo"}</span><div className="clothing-image-editor">{imagePreview ? <NativeImage src={imagePreview} alt={name || (locale === "cs" ? "Náhled oblečení" : "Clothing preview")} /> : <span className="clothing-image-placeholder">FOTO</span>}<div><label className="clothing-file-button"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const next = event.target.files?.[0] ?? null; setImage(next); setRemoveCurrentImage(false); if (next) setImagePreview(URL.createObjectURL(next)); }} /><b>{imagePreview ? (locale === "cs" ? "Vybrat jinou fotku" : "Choose another photo") : (locale === "cs" ? "Vybrat fotku" : "Choose photo")}</b></label>{imagePreview && <button type="button" onClick={() => { setImage(null); setImagePreview(""); setRemoveCurrentImage(Boolean(item?.imageUrl)); }}>{locale === "cs" ? "Odstranit fotografii" : "Remove photo"}</button>}<small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 10 MB. Fotka se použije jako ikona i velký náhled." : "PNG, JPG or WebP, max 10 MB. Used as both icon and large preview."}</small></div></div></div>
       <label className="full-field"><span>{locale === "cs" ? "Poznámka" : "Note"}</span><textarea rows={3} maxLength={600} value={notes} onChange={(event) => setNotes(event.target.value)} placeholder={locale === "cs" ? "Volitelné upřesnění…" : "Optional details…"} /></label>
     </div>
     <footer className="modal-actions">{item && role === "superadmin" && <button className="danger-button" type="button" disabled={saving} onClick={() => void remove()}>{locale === "cs" ? "Odstranit typ" : "Remove item"}</button>}<span className="modal-actions-spacer" /><button className="secondary-compact" type="button" disabled={saving} onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Uložit" : "Save")}</button></footer>

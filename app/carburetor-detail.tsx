@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { countryFlag } from "./countries";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { RentalHistory } from "./rental-history";
@@ -16,11 +16,11 @@ export function CarburetorDetail({ carburetorId, locale, role, onBack, onEdit }:
   const [data, setData] = useState<DetailData | null>(null);
   const [tab, setTab] = useState<"overview" | "history" | "service">("overview");
   const [serviceOpen, setServiceOpen] = useState(false);
-  async function load() {
+  const load = useCallback(async () => {
     const response = await fetch(`/api/carburetor-records?id=${encodeURIComponent(carburetorId)}`, { cache: "no-store" });
     if (response.ok) setData(await response.json() as DetailData);
-  }
-  useEffect(() => { void load(); }, [carburetorId]);
+  }, [carburetorId]);
+  useEffect(() => { void Promise.resolve().then(load); }, [load]);
   const current = useMemo(() => {
     const active = data?.assignments.find((item) => item.raceStatus === "active");
     return active ?? data?.assignments.filter((item) => item.raceStatus === "planned").sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;

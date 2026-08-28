@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 
 type Locale = "cs" | "en";
 type AppRole = "superadmin" | "boss" | "mechanic";
@@ -162,7 +162,7 @@ export function SettingsPage({
   const [saving, setSaving] = useState(false);
   const [formError, setFormError] = useState("");
 
-  async function loadUsers() {
+  const loadUsers = useCallback(async () => {
     if (role !== "superadmin") return;
     setLoading(true);
     setLoadError(false);
@@ -176,11 +176,11 @@ export function SettingsPage({
     } finally {
       setLoading(false);
     }
-  }
+  }, [role]);
 
   useEffect(() => {
-    void loadUsers();
-  }, [role]);
+    void Promise.resolve().then(loadUsers);
+  }, [loadUsers]);
 
   const counts = useMemo(() => ({
     active: users.filter((user) => user.isActive).length,

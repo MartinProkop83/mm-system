@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
 import { RentalHistory } from "./rental-history";
+import { NativeImage } from "./native-image";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -29,14 +30,14 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
   const [editing, setEditing] = useState<CommerceRecord | "new" | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerRecord | null>(null);
   const [photoPreview, setPhotoPreview] = useState<ClothingPhotoPreview | null>(null);
-  async function load() {
+  const load = useCallback(async () => {
     let loaded: CommerceRecord[] = [];
     setLoading(true);
     try { const response = await fetch(config.endpoint, { cache: "no-store" }); const result = await response.json() as Record<string, CommerceRecord[]>; if (!response.ok) throw new Error(); loaded = result[config.responseKey] ?? []; setItems(loaded); setError(false); }
     catch { setError(true); } finally { setLoading(false); }
     return loaded;
-  }
-  useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [kind]);
+  }, [config.endpoint, config.responseKey]);
+  useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [load]);
   async function remove(item: CommerceRecord) {
     if (role !== "superadmin" || !window.confirm(locale === "cs" ? "Opravdu záznam archivovat? Historie prodejů zůstane zachována." : "Archive this record? Sales history remains preserved.")) return;
     const response = await fetch(config.endpoint, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id }) });
@@ -107,7 +108,7 @@ function PartFields({ item, locale, categories, onCategories, imagePreview, onIm
   return <><label><span>{locale === "cs" ? "Kód dílu" : "Part code"} *</span><input name="code" defaultValue={item?.code ?? ""} required autoFocus /></label><label><span>{locale === "cs" ? "Název dílu" : "Part name"} *</span><input name="name" defaultValue={item?.name ?? ""} required /></label>
     <fieldset className="inventory-category-field full-field"><legend>{locale === "cs" ? "Pro jaké typy motorů je díl" : "Compatible engine types"} *</legend><div><label className="all-engines"><input type="checkbox" checked={allEngines} onChange={(event) => onCategories(event.target.checked ? ["ALL"] : [])} /><span>{locale === "cs" ? "Všechny typy motorů" : "All engine types"}</span></label>{engineCategories.map((category) => <label key={category}><input type="checkbox" checked={!allEngines && categories.includes(category)} disabled={allEngines} onChange={(event) => onCategories(event.target.checked ? [...categories.filter((value) => value !== "ALL"), category] : categories.filter((value) => value !== category))} /><span>{category}</span></label>)}</div><small>{locale === "cs" ? "Pokud díl pasuje všude, stačí první volba. Jinak zaškrtni jednu nebo více kategorií." : "Choose All engines for universal parts, otherwise select one or more categories."}</small></fieldset>
     <label><span>{locale === "cs" ? "Množství skladem" : "Stock quantity"}</span><input name="quantity" type="number" min="0" step="1" defaultValue={item?.quantity ?? 0} required /></label><label><span>{locale === "cs" ? "Jednotka" : "Unit"}</span><input name="unit" defaultValue={item?.unit ?? "ks"} /></label><MoneyFields czk={item?.priceCzkCents} eur={item?.priceEurCents} locale={locale} />
-    <div className="inventory-image-field full-field"><span>{locale === "cs" ? "Fotografie dílu" : "Part photo"}</span><div className="inventory-image-editor">{imagePreview ? <img src={imagePreview} alt={item?.name || (locale === "cs" ? "Náhled dílu" : "Part preview")} /> : <span>FOTO</span>}<div><label className="inventory-file-button"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => onImage(event.target.files?.[0] ?? null)} /><b>{imagePreview ? (locale === "cs" ? "Vybrat jinou fotku" : "Choose another photo") : (locale === "cs" ? "Vybrat fotku" : "Choose photo")}</b></label>{imagePreview && <button type="button" onClick={onRemoveImage}>{locale === "cs" ? "Odstranit fotografii" : "Remove photo"}</button>}<small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 10 MB. V přehledu bude čtvercová ikona přibližně poloviční oproti oblečení." : "PNG, JPG or WebP, max 10 MB. The inventory uses a square icon about half the clothing size."}</small></div></div></div>
+    <div className="inventory-image-field full-field"><span>{locale === "cs" ? "Fotografie dílu" : "Part photo"}</span><div className="inventory-image-editor">{imagePreview ? <NativeImage src={imagePreview} alt={item?.name || (locale === "cs" ? "Náhled dílu" : "Part preview")} /> : <span>FOTO</span>}<div><label className="inventory-file-button"><input type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => onImage(event.target.files?.[0] ?? null)} /><b>{imagePreview ? (locale === "cs" ? "Vybrat jinou fotku" : "Choose another photo") : (locale === "cs" ? "Vybrat fotku" : "Choose photo")}</b></label>{imagePreview && <button type="button" onClick={onRemoveImage}>{locale === "cs" ? "Odstranit fotografii" : "Remove photo"}</button>}<small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 10 MB. V přehledu bude čtvercová ikona přibližně poloviční oproti oblečení." : "PNG, JPG or WebP, max 10 MB. The inventory uses a square icon about half the clothing size."}</small></div></div></div>
     <label className="full-field"><span>{locale === "cs" ? "Popis / poznámka" : "Description / notes"}</span><textarea name="notes" rows={3} defaultValue={item?.notes ?? ""} placeholder={locale === "cs" ? "Např. rozměr, výrobce nebo další upřesnění…" : "E.g. size, maker or other details…"} /></label></>;
 }
 function MoneyFields({ czk = 0, eur = 0, locale }: { czk?: number; eur?: number; locale: Locale }) { return <><label><span>{locale === "cs" ? "Cena bez DPH" : "Net price"} (CZK)</span><input name="priceCzk" type="number" min="0" step="0.01" defaultValue={(czk / 100).toFixed(2)} required /></label><label><span>{locale === "cs" ? "Cena bez DPH" : "Net price"} (EUR)</span><input name="priceEur" type="number" min="0" step="0.01" defaultValue={(eur / 100).toFixed(2)} required /></label></>; }
