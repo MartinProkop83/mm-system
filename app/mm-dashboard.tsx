@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CatalogPage } from "./catalog-pages";
 import { RacePage } from "./race-pages";
 import { SalesPage } from "./sales-page";
@@ -419,6 +419,7 @@ export default function Home() {
   const [locale, setLocale] = useState<Locale>("cs");
   const [view, setView] = useState<View>("dashboard");
   const [notice, setNotice] = useState<string | null>(null);
+  const noticeTimer = useRef<number | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
   const [engineRows, setEngineRows] = useState<EngineRecord[]>([]);
   const [enginesLoading, setEnginesLoading] = useState(true);
@@ -491,8 +492,9 @@ export default function Home() {
   const detailEngine = useMemo(() => engineRows.find((engine) => engine.id === detailEngineId) ?? null, [engineRows, detailEngineId]);
 
   function showNotice(message: string) {
+    if (noticeTimer.current !== null) window.clearTimeout(noticeTimer.current);
     setNotice(message);
-    window.setTimeout(() => setNotice(null), 2400);
+    noticeTimer.current = window.setTimeout(() => { noticeTimer.current = null; setNotice(null); }, 2400);
   }
 
   function signOut() {
@@ -725,28 +727,32 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
   const [catalog, setCatalog] = useState<DashboardCatalog>({ drivers: [], carburetors: [] });
   const [dashboardTasks, setDashboardTasks] = useState<WorkItem[]>([]);
   const [dashboardActivity, setDashboardActivity] = useState<ActivityRecord[]>([]);
+  const [inventoryCount, setInventoryCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
     async function loadDashboard() {
       try {
-        const [racesResponse, catalogResponse, tasksResponse, activityResponse] = await Promise.all([
+        const [racesResponse, catalogResponse, tasksResponse, activityResponse, inventoryResponse] = await Promise.all([
           fetch("/api/races", { cache: "no-store" }),
           fetch("/api/catalog", { cache: "no-store" }),
           fetch("/api/tasks", { cache: "no-store" }),
           fetch("/api/activity", { cache: "no-store" }),
+          fetch("/api/inventory", { cache: "no-store" }),
         ]);
-        if (!racesResponse.ok || !catalogResponse.ok || !tasksResponse.ok || !activityResponse.ok) throw new Error("Dashboard load failed");
+        if (!racesResponse.ok || !catalogResponse.ok || !tasksResponse.ok || !activityResponse.ok || !inventoryResponse.ok) throw new Error("Dashboard load failed");
         const raceData = (await racesResponse.json()) as { races: DashboardRace[] };
         const catalogData = (await catalogResponse.json()) as DashboardCatalog;
         const taskData = (await tasksResponse.json()) as { tasks: WorkItem[] };
         const activityData = (await activityResponse.json()) as { activity: ActivityRecord[] };
+        const inventoryData = (await inventoryResponse.json()) as { parts: unknown[] };
         if (!active) return;
         setDashboardRaces(raceData.races);
         setCatalog(catalogData);
         setDashboardTasks(taskData.tasks);
         setDashboardActivity(activityData.activity);
+        setInventoryCount(inventoryData.parts.length);
       } catch {
         if (active) showNotice(locale === "cs" ? "Dashboard se nepodařilo aktualizovat." : "Dashboard could not be refreshed.");
       } finally {
@@ -818,8 +824,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
           <Stat value={String(ownedEngines.length)} label={t.enginesCount} tone="green" onClick={() => onOpenView("engines")} />
           <Stat value={String(dashboardRaces.length)} label={t.races} tone="purple" onClick={() => onOpenView("races")} />
           <Stat value={String(serviceCount)} label={t.service} tone="orange" onClick={() => onOpenView("service")} />
-          <Stat value="126" label={locale === "cs" ? "Položek skladu" : "Inventory items"} tone="yellow" onClick={() => onOpenView("inventory")} />
-          <Stat value="23" label={t.documents} tone="blue" onClick={() => onOpenView("documents")} />
+          <Stat value={String(inventoryCount)} label={locale === "cs" ? "Položek skladu" : "Inventory items"} tone="yellow" onClick={() => onOpenView("inventory")} />
         </div>
       </section>
 

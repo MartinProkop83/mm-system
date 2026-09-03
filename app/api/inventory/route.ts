@@ -58,11 +58,19 @@ async function authorizeAndSave(request: Request, editing: boolean) {
   await ensureRuntimeSchema(); const d1 = getD1(); const now = Date.now();
   const duplicate = await d1.prepare("SELECT id FROM inventory_parts WHERE UPPER(code) = ? AND archived_at IS NULL AND id != ?").bind(code, id).first();
   if (duplicate) return Response.json({ error: "Part code already exists" }, { status: 409 });
-  if (editing) {
-    const result = await d1.prepare("UPDATE inventory_parts SET code = ?, name = ?, categories = ?, quantity = ?, unit = ?, price_czk_cents = ?, price_eur_cents = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(code, name, JSON.stringify(categories), quantity, unit, priceCzkCents, priceEurCents, notes, now, id).run();
-    if (!result.meta.changes) return Response.json({ error: "Part not found" }, { status: 404 });
-  } else {
-    await d1.prepare("INSERT INTO inventory_parts (id, code, name, categories, quantity, unit, price_czk_cents, price_eur_cents, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, code, name, JSON.stringify(categories), quantity, unit, priceCzkCents, priceEurCents, notes, user.email, now, now).run();
+  try {
+    if (editing) {
+      const result = await d1.prepare("UPDATE inventory_parts SET code = ?, name = ?, categories = ?, quantity = ?, unit = ?, price_czk_cents = ?, price_eur_cents = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(code, name, JSON.stringify(categories), quantity, unit, priceCzkCents, priceEurCents, notes, now, id).run();
+      if (!result.meta.changes) return Response.json({ error: "Part not found" }, { status: 404 });
+    } else {
+      await d1.prepare("INSERT INTO inventory_parts (id, code, name, categories, quantity, unit, price_czk_cents, price_eur_cents, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, code, name, JSON.stringify(categories), quantity, unit, priceCzkCents, priceEurCents, notes, user.email, now, now).run();
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Database error";
+    if (message.includes("UNIQUE") || message.includes("unique")) {
+      return Response.json({ error: "Part code already exists" }, { status: 409 });
+    }
+    return Response.json({ error: "Could not save part" }, { status: 500 });
   }
   return Response.json({ id }, { status: editing ? 200 : 201 });
 }

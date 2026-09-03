@@ -64,18 +64,22 @@ export async function getAppUser(): Promise<AppUser | null> {
     return mapUser(existing);
   }
 
-  const countRow = await d1
-    .prepare("SELECT COUNT(*) AS count FROM app_users WHERE is_active = 1")
-    .first<{ count: number }>();
-  if ((countRow?.count ?? 0) > 0) return null;
-
+  // Bootstrap: the first sign-in becomes superadmin. The eligibility check and the
+  // insert must be one atomic statement — two different new emails signing in at
+  // the same moment would otherwise both read zero active users and both insert,
+  // making two superadmins instead of one.
   const now = Date.now();
   const id = crypto.randomUUID();
   try {
-    await d1
-      .prepare("INSERT INTO app_users (id, email, full_name, role, locale, is_active, created_at, updated_at) VALUES (?, ?, ?, 'superadmin', 'cs', 1, ?, ?)")
+    const result = await d1
+      .prepare(`
+        INSERT INTO app_users (id, email, full_name, role, locale, is_active, created_at, updated_at)
+        SELECT ?, ?, ?, 'superadmin', 'cs', 1, ?, ?
+        WHERE NOT EXISTS (SELECT 1 FROM app_users WHERE is_active = 1)
+      `)
       .bind(id, email, fullName, now, now)
       .run();
+    if (!result.meta.changes) return null;
   } catch {
     const raced = await d1
       .prepare("SELECT id, email, full_name, role, locale FROM app_users WHERE email = ? AND is_active = 1 LIMIT 1")

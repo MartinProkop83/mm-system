@@ -125,14 +125,14 @@ export async function GET(request: Request) {
     bind<{ raceId: string; id: string; name: string }>(d1.prepare(`
       SELECT rm.race_id AS raceId, rm.mechanic_id AS id, rm.mechanic_name_snapshot AS name
       FROM race_mechanics rm JOIN races r ON r.id = rm.race_id
-      WHERE r.status != 'archived' ${raceFilter.replaceAll("r.id", "r.id")}
+      WHERE r.status != 'archived' ${raceFilter}
       ORDER BY rm.mechanic_name_snapshot
     `)),
     bind<{ raceId: string; id: string; name: string; licensePlate: string }>(d1.prepare(`
       SELECT rv.race_id AS raceId, rv.vehicle_id AS id, rv.vehicle_name_snapshot AS name,
              rv.license_plate_snapshot AS licensePlate
       FROM race_vehicles rv JOIN races r ON r.id = rv.race_id
-      WHERE r.status != 'archived' ${raceFilter.replaceAll("r.id", "r.id")}
+      WHERE r.status != 'archived' ${raceFilter}
       ORDER BY rv.vehicle_name_snapshot
     `)),
     bind<Record<string, unknown>>(d1.prepare(`

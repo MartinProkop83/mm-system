@@ -1,6 +1,7 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
+import { sniffFileType } from "../../file-signature";
 
 const allowedTypes = new Map([
   ["image/png", "png"],
@@ -48,9 +49,10 @@ export async function POST(request: Request) {
   const logo = form.get("logo");
   if (!templateId) return Response.json({ error: "Race type id is required" }, { status: 400 });
   if (!(logo instanceof File) || !logo.size) return Response.json({ error: "Select a logo file" }, { status: 400 });
-  const extension = allowedTypes.get(logo.type);
-  if (!extension) return Response.json({ error: "Logo must be PNG, JPG or WebP" }, { status: 400 });
   if (logo.size > maxLogoBytes) return Response.json({ error: "Logo is larger than 5 MB" }, { status: 413 });
+  const sniffed = await sniffFileType(logo);
+  if (!sniffed || !allowedTypes.has(sniffed.type)) return Response.json({ error: "Logo must be PNG, JPG or WebP" }, { status: 400 });
+  const { type: contentType, extension } = sniffed;
 
   const d1 = getD1();
   const existing = await d1.prepare(`
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
   const now = Date.now();
   const bucket = getAssetsBucket();
   await bucket.put(key, logo.stream(), {
-    httpMetadata: { contentType: logo.type },
+    httpMetadata: { contentType },
     customMetadata: { templateId, uploadedBy: user.email },
   });
   try {
@@ -72,11 +74,11 @@ export async function POST(request: Request) {
         UPDATE race_templates
         SET logo_key = ?, logo_content_type = ?, logo_updated_at = ?, updated_at = ?
         WHERE id = ? AND archived_at IS NULL
-      `).bind(key, logo.type, now, now, templateId),
+      `).bind(key, contentType, now, now, templateId),
       d1.prepare(`
         INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
         VALUES (?, ?, 'upload_logo', 'raceType', ?, ?, ?)
-      `).bind(crypto.randomUUID(), user.email, templateId, JSON.stringify({ contentType: logo.type, size: logo.size }), now),
+      `).bind(crypto.randomUUID(), user.email, templateId, JSON.stringify({ contentType, size: logo.size }), now),
     ]);
   } catch (error) {
     await bucket.delete(key);

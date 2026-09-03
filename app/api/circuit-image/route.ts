@@ -1,6 +1,7 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
+import { sniffFileType } from "../../file-signature";
 
 const allowedTypes = new Map([["image/png", "png"], ["image/jpeg", "jpg"], ["image/webp", "webp"]]);
 const maxBytes = 10 * 1024 * 1024;
@@ -22,15 +23,17 @@ export async function POST(request: Request) {
   const circuitId = String(form.get("circuitId") ?? "").trim(); const image = form.get("image");
   if (!circuitId) return Response.json({ error: "Circuit id is required" }, { status: 400 });
   if (!(image instanceof File) || !image.size) return Response.json({ error: "Select an image file" }, { status: 400 });
-  const extension = allowedTypes.get(image.type); if (!extension) return Response.json({ error: "Image must be PNG, JPG or WebP" }, { status: 400 });
   if (image.size > maxBytes) return Response.json({ error: "Image is larger than 10 MB" }, { status: 413 });
+  const sniffed = await sniffFileType(image);
+  if (!sniffed || !allowedTypes.has(sniffed.type)) return Response.json({ error: "Image must be PNG, JPG or WebP" }, { status: 400 });
+  const { type: contentType, extension } = sniffed;
   const d1 = getD1(); const existing = await d1.prepare("SELECT id,image_key AS imageKey FROM circuits WHERE id=? AND archived_at IS NULL").bind(circuitId).first<{id:string;imageKey:string|null}>();
   if (!existing) return Response.json({ error: "Circuit not found" }, { status: 404 });
   const key = `circuit-images/${circuitId}/${crypto.randomUUID()}.${extension}`; const now = Date.now(); const bucket = getAssetsBucket();
-  await bucket.put(key, image.stream(), { httpMetadata: { contentType: image.type }, customMetadata: { circuitId, uploadedBy: user.email } });
+  await bucket.put(key, image.stream(), { httpMetadata: { contentType }, customMetadata: { circuitId, uploadedBy: user.email } });
   try { await d1.batch([
-    d1.prepare("UPDATE circuits SET image_key=?,image_content_type=?,image_updated_at=?,updated_at=? WHERE id=?").bind(key,image.type,now,now,circuitId),
-    d1.prepare(`INSERT INTO audit_logs (id,actor_email,action,entity_type,entity_id,details,created_at) VALUES (?,?,'upload_image','circuit',?,?,?)`).bind(crypto.randomUUID(),user.email,circuitId,JSON.stringify({contentType:image.type,size:image.size}),now),
+    d1.prepare("UPDATE circuits SET image_key=?,image_content_type=?,image_updated_at=?,updated_at=? WHERE id=?").bind(key,contentType,now,now,circuitId),
+    d1.prepare(`INSERT INTO audit_logs (id,actor_email,action,entity_type,entity_id,details,created_at) VALUES (?,?,'upload_image','circuit',?,?,?)`).bind(crypto.randomUUID(),user.email,circuitId,JSON.stringify({contentType,size:image.size}),now),
   ]); } catch (error) { await bucket.delete(key); throw error; }
   if (existing.imageKey && existing.imageKey !== key) await bucket.delete(existing.imageKey);
   return Response.json({ circuitId, updatedAt: now });

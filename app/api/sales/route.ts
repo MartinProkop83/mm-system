@@ -140,8 +140,12 @@ async function saveSale(payload: SalePayload, user: AppUser, editing: boolean) {
   const id = editing ? clean(payload.id, 80) : crypto.randomUUID();
   const existingSale = editing ? await d1.prepare("SELECT * FROM sales WHERE id = ? AND voided_at IS NULL").bind(id).first<Record<string, unknown>>() : null;
   if (editing && !existingSale) return Response.json({ error: "Sale not found" }, { status: 404 });
-  const buyer = await resolveBuyer(payload, user.email);
-  if (buyer instanceof Response) return buyer;
+  const resolvedBuyer = await resolveBuyer(payload, user.email);
+  if (resolvedBuyer instanceof Response) return resolvedBuyer;
+  // Re-bound to a fresh const so its type stays narrowed (excluding Response) when
+  // referenced from the buildStatements() closure below — TS doesn't carry control-flow
+  // narrowing of an outer variable into a nested function, only its inferred type at declaration.
+  const buyer = resolvedBuyer;
 
   const oldItems = editing
     ? await d1.prepare("SELECT item_type AS itemType, line_kind AS lineKind, resource_id AS resourceId, quantity FROM sale_items WHERE sale_id = ? AND resource_id IS NOT NULL").bind(id).all<ExistingItem>()
@@ -200,34 +204,49 @@ async function saveSale(payload: SalePayload, user: AppUser, editing: boolean) {
   }
 
   const totalCents = normalizedItems.reduce((sum, item) => sum + item.lineTotalCents, 0); const now = Date.now();
-  const saleNumber = editing ? String(existingSale?.sale_number ?? "") : await nextSaleNumber(saleDate);
-  const statements = [];
-  if (buyer.newCustomer) statements.push(d1.prepare("INSERT INTO customers (id, name, phone, email, address, company_id, vat_id, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)").bind(buyer.newCustomer.id, buyer.newCustomer.name, buyer.newCustomer.phone, buyer.newCustomer.email, buyer.newCustomer.address, buyer.newCustomer.companyId, buyer.newCustomer.vatId, user.email, now, now));
-  if (editing) {
-    statements.push(d1.prepare("UPDATE sales SET race_id = ?, customer_id = ?, team_id = ?, sale_date = ?, customer_name = ?, document_number = ?, currency = ?, total_cents = ?, payment_method = ?, is_paid = ?, is_delivered = ?, notes = ?, updated_at = ? WHERE id = ? AND voided_at IS NULL").bind(raceId, buyer.customerId, buyer.teamId, saleDate, buyer.name, documentNumber, currency, totalCents, paymentMethod, isPaid ? 1 : 0, isDelivered ? 1 : 0, notes, now, id));
-    statements.push(d1.prepare("DELETE FROM sale_items WHERE sale_id = ?").bind(id));
-    for (const item of oldItems.results) {
-      if (item.itemType === "engine") statements.push(d1.prepare("UPDATE engines SET sold_at = NULL, updated_at = ? WHERE id = ?").bind(now, item.resourceId));
-      else if (item.itemType === "carburetor") statements.push(d1.prepare("UPDATE carburetors SET sold_at = NULL, updated_at = ? WHERE id = ?").bind(now, item.resourceId));
-      else if (item.itemType === "part") statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + ?, updated_at = ? WHERE id = ?").bind(item.quantity, now, item.resourceId));
+  let saleNumber = editing ? String(existingSale?.sale_number ?? "") : await nextSaleNumber(saleDate);
+
+  function buildStatements() {
+    const statements = [];
+    if (buyer.newCustomer) statements.push(d1.prepare("INSERT INTO customers (id, name, phone, email, address, company_id, vat_id, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?)").bind(buyer.newCustomer!.id, buyer.newCustomer!.name, buyer.newCustomer!.phone, buyer.newCustomer!.email, buyer.newCustomer!.address, buyer.newCustomer!.companyId, buyer.newCustomer!.vatId, user.email, now, now));
+    if (editing) {
+      statements.push(d1.prepare("UPDATE sales SET race_id = ?, customer_id = ?, team_id = ?, sale_date = ?, customer_name = ?, document_number = ?, currency = ?, total_cents = ?, payment_method = ?, is_paid = ?, is_delivered = ?, notes = ?, updated_at = ? WHERE id = ? AND voided_at IS NULL").bind(raceId, buyer.customerId, buyer.teamId, saleDate, buyer.name, documentNumber, currency, totalCents, paymentMethod, isPaid ? 1 : 0, isDelivered ? 1 : 0, notes, now, id));
+      statements.push(d1.prepare("DELETE FROM sale_items WHERE sale_id = ?").bind(id));
+      for (const item of oldItems.results) {
+        if (item.itemType === "engine") statements.push(d1.prepare("UPDATE engines SET sold_at = NULL, updated_at = ? WHERE id = ?").bind(now, item.resourceId));
+        else if (item.itemType === "carburetor") statements.push(d1.prepare("UPDATE carburetors SET sold_at = NULL, updated_at = ? WHERE id = ?").bind(now, item.resourceId));
+        else if (item.itemType === "part") statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + ?, updated_at = ? WHERE id = ?").bind(item.quantity, now, item.resourceId));
+      }
+    } else {
+      statements.push(d1.prepare("INSERT INTO sales (id, race_id, customer_id, team_id, sale_number, sale_date, customer_name, document_number, currency, total_cents, payment_method, is_paid, is_delivered, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, raceId, buyer.customerId, buyer.teamId, saleNumber, saleDate, buyer.name, documentNumber, currency, totalCents, paymentMethod, isPaid ? 1 : 0, isDelivered ? 1 : 0, notes, user.email, now, now));
     }
-  } else {
-    statements.push(d1.prepare("INSERT INTO sales (id, race_id, customer_id, team_id, sale_number, sale_date, customer_name, document_number, currency, total_cents, payment_method, is_paid, is_delivered, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, raceId, buyer.customerId, buyer.teamId, saleNumber, saleDate, buyer.name, documentNumber, currency, totalCents, paymentMethod, isPaid ? 1 : 0, isDelivered ? 1 : 0, notes, user.email, now, now));
+    for (const item of normalizedItems) {
+      statements.push(d1.prepare("INSERT INTO sale_items (id, sale_id, item_type, line_kind, resource_id, code_snapshot, description, description_en_snapshot, quantity, unit_price_cents, line_total_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), id, item.itemType === "service" ? "other" : item.itemType, item.itemType === "service" ? "service" : "", item.resourceId, item.code, item.description, item.descriptionEn, item.quantity, item.unitPriceCents, item.lineTotalCents));
+      if (item.itemType === "engine") statements.push(d1.prepare("UPDATE engines SET sold_at = ?, updated_at = ? WHERE id = ?").bind(now, now, item.resourceId));
+      else if (item.itemType === "carburetor") statements.push(d1.prepare("UPDATE carburetors SET sold_at = ?, updated_at = ? WHERE id = ?").bind(now, now, item.resourceId));
+      else if (item.itemType === "part") statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity - ?, updated_at = ? WHERE id = ?").bind(item.quantity, now, item.resourceId));
+    }
+    statements.push(d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, 'sale', ?, ?, ?)").bind(crypto.randomUUID(), user.email, editing ? "update" : "create", id, JSON.stringify({ saleNumber, saleDate, customerName: buyer.name, currency, totalCents }), now));
+    return statements;
   }
-  for (const item of normalizedItems) {
-    statements.push(d1.prepare("INSERT INTO sale_items (id, sale_id, item_type, line_kind, resource_id, code_snapshot, description, description_en_snapshot, quantity, unit_price_cents, line_total_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), id, item.itemType === "service" ? "other" : item.itemType, item.itemType === "service" ? "service" : "", item.resourceId, item.code, item.description, item.descriptionEn, item.quantity, item.unitPriceCents, item.lineTotalCents));
-    if (item.itemType === "engine") statements.push(d1.prepare("UPDATE engines SET sold_at = ?, updated_at = ? WHERE id = ?").bind(now, now, item.resourceId));
-    else if (item.itemType === "carburetor") statements.push(d1.prepare("UPDATE carburetors SET sold_at = ?, updated_at = ? WHERE id = ?").bind(now, now, item.resourceId));
-    else if (item.itemType === "part") statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity - ?, updated_at = ? WHERE id = ?").bind(item.quantity, now, item.resourceId));
+
+  // Sale numbers are assigned from a COUNT(*)-based sequence, so two concurrent
+  // creates in the same year can compute the same number; retry with a freshly
+  // generated one on that specific collision instead of surfacing it to the user.
+  const maxAttempts = editing ? 1 : 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await d1.batch(buildStatements());
+      return Response.json({ id, saleNumber, customerId: buyer.customerId }, { status: editing ? 200 : 201 });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Database error";
+      const isSaleNumberCollision = !editing && message.toLowerCase().includes("unique") && message.toLowerCase().includes("sale_number");
+      if (isSaleNumberCollision && attempt < maxAttempts) { saleNumber = await nextSaleNumber(saleDate); continue; }
+      if (message.toLowerCase().includes("unique")) return Response.json({ error: "Sale or customer collision; please save again" }, { status: 409 });
+      return Response.json({ error: "Could not save sale" }, { status: 500 });
+    }
   }
-  statements.push(d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, 'sale', ?, ?, ?)").bind(crypto.randomUUID(), user.email, editing ? "update" : "create", id, JSON.stringify({ saleNumber, saleDate, customerName: buyer.name, currency, totalCents }), now));
-  try { await d1.batch(statements); }
-  catch (error) {
-    const message = error instanceof Error ? error.message : "Database error";
-    if (message.toLowerCase().includes("unique")) return Response.json({ error: "Sale or customer collision; please save again" }, { status: 409 });
-    return Response.json({ error: "Could not save sale" }, { status: 500 });
-  }
-  return Response.json({ id, saleNumber, customerId: buyer.customerId }, { status: editing ? 200 : 201 });
+  return Response.json({ error: "Could not save sale" }, { status: 500 });
 }
 
 async function resolveBuyer(payload: SalePayload, actorEmail: string) {

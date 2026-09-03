@@ -1,6 +1,7 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
+import { sniffFileType } from "../../file-signature";
 
 type LogisticsType = "accommodation" | "flight" | "rental";
 type AttachmentLeg = "general" | "outbound" | "return";
@@ -66,18 +67,20 @@ export async function POST(request: Request) {
   if (!entity) return Response.json({ error: "Travel record not found" }, { status: 404 });
   const count = await d1.prepare("SELECT COUNT(*) AS count FROM travel_attachments WHERE entity_type = ? AND entity_id = ?").bind(entityType, entityId).first<{ count: number }>();
   if (Number(count?.count ?? 0) + files.length > maxFilesPerRecord) return Response.json({ error: `A record can have at most ${maxFilesPerRecord} files` }, { status: 400 });
-  for (const file of files) {
-    if (!allowedTypes.has(file.type)) return Response.json({ error: "Files must be PDF, PNG, JPG or WebP" }, { status: 400 });
-    if (file.size > maxFileBytes) return Response.json({ error: "One of the files is larger than 15 MB" }, { status: 413 });
+  const sniffed = await Promise.all(files.map((file) => sniffFileType(file)));
+  for (let i = 0; i < files.length; i++) {
+    if (!sniffed[i] || !allowedTypes.has(sniffed[i]!.type)) return Response.json({ error: "Files must be PDF, PNG, JPG or WebP" }, { status: 400 });
+    if (files[i].size > maxFileBytes) return Response.json({ error: "One of the files is larger than 15 MB" }, { status: 413 });
   }
 
   const now = Date.now(); const bucket = getAssetsBucket(); const uploaded: AttachmentRow[] = [];
   try {
-    for (const file of files) {
-      const id = crypto.randomUUID(); const extension = allowedTypes.get(file.type) ?? "bin";
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]; const { type: contentType, extension } = sniffed[i]!;
+      const id = crypto.randomUUID();
       const key = `travel-attachments/${entityType}/${entityId}/${leg}/${id}.${extension}`;
-      await bucket.put(key, file.stream(), { httpMetadata: { contentType: file.type }, customMetadata: { entityType, entityId, leg, uploadedBy: user.email, fileName: file.name } });
-      uploaded.push({ id, entityType, entityId, leg, fileName: clean(file.name, 240) || `soubor.${extension}`, objectKey: key, contentType: file.type, sizeBytes: file.size, createdAt: now });
+      await bucket.put(key, file.stream(), { httpMetadata: { contentType }, customMetadata: { entityType, entityId, leg, uploadedBy: user.email, fileName: file.name } });
+      uploaded.push({ id, entityType, entityId, leg, fileName: clean(file.name, 240) || `soubor.${extension}`, objectKey: key, contentType, sizeBytes: file.size, createdAt: now });
     }
     await d1.batch([
       ...uploaded.map((item) => d1.prepare("INSERT INTO travel_attachments (id, entity_type, entity_id, leg, file_name, object_key, content_type, size_bytes, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(item.id, item.entityType, item.entityId, item.leg, item.fileName, item.objectKey, item.contentType, item.sizeBytes, user.email, now)),

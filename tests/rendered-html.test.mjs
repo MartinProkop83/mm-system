@@ -328,7 +328,7 @@ test("user access is managed by superadmins and prevents an accidental lockout",
   assert.match(devSessionRoute, /mm-dev-user-id/);
   assert.match(serverAuth, /mm-dev-user-id/);
   assert.match(serverAuth, /sites-screenshot-service-noreply@chatgpt\.com/);
-  assert.match(serverAuth, /SELECT COUNT\(\*\) AS count FROM app_users WHERE is_active = 1/);
+  assert.match(serverAuth, /WHERE NOT EXISTS \(SELECT 1 FROM app_users WHERE is_active = 1\)/);
 });
 
 test("clothing catalog stores configurable sizes, photos and appears on mechanic cards", async () => {

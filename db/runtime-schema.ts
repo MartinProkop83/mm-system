@@ -646,7 +646,10 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS customers_name_idx ON customers (name)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS customers_email_unique_idx ON customers (LOWER(email)) WHERE email != '' AND archived_at IS NULL"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_catalog_name_unique_idx ON service_catalog (LOWER(name)) WHERE archived_at IS NULL"),
-    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS inventory_parts_code_unique ON inventory_parts (code)"),
+    d1.prepare("DROP INDEX IF EXISTS inventory_parts_code_unique"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS inventory_parts_code_unique ON inventory_parts (code) WHERE archived_at IS NULL"),
+    d1.prepare("DROP INDEX IF EXISTS engines_code_category_unique"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engines_code_category_unique ON engines (code, category) WHERE archived_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS audit_logs_entity_idx ON audit_logs (entity_type, entity_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS work_items_status_due_idx ON work_items (status, due_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS work_items_race_idx ON work_items (race_id)"),
@@ -692,6 +695,7 @@ async function createRuntimeSchema() {
   }
 
   await ensureEngineCodeCategoryIndex(d1);
+  await ensureArchivedScopedUniqueness(d1);
 
   const raceColumns = await d1.prepare("PRAGMA table_info(races)").all<{ name: string }>();
   const existingRaceColumns = new Set(raceColumns.results.map((column: { name: string }) => column.name));
@@ -951,7 +955,92 @@ async function ensureEngineCodeCategoryIndex(d1: ReturnType<typeof getD1>) {
   }
 
   await d1.batch([
-    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engines_code_category_unique ON engines (code, category)"),
+    d1.prepare("DROP INDEX IF EXISTS engines_code_category_unique"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engines_code_category_unique ON engines (code, category) WHERE archived_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engines_status_idx ON engines (status)"),
+  ]);
+}
+
+// carburetors.code and race_templates.name were originally declared with an inline
+// UNIQUE column constraint, which (unlike a partial index) can't be scoped to
+// active rows only — archiving a record and reusing its code/name would still be
+// rejected. Rebuild each table without the inline constraint, same approach as
+// ensureEngineCodeCategoryIndex above, then replace it with a partial unique index.
+async function ensureArchivedScopedUniqueness(d1: ReturnType<typeof getD1>) {
+  const carburetorsTable = await d1.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'carburetors'").first<{ sql: string }>();
+  if (/code\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(carburetorsTable?.sql ?? "")) {
+    await d1.batch([
+      d1.prepare("DROP TABLE IF EXISTS carburetors_scope_migration"),
+      d1.prepare(`
+        CREATE TABLE carburetors_scope_migration (
+          id TEXT PRIMARY KEY NOT NULL,
+          code TEXT NOT NULL,
+          carburetor_type_id TEXT,
+          category TEXT NOT NULL DEFAULT '',
+          family TEXT NOT NULL,
+          brand TEXT NOT NULL DEFAULT '',
+          model TEXT NOT NULL DEFAULT '',
+          status TEXT NOT NULL DEFAULT 'ready',
+          notes TEXT NOT NULL DEFAULT '',
+          sold_at INTEGER,
+          archived_at INTEGER,
+          created_by TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `),
+      d1.prepare(`
+        INSERT INTO carburetors_scope_migration (
+          id, code, carburetor_type_id, category, family, brand, model, status,
+          notes, sold_at, archived_at, created_by, created_at, updated_at
+        )
+        SELECT id, code, carburetor_type_id, category, family, brand, model, status,
+          notes, sold_at, archived_at, created_by, created_at, updated_at
+        FROM carburetors
+      `),
+      d1.prepare("DROP TABLE carburetors"),
+      d1.prepare("ALTER TABLE carburetors_scope_migration RENAME TO carburetors"),
+    ]);
+  }
+  await d1.batch([
+    d1.prepare("DROP INDEX IF EXISTS carburetors_code_unique"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS carburetors_code_unique ON carburetors (code) WHERE archived_at IS NULL"),
+  ]);
+
+  const raceTemplatesTable = await d1.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'race_templates'").first<{ sql: string }>();
+  if (/name\s+TEXT\s+NOT\s+NULL\s+UNIQUE/i.test(raceTemplatesTable?.sql ?? "")) {
+    await d1.batch([
+      d1.prepare("DROP TABLE IF EXISTS race_templates_scope_migration"),
+      d1.prepare(`
+        CREATE TABLE race_templates_scope_migration (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          notes TEXT NOT NULL DEFAULT '',
+          calendar_color TEXT NOT NULL DEFAULT 'blue',
+          logo_key TEXT,
+          logo_content_type TEXT,
+          logo_updated_at INTEGER,
+          archived_at INTEGER,
+          created_by TEXT NOT NULL,
+          created_at INTEGER NOT NULL,
+          updated_at INTEGER NOT NULL
+        )
+      `),
+      d1.prepare(`
+        INSERT INTO race_templates_scope_migration (
+          id, name, notes, calendar_color, logo_key, logo_content_type, logo_updated_at,
+          archived_at, created_by, created_at, updated_at
+        )
+        SELECT id, name, notes, calendar_color, logo_key, logo_content_type, logo_updated_at,
+          archived_at, created_by, created_at, updated_at
+        FROM race_templates
+      `),
+      d1.prepare("DROP TABLE race_templates"),
+      d1.prepare("ALTER TABLE race_templates_scope_migration RENAME TO race_templates"),
+    ]);
+  }
+  await d1.batch([
+    d1.prepare("DROP INDEX IF EXISTS race_templates_name_unique"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS race_templates_name_unique ON race_templates (name) WHERE archived_at IS NULL"),
   ]);
 }

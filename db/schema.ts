@@ -164,7 +164,7 @@ export const vehicles = sqliteTable("vehicles", {
 
 export const carburetors = sqliteTable("carburetors", {
   id: text("id").primaryKey(),
-  code: text("code").notNull().unique(),
+  code: text("code").notNull(),
   carburetorTypeId: text("carburetor_type_id"),
   category: text("category").notNull().default(""),
   family: text("family").notNull(),
@@ -207,7 +207,7 @@ export const carburetorServiceEntries = sqliteTable("carburetor_service_entries"
 
 export const raceTemplates = sqliteTable("race_templates", {
   id: text("id").primaryKey(),
-  name: text("name").notNull().unique(),
+  name: text("name").notNull(),
   notes: text("notes").notNull().default(""),
   calendarColor: text("calendar_color").notNull().default("blue"),
   logoKey: text("logo_key"),
@@ -545,9 +545,7 @@ export const inventoryParts = sqliteTable("inventory_parts", {
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
-}, (table) => [
-  uniqueIndex("inventory_parts_code_unique").on(table.code),
-]);
+});
 
 export const auditLogs = sqliteTable("audit_logs", {
   id: text("id").primaryKey(),
