@@ -415,6 +415,16 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "settings", mark: "⚙" },
 ];
 
+const navGroups: Array<{ labelCs: string; labelEn: string; items: View[] }> = [
+  { labelCs: "Provoz", labelEn: "Operations", items: ["dashboard", "tasks", "calendar"] },
+  { labelCs: "Závody", labelEn: "Races", items: ["races", "raceTypes", "circuits"] },
+  { labelCs: "Tým", labelEn: "Team", items: ["drivers", "teams", "customers", "mechanics", "clothing"] },
+  { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "inventory"] },
+  { labelCs: "Logistika", labelEn: "Logistics", items: ["accommodation", "flights", "rentals"] },
+  { labelCs: "Obchod", labelEn: "Business", items: ["sales", "documents"] },
+  { labelCs: "Nastavení", labelEn: "Settings", items: ["settings"] },
+];
+
 export default function Home() {
   const [locale, setLocale] = useState<Locale>("cs");
   const [view, setView] = useState<View>("dashboard");
@@ -432,8 +442,25 @@ export default function Home() {
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [devUsers, setDevUsers] = useState<DevUser[]>([]);
   const [switchingDevUser, setSwitchingDevUser] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [notifOpen, setNotifOpen] = useState(false);
   const t = copy[locale];
-  const visibleNav = useMemo(() => nav.filter((item) => item.id !== "settings" || session?.role === "superadmin"), [session?.role]);
+  const visibleNavGroups = useMemo(
+    () => navGroups
+      .map((group) => ({ ...group, items: group.items.filter((id) => id !== "settings" || session?.role === "superadmin") }))
+      .filter((group) => group.items.length > 0),
+    [session?.role],
+  );
+  const searchResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return nav.filter((item) => item.id !== "settings" || session?.role === "superadmin").filter((item) => t[item.id].toLowerCase().includes(query)).slice(0, 8);
+  }, [searchQuery, session?.role, t]);
+  const enginesNeedingService = useMemo(
+    () => engineRows.filter((engine) => !engine.soldAt && engine.status !== "retired" && (engine.status === "service_soon" || engine.status === "service")),
+    [engineRows],
+  );
 
   useEffect(() => {
     const saved = window.localStorage.getItem("mm-locale");
@@ -558,26 +585,37 @@ export default function Home() {
 
   return (
     <main className="app-shell">
-      <aside className="sidebar">
+      <div className="sidebar-backdrop" hidden={!sidebarOpen} onClick={() => setSidebarOpen(false)} />
+
+      <aside className={sidebarOpen ? "sidebar open" : "sidebar"}>
         <div className="brand" aria-label="Macháč Motors">
           <img className="brand-logo" src="/machac-motors-logo.jpg" alt="Macháč Motors" />
+          <button className="sidebar-close" type="button" aria-label={locale === "cs" ? "Zavřít menu" : "Close menu"} onClick={() => setSidebarOpen(false)}>✕</button>
         </div>
 
-        <nav className="main-nav" aria-label={locale === "cs" ? "Hlavní navigace" : "Main navigation"}>
-          {visibleNav.map((item) => (
-            <button
-              key={item.id}
-              className={view === item.id ? "nav-item active" : "nav-item"}
-              onClick={() => { setView(item.id); if (item.id !== "engines") setDetailEngineId(null); if (item.id === "races") setRequestedRaceId(null); }}
-              type="button"
-            >
-              <span className="nav-mark" aria-hidden="true">{item.mark}</span>
-              <span>{t[item.id]}</span>
-            </button>
+        <nav className="nav" aria-label={locale === "cs" ? "Hlavní navigace" : "Main navigation"}>
+          {visibleNavGroups.map((group) => (
+            <div className="nav-group" key={group.labelCs}>
+              <div className="nav-group-label">{locale === "cs" ? group.labelCs : group.labelEn}</div>
+              {group.items.map((id) => {
+                const item = nav.find((entry) => entry.id === id)!;
+                return (
+                  <button
+                    key={item.id}
+                    className={view === item.id ? "nav-item active" : "nav-item"}
+                    onClick={() => { setView(item.id); setSidebarOpen(false); if (item.id !== "engines") setDetailEngineId(null); if (item.id === "races") setRequestedRaceId(null); }}
+                    type="button"
+                  >
+                    <span className="nav-mark" aria-hidden="true">{item.mark}</span>
+                    <span>{t[item.id]}</span>
+                  </button>
+                );
+              })}
+            </div>
           ))}
         </nav>
 
-        <button className="race-mode" type="button" onClick={() => showNotice("Race Mode bude následovat po modulech Motory a Závody.")}> 
+        <button className="race-mode" type="button" onClick={() => showNotice("Race Mode bude následovat po modulech Motory a Závody.")}>
           <span className="live-dot" />
           {t.raceMode}
         </button>
@@ -609,18 +647,63 @@ export default function Home() {
       </aside>
 
       <section className="workspace">
+        <div className="util-bar">
+          <button className="hamburger-btn" type="button" aria-label={locale === "cs" ? "Otevřít menu" : "Open menu"} onClick={() => setSidebarOpen(true)}>☰</button>
+          <label className="util-search">
+            <span aria-hidden="true">🔍</span>
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onBlur={() => window.setTimeout(() => setSearchQuery(""), 150)}
+              placeholder={locale === "cs" ? "Hledat sekci…" : "Search a section…"}
+            />
+            {searchQuery.trim() && (
+              <div className="util-search-results">
+                {searchResults.length === 0 && <div className="util-search-empty">{locale === "cs" ? "Nic nenalezeno" : "Nothing found"}</div>}
+                {searchResults.map((item) => (
+                  <button key={item.id} type="button" onMouseDown={() => { setView(item.id); setSearchQuery(""); if (item.id !== "engines") setDetailEngineId(null); }}>
+                    <span aria-hidden="true">{item.mark}</span>{t[item.id]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </label>
+          <div className="util-right">
+            <div className="util-lang" aria-label={locale === "cs" ? "Jazyk" : "Language"}>
+              <button className={locale === "cs" ? "selected" : ""} onClick={() => setLocale("cs")} type="button">CZ</button>
+              <button className={locale === "en" ? "selected" : ""} onClick={() => setLocale("en")} type="button">EN</button>
+            </div>
+            <div className="util-bell-wrap">
+              <button className="util-bell" type="button" onClick={() => setNotifOpen((open) => !open)} aria-expanded={notifOpen}>
+                🔔{enginesNeedingService.length > 0 && <span className="notif-count">{enginesNeedingService.length}</span>}
+              </button>
+              {notifOpen && (
+                <div className="notif-panel">
+                  <header><strong>{locale === "cs" ? "Upozornění" : "Notifications"}</strong></header>
+                  {enginesNeedingService.length === 0 && <div className="notif-empty">{locale === "cs" ? "Žádná upozornění" : "Nothing to flag"}</div>}
+                  {enginesNeedingService.slice(0, 6).map((engine) => (
+                    <button key={engine.id} type="button" className="notif-row" onClick={() => { setView("engines"); setDetailEngineId(engine.id); setNotifOpen(false); }}>
+                      <i />
+                      <div>
+                        <strong>{locale === "cs" ? `Motor ${engine.code} potřebuje servis` : `Engine ${engine.code} needs service`}</strong>
+                        <small>{engine.family}</small>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
         <header className="topbar">
           <div>
-            <p className="mobile-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><span>MM SYSTEM</span></p>
             <h1>{view === "dashboard" ? timeGreeting(locale, session?.fullName ?? "Martin Prokop", currentHour ?? 8) : view === "engines" && detailEngine ? `${locale === "cs" ? "Motor" : "Engine"} ${detailEngine.code}` : title}</h1>
             <p>{view === "dashboard" ? t.subtitle : view === "engines" && detailEngine ? `TM Racing · ${detailEngine.family}` : locale === "cs" ? "Centrální správa Macháč Motors" : "Macháč Motors central management"}</p>
           </div>
           <div className="topbar-actions">
-            <div className="language" aria-label={locale === "cs" ? "Jazyk" : "Language"}>
-              <button className={locale === "cs" ? "selected" : ""} onClick={() => setLocale("cs")} type="button">CZ</button>
-              <button className={locale === "en" ? "selected" : ""} onClick={() => setLocale("en")} type="button">EN</button>
-            </div>
-            <button className="primary-button" type="button" onClick={() => showNotice(locale === "cs" ? "Rychlé akce připravíme v další etapě." : "Quick actions are coming in the next stage.")}>＋ {t.quick}</button>
+            <button className="topbar-cta" type="button" onClick={() => showNotice(locale === "cs" ? "Rychlé akce připravíme v další etapě." : "Quick actions are coming in the next stage.")}>＋ {t.quick}</button>
           </div>
         </header>
 
@@ -692,12 +775,16 @@ export default function Home() {
       </section>
 
       <nav className="mobile-nav" aria-label={locale === "cs" ? "Mobilní navigace" : "Mobile navigation"}>
-        {nav.slice(0, 5).map((item) => (
+        {nav.slice(0, 4).map((item) => (
           <button key={item.id} className={view === item.id ? "active" : ""} onClick={() => { setView(item.id); if (item.id !== "engines") setDetailEngineId(null); }} type="button">
             <span aria-hidden="true">{item.mark}</span>
             <small>{t[item.id]}</small>
           </button>
         ))}
+        <button type="button" onClick={() => setSidebarOpen(true)}>
+          <span aria-hidden="true">☰</span>
+          <small>{locale === "cs" ? "Více" : "More"}</small>
+        </button>
       </nav>
 
       {notice && <div className="toast" role="status">{notice}</div>}
@@ -768,6 +855,9 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
     .filter((race) => race.status !== "completed" && race.endDate >= today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const nextRace = upcoming[0] ?? null;
+  // Races overlapping the nearest one's date window — a team fielding drivers across
+  // categories often has several races the same weekend; show all of them, not just one.
+  const raceGroup = nextRace ? upcoming.filter((race) => race.startDate <= nextRace.endDate && race.endDate >= nextRace.startDate) : [];
   const ownedEngines = engines.filter((engine) => !engine.soldAt && engine.status !== "retired");
   const ownedCarburetors = catalog.carburetors.filter((carburetor) => !carburetor.soldAt && carburetor.status !== "retired");
   const engineStats = {
@@ -777,7 +867,6 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
     storage: ownedEngines.filter((engine) => engine.status === "storage").length,
   };
   const serviceCount = engineStats.due + engineStats.rebuild;
-  const donutStops = dashboardDonutStops(engineStats, ownedEngines.length);
   const now = localIsoMinute(new Date());
   const activeTasks = dashboardTasks.filter((task) => task.status !== "done");
   const overdueTasks = activeTasks.filter((task) => Boolean(task.dueAt && task.dueAt < now));
@@ -787,67 +876,168 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
     if (!b.dueAt) return -1;
     return a.dueAt.localeCompare(b.dueAt);
   })[0];
+  const fleetCategories: Array<{ id: EngineFilter; label: string }> = [
+    { id: "ALL", label: locale === "cs" ? "Všechny" : "All" },
+    { id: "MINI", label: "MINI" }, { id: "OKJ", label: "OKJ" }, { id: "OKN", label: "OKN" }, { id: "OK", label: "OK" }, { id: "KZ", label: "KZ" },
+  ];
+  const fleetRows = fleetCategories.map((category) => {
+    const rows = category.id === "ALL" ? ownedEngines : ownedEngines.filter((engine) => (engine.family === "OKN-J" ? "OKN" : engine.family) === category.id);
+    const stats = {
+      ready: rows.filter((engine) => engine.status === "ready").length,
+      due: rows.filter((engine) => engine.status === "service_soon" || engine.status === "service").length,
+      rebuild: rows.filter((engine) => engine.status === "rebuild").length,
+      storage: rows.filter((engine) => engine.status === "storage").length,
+    };
+    return { category, total: rows.length, stats };
+  });
+  const seasonRows = [...dashboardRaces].sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 8);
 
   return (
     <div className="dashboard-grid">
-      <section className="panel next-race">
-        <div className="panel-heading"><span>{t.nextRace}</span>{nextRace && <b className="status-pill success">{raceCountdown(nextRace, today, locale)}</b>}</div>
-        {loading ? <div className="dashboard-loading">{t.loading}</div> : nextRace ? <>
-          <div className="dashboard-next-race-title"><RaceLogoBadge logoUrl={nextRace.logoUrl} name={nextRace.name} fallback={countryFlag(nextRace.countryCode)} /><span><h2>{nextRace.name}</h2><p className="muted">{countryFlag(nextRace.countryCode)} {dashboardDateRange(nextRace.startDate, nextRace.endDate, locale)} <span>•</span> {nextRace.track}, {nextRace.countryCode}</p></span></div>
-          <div className="race-counts">
-            <div><strong>{nextRace.driverCount}</strong><span>{t.driversCount}</span></div>
-            <div><strong>{nextRace.engineCount}</strong><span>{t.enginesCount}</span></div>
-            <div><strong>{nextRace.carburetorCount}</strong><span>{t.carbsCount}</span></div>
+      <div>
+        <div className="dash-eyebrow">
+          {raceGroup.length > 1 ? (locale === "cs" ? `Tento víkend — ${raceGroup.length} závody souběžně` : `This weekend — ${raceGroup.length} races at once`) : t.nextRace}
+          <a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celý kalendář" : "Full calendar"}</a>
+        </div>
+        {loading ? <div className="dashboard-loading">{t.loading}</div> : raceGroup.length === 0 ? (
+          <div className="race-mini-empty">
+            <strong>{locale === "cs" ? "Žádný nadcházející závod" : "No upcoming race"}</strong>
+            <button className="topbar-cta" type="button" onClick={() => onOpenView("races")}>{locale === "cs" ? "Přejít na závody" : "Open races"} →</button>
           </div>
-          <button className="secondary-button" type="button" onClick={() => onOpenRace(nextRace.id)}>{t.openRace} →</button>
-        </> : <div className="dashboard-empty"><strong>{locale === "cs" ? "Žádný nadcházející závod" : "No upcoming race"}</strong><button className="secondary-button" type="button" onClick={() => onOpenView("races")}>{locale === "cs" ? "Přejít na závody" : "Open races"} →</button></div>}
-      </section>
+        ) : (
+          <div className="race-grid">
+            {raceGroup.map((race) => {
+              const raceIssues = engines.filter((engine) => !engine.soldAt && engine.status !== "retired" && engine.assignedRace === race.name && (engine.status === "service_soon" || engine.status === "service"));
+              return (
+                <div className="race-mini" key={race.id}>
+                  <div className="race-mini-head">
+                    <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="small" />
+                    <span className="race-flag">{countryFlag(race.countryCode)}</span>
+                    <span className="race-mini-round">{raceCountdown(race, today, locale)}</span>
+                  </div>
+                  <h3>{race.name}</h3>
+                  <p className="race-mini-meta">{dashboardDateRange(race.startDate, race.endDate, locale)} · {race.track}</p>
+                  {raceIssues[0] && (
+                    <div className="race-mini-readiness">
+                      ⚠ {locale === "cs" ? `Motor ${raceIssues[0].code} potřebuje servis` : `Engine ${raceIssues[0].code} needs service`}
+                      <a onClick={() => onOpenView("engines")}>{locale === "cs" ? "Vyřešit" : "Resolve"}</a>
+                    </div>
+                  )}
+                  <div className="race-mini-stats">
+                    <div><span className="n">{race.driverCount}</span><span className="l">{t.driversCount}</span></div>
+                    <div><span className="n">{race.engineCount}</span><span className="l">{t.enginesCount}</span></div>
+                    <div><span className="n">{race.carburetorCount}</span><span className="l">{t.carbsCount}</span></div>
+                  </div>
+                  <button className="topbar-cta" type="button" onClick={() => onOpenRace(race.id)}>{t.openRace} →</button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-      <section className="panel alerts">
-        <div className="panel-heading"><span>{t.actionCenter}</span></div>
-        <button type="button" onClick={() => onOpenView("engines")}><i className="alert-icon critical">!</i><span>{locale === "cs" ? `${serviceCount} motorů potřebuje servis` : `${serviceCount} engines need service`}</span><b>›</b></button>
-        <button type="button"><i className="alert-icon warning">!</i><span>{locale === "cs" ? `${ownedCarburetors.filter((item) => item.status === "service").length} karburátorů potřebuje servis` : `${ownedCarburetors.filter((item) => item.status === "service").length} carburetors need service`}</span><b>›</b></button>
-        <button type="button" onClick={() => onOpenView("tasks")}><i className={`alert-icon ${overdueTasks.length ? "critical" : "info"}`}>{overdueTasks.length ? "!" : "✓"}</i><span>{overdueTasks.length ? (locale === "cs" ? `${overdueTasks.length} ${taskCountWord(overdueTasks.length)} po termínu` : `${overdueTasks.length} overdue tasks`) : (locale === "cs" ? openTaskLabel(activeTasks.length) : `${activeTasks.length} open tasks`)}</span><b>›</b></button>
-        {nextTask && <button type="button" onClick={() => onOpenView("tasks")}><i className="alert-icon info">◷</i><span>{nextTask.title}</span><b>›</b></button>}
-      </section>
+      <div className="info-grid">
+        <section className="dash-panel">
+          <h3>{t.actionCenter}</h3>
+          <button type="button" className="alert-row" onClick={() => onOpenView("engines")}><span className="alert-dot critical" /><span>{locale === "cs" ? `${serviceCount} motorů potřebuje servis` : `${serviceCount} engines need service`}</span><b>›</b></button>
+          <button type="button" className="alert-row" onClick={() => onOpenView("carburetors")}><span className="alert-dot warning" /><span>{locale === "cs" ? `${ownedCarburetors.filter((item) => item.status === "service").length} karburátorů potřebuje servis` : `${ownedCarburetors.filter((item) => item.status === "service").length} carburetors need service`}</span><b>›</b></button>
+          <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className={`alert-dot ${overdueTasks.length ? "critical" : "info"}`} /><span>{overdueTasks.length ? (locale === "cs" ? `${overdueTasks.length} ${taskCountWord(overdueTasks.length)} po termínu` : `${overdueTasks.length} overdue tasks`) : (locale === "cs" ? openTaskLabel(activeTasks.length) : `${activeTasks.length} open tasks`)}</span><b>›</b></button>
+          {nextTask && <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className="alert-dot info" /><span>{nextTask.title}</span><b>›</b></button>}
+        </section>
 
-      <section className="panel activity">
-        <div className="panel-heading"><span>{t.recent}</span></div>
-        {dashboardActivity.slice(0, 3).map((item, index) => <Activity key={item.id} code={item.actorName} text={activityDescription(item, locale)} time={relativeActivityTime(item.createdAt, locale)} tone={index === 0 ? "green" : index === 1 ? "blue" : "orange"} />)}
-        {!loading && dashboardActivity.length === 0 && <p className="dashboard-list-empty">{locale === "cs" ? "Zatím nebyla zaznamenána žádná aktivita." : "No activity has been recorded yet."}</p>}
-      </section>
+        <section className="dash-panel">
+          <h3>{t.recent}</h3>
+          {dashboardActivity.slice(0, 3).map((item) => (
+            <div className="act-row" key={item.id}>
+              <span className="act-avatar">{item.actorName.slice(0, 2).toUpperCase()}</span>
+              <div><b>{item.actorName}</b> {activityDescription(item, locale)}<small>{relativeActivityTime(item.createdAt, locale)}</small></div>
+            </div>
+          ))}
+          {!loading && dashboardActivity.length === 0 && <p className="dashboard-list-empty">{locale === "cs" ? "Zatím nebyla zaznamenána žádná aktivita." : "No activity has been recorded yet."}</p>}
+        </section>
+      </div>
 
-      <section className="panel overview-panel">
-        <div className="panel-heading"><span>{t.overview}</span></div>
+      <section className="overview-panel">
         <div className="stats-row">
-          <Stat value={String(catalog.drivers.filter((driver) => driver.isActive).length)} label={t.driversCount} tone="blue" onClick={() => onOpenView("drivers")} />
-          <Stat value={String(ownedEngines.length)} label={t.enginesCount} tone="green" onClick={() => onOpenView("engines")} />
-          <Stat value={String(dashboardRaces.length)} label={t.races} tone="purple" onClick={() => onOpenView("races")} />
-          <Stat value={String(serviceCount)} label={t.service} tone="orange" onClick={() => onOpenView("service")} />
-          <Stat value={String(inventoryCount)} label={locale === "cs" ? "Položek skladu" : "Inventory items"} tone="yellow" onClick={() => onOpenView("inventory")} />
+          <Stat value={String(catalog.drivers.filter((driver) => driver.isActive).length)} label={t.driversCount} tone="c-blue" onClick={() => onOpenView("drivers")} />
+          <Stat value={String(ownedEngines.length)} label={t.enginesCount} tone="c-green" onClick={() => onOpenView("engines")} />
+          <Stat value={String(dashboardRaces.length)} label={t.races} tone="c-purple" onClick={() => onOpenView("races")} />
+          <Stat value={String(serviceCount)} label={t.service} tone="c-orange" onClick={() => onOpenView("service")} />
+          <Stat value={String(inventoryCount)} label={locale === "cs" ? "Položek skladu" : "Inventory items"} tone="c-yellow" onClick={() => onOpenView("inventory")} />
         </div>
       </section>
 
-      <section className="panel race-list-panel">
-        <div className="panel-heading"><span>{t.upcomingRaces}</span><a href="#races" onClick={(event) => { event.preventDefault(); onOpenView("races"); }}>{t.viewAll}</a></div>
-        <div className="race-list">
-          {upcoming.slice(0, 5).map((race) => <RaceRow key={race.id} race={race} today={today} locale={locale} onOpen={() => onOpenRace(race.id)} />)}
-          {!loading && upcoming.length === 0 && <p className="dashboard-list-empty">{locale === "cs" ? "Zatím není naplánovaný žádný další závod." : "No upcoming races are planned yet."}</p>}
-        </div>
-      </section>
-
-      <section className="panel engine-status-panel">
-        <div className="panel-heading"><span>{t.engineStatus}</span><a href="#engines" onClick={(event) => { event.preventDefault(); onOpenView("engines"); }}>{t.viewAll}</a></div>
-        <div className="engine-visual">
-          <div className="donut" style={{ background: donutStops }} aria-label={`${ownedEngines.length} ${t.total}`}><span><b>{ownedEngines.length}</b>{t.total}</span></div>
-          <div className="legend">
-            <Legend color="green" label={t.ready} value={countWithPercent(engineStats.ready, ownedEngines.length)} />
-            <Legend color="orange" label={t.due} value={countWithPercent(engineStats.due, ownedEngines.length)} />
-            <Legend color="red" label={t.rebuild} value={countWithPercent(engineStats.rebuild, ownedEngines.length)} />
-            <Legend color="gray" label={t.storage} value={countWithPercent(engineStats.storage, ownedEngines.length)} />
+      {upcoming.length > 0 && (
+        <div>
+          <div className="dash-eyebrow">{t.upcomingRaces}<a onClick={() => onOpenView("races")}>{t.viewAll}</a></div>
+          <div className="season">
+            {upcoming.slice(0, 8).map((race) => (
+              <button className={race.id === nextRace?.id ? "round-card next" : "round-card"} type="button" key={race.id} onClick={() => onOpenRace(race.id)}>
+                <div className="round-card-head">
+                  <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="small" />
+                  <span className="round-flag-inline">{countryFlag(race.countryCode)}</span>
+                </div>
+                <div className="round-name">{race.name}</div>
+                <div className="round-date">{dashboardDateRange(race.startDate, race.endDate, locale)} · {race.track}</div>
+                <div className="round-in">{raceCountdown(race, today, locale)}</div>
+              </button>
+            ))}
           </div>
         </div>
-      </section>
+      )}
+
+      <div>
+        <div className="dash-eyebrow">{t.engineStatus}<a onClick={() => onOpenView("engines")}>{t.viewAll}</a></div>
+        <div className="fleet-board">
+          <div className="fleet-legend-strip">
+            <span><i style={{ background: "var(--wrc-green)" }} />{t.ready}</span>
+            <span><i style={{ background: "var(--wrc-amber)" }} />{t.due}</span>
+            <span><i style={{ background: "var(--wrc-red)" }} />{t.rebuild}</span>
+            <span><i style={{ background: "var(--wrc-ink-faint)" }} />{t.storage}</span>
+          </div>
+          {fleetRows.map(({ category, total, stats }) => (
+            <button className="fleet-row" type="button" key={category.id} onClick={() => onOpenView("engines")}>
+              <div className="fleet-cat"><strong>{category.label}</strong><small>{total} {locale === "cs" ? "motorů" : "engines"}</small></div>
+              <div className="fleet-bar">
+                {total > 0 && <div style={{ width: `${(stats.ready / total) * 100}%`, background: "var(--wrc-green)" }} />}
+                {total > 0 && <div style={{ width: `${(stats.due / total) * 100}%`, background: "var(--wrc-amber)" }} />}
+                {total > 0 && <div style={{ width: `${(stats.rebuild / total) * 100}%`, background: "var(--wrc-red)" }} />}
+                {total > 0 && <div style={{ width: `${(stats.storage / total) * 100}%`, background: "var(--wrc-ink-faint)" }} />}
+              </div>
+              <div className="fleet-counts">
+                <b style={{ color: "var(--wrc-green)" }}>{stats.ready}</b>
+                <b style={{ color: "var(--wrc-amber)" }}>{stats.due}</b>
+                <b style={{ color: "var(--wrc-red)" }}>{stats.rebuild}</b>
+                <b style={{ color: "var(--wrc-ink-faint)" }}>{stats.storage}</b>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {seasonRows.length > 0 && (
+        <div>
+          <div className="dash-eyebrow">{locale === "cs" ? "Sezóna" : "Season"}</div>
+          <div className="results-panel">
+            <table className="results">
+              <thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{t.status}</th><th className="num-col">{t.driversCount}</th><th className="num-col">{t.enginesCount}</th><th className="num-col">{t.carbsCount}</th><th /></tr></thead>
+              <tbody>
+                {seasonRows.map((race) => (
+                  <tr key={race.id}>
+                    <td className="r-name"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="small" /><span>{countryFlag(race.countryCode)} {race.name}<small>{race.track}</small></span></td>
+                    <td>{dashboardDateRange(race.startDate, race.endDate, locale)}</td>
+                    <td><span className={`r-status ${race.status === "completed" ? "done" : race.id === nextRace?.id ? "next" : "upcoming"}`}>{race.status === "completed" ? (locale === "cs" ? "Dokončeno" : "Done") : raceCountdown(race, today, locale)}</span></td>
+                    <td className="num-col">{race.driverCount}</td>
+                    <td className="num-col">{race.engineCount}</td>
+                    <td className="num-col">{race.carburetorCount}</td>
+                    <td><button type="button" className="r-link" onClick={() => onOpenRace(race.id)}>{locale === "cs" ? "Otevřít" : "Open"}</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1581,11 +1771,7 @@ function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { loc
 }
 
 function Stat({ value, label, tone, onClick }: { value: string; label: string; tone: string; onClick: () => void }) {
-  return <button className="stat-card" type="button" onClick={onClick} aria-label={`${label}: ${value}`}><span className={`stat-dot ${tone}`} /><strong>{value}</strong><span>{label}</span></button>;
-}
-
-function Activity({ code, text, time, tone }: { code: string; text: string; time: string; tone: string }) {
-  return <div className="activity-row"><span className={`activity-icon ${tone}`}>{code.slice(0, 1)}</span><span><strong>{code}</strong><small>{text}</small></span><time>{time}</time></div>;
+  return <button className="stat-card" type="button" onClick={onClick} aria-label={`${label}: ${value}`}><strong className={tone}>{value}</strong><span>{label}</span></button>;
 }
 
 function activityDescription(item: ActivityRecord, locale: Locale) {
@@ -1633,10 +1819,6 @@ function relativeActivityTime(createdAt: number, locale: Locale) {
   if (hours < 24) return locale === "cs" ? `před ${hours} h` : `${hours} h ago`;
   const days = Math.floor(hours / 24);
   return locale === "cs" ? `před ${days} d` : `${days} d ago`;
-}
-
-function RaceRow({ race, today, locale, onOpen }: { race: DashboardRace; today: string; locale: Locale; onOpen: () => void }) {
-  return <button className="race-row" type="button" onClick={onOpen} aria-label={`${locale === "cs" ? "Otevřít závod" : "Open race"} ${race.name}`}><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="small" /><span><strong>{race.name}</strong><small>{countryFlag(race.countryCode)} {dashboardDateRange(race.startDate, race.endDate, locale)} <i>•</i> {race.track}, {race.countryCode}</small></span><b className={race.status === "active" ? "status-pill success" : "status-pill info-pill"}>{raceCountdown(race, today, locale)}</b></button>;
 }
 
 function timeGreeting(locale: Locale, fullName: string, hour: number) {
@@ -1709,18 +1891,6 @@ function raceCountdown(race: DashboardRace, today: string, locale: Locale) {
   const days = Math.max(0, Math.ceil((parseIsoDate(race.startDate).getTime() - parseIsoDate(today).getTime()) / 86_400_000));
   if (days === 0) return locale === "cs" ? "dnes" : "today";
   return locale === "cs" ? `za ${days} dní` : `${days} days`;
-}
-
-function countWithPercent(count: number, total: number) {
-  return `${count} (${total ? Math.round((count / total) * 100) : 0}%)`;
-}
-
-function dashboardDonutStops(stats: { ready: number; due: number; rebuild: number; storage: number }, total: number) {
-  if (!total) return "conic-gradient(#e4e7ec 0 100%)";
-  const ready = (stats.ready / total) * 100;
-  const due = ready + (stats.due / total) * 100;
-  const rebuild = due + (stats.rebuild / total) * 100;
-  return `conic-gradient(var(--green) 0 ${ready}%, var(--orange) ${ready}% ${due}%, var(--red) ${due}% ${rebuild}%, #d0d5dd ${rebuild}% 100%)`;
 }
 
 function formatHours(totalMinutes: number) {
@@ -1808,8 +1978,4 @@ function friendlyRecordError(error: string, locale: Locale) {
     "Delete failed": "Záznam se nepodařilo smazat.",
   };
   return errors[error] ?? error;
-}
-
-function Legend({ color, label, value }: { color: string; label: string; value: string }) {
-  return <div className="legend-row"><i className={color} /><span>{label}</span><strong>{value}</strong></div>;
 }
