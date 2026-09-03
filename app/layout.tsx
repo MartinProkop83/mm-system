@@ -36,6 +36,13 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="cs">
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `try{if(localStorage.getItem("mm-theme")==="dark"){document.documentElement.setAttribute("data-mode","dark");document.documentElement.style.colorScheme="dark";}}catch(e){}`,
+          }}
+        />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} ${barlowCondensed.variable} ${jetbrainsMono.variable}`}>{children}</body>
     </html>
   );
