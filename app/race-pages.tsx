@@ -193,11 +193,11 @@ export function RacePage({ locale, role, openRaceId = null }: { locale: Locale; 
   }
 
   return <div className="races-page">
-    <section className="panel race-directory-header">
-      <div><span className="eyebrow">MM RACE CONTROL</span><h2>{l.title}</h2><p>{l.subtitle}</p></div>
+    <section className="dash-panel race-directory-header">
+      <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{l.title}</h2><p>{l.subtitle}</p></div>
       {canManage && <button className="primary-button" type="button" onClick={() => setRaceForm({ race: null, mechanicIds: [], vehicleIds: [] })}>＋ {l.newRace}</button>}
     </section>
-    <section className="panel data-panel race-directory-list">
+    <section className="dash-panel data-panel race-directory-list">
       {loading && <div className="empty-state"><span className="spinner" /><p>{l.loading}</p></div>}
       {!loading && loadError && <div className="empty-state error-state"><b>!</b><p>{l.error}</p></div>}
       {!loading && !loadError && races.length === 0 && <div className="empty-state"><span className="empty-engine">⚑</span><h2>{l.empty}</h2>{canManage && <button className="primary-button" type="button" onClick={() => setRaceForm({ race: null, mechanicIds: [], vehicleIds: [] })}>＋ {l.newRace}</button>}</div>}
@@ -217,8 +217,6 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
   const [loading, setLoading] = useState(true);
   const [entryForm, setEntryForm] = useState<{ category: string; entry: RaceEntry | null } | null>(null);
   const [extraForm, setExtraForm] = useState<string | null>(null);
-  const [expandedEngineSlots, setExpandedEngineSlots] = useState<Record<string, number>>({});
-  const [expandedCarburetorSlots, setExpandedCarburetorSlots] = useState<Record<string, number>>({});
   const [detailTab, setDetailTab] = useState<"plan" | "finance">("plan");
   const canManage = role !== "mechanic" && (race.status !== "completed" || role === "superadmin");
   const canViewFinance = role === "superadmin" || role === "boss";
@@ -290,52 +288,6 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
     return true;
   }
 
-  async function removeEquipmentSlot(entry: RaceEntry, position: number, type: "engine" | "carburetor") {
-    const previousTop = document.getElementById(`race-entry-${entry.id}`)?.getBoundingClientRect().top ?? null;
-    const engineIds = [entry.engine1Id ?? "", entry.engine2Id ?? "", entry.engine3Id ?? ""];
-    const carburetorIds = [entry.carburetor1Id ?? "", entry.carburetor2Id ?? "", entry.carburetor3Id ?? ""];
-    if (type === "engine") {
-      engineIds.splice(position - 1, 1);
-      engineIds.push("");
-    } else {
-      carburetorIds.splice(position - 1, 1);
-      carburetorIds.push("");
-    }
-    const remainingSlots = type === "engine"
-      ? Math.max(1, engineIds[2] ? 3 : 0, engineIds[1] ? 2 : 0)
-      : Math.max(1, carburetorIds[2] ? 3 : 0, carburetorIds[1] ? 2 : 0);
-    // Collapse the empty slot immediately. The API save then confirms the
-    // same compacted assignment without making the user wait for a reload.
-    if (type === "engine") setExpandedEngineSlots((current) => ({ ...current, [entry.id]: remainingSlots }));
-    else setExpandedCarburetorSlots((current) => ({ ...current, [entry.id]: remainingSlots }));
-    const response = await fetch("/api/race-planning", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        kind: "entry",
-        raceId: race.id,
-        id: entry.id,
-        category: entry.category,
-        driverId: entry.driverId,
-        engineIds,
-        carburetorIds,
-        isConfirmed: entry.isConfirmed,
-        notes: entry.notes,
-      }),
-    });
-    if (!response.ok) {
-      await showApiError(response, locale);
-      await loadPlan(true);
-      if (type === "engine") setExpandedEngineSlots((current) => ({ ...current, [entry.id]: storedEngineSlots(entry) }));
-      else setExpandedCarburetorSlots((current) => ({ ...current, [entry.id]: storedCarburetorSlots(entry) }));
-      keepEntryInPlace(entry.id, previousTop);
-      return;
-    }
-    await loadPlan(true);
-    await onRaceChanged();
-    keepEntryInPlace(entry.id, previousTop);
-  }
-
   async function toggleConfirmation(entry: RaceEntry) {
     const isConfirmed = !entry.isConfirmed;
     setPlan((current) => current ? { ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, isConfirmed } : item) } : current);
@@ -383,10 +335,18 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
   const unassignedMechanics = catalog.mechanics.filter((item) => !plan?.mechanics.some((assigned) => assigned.mechanicId === item.id));
   const unassignedVehicles = catalog.vehicles.filter((item) => !plan?.vehicles.some((assigned) => assigned.vehicleId === item.id));
 
+  const totalDrivers = plan?.entries.length ?? 0;
+  const driversWithEngine = plan?.entries.filter((entry) => entry.engine1Id).length ?? 0;
+  const carbApplicable = plan?.entries.filter((entry) => entry.category !== "KZ") ?? [];
+  const driversWithCarburetor = carbApplicable.filter((entry) => entry.carburetor1Id).length;
+  const hasMechanics = (plan?.mechanics.length ?? 0) > 0;
+  const hasVehicles = (plan?.vehicles.length ?? 0) > 0;
+  const isRaceReady = totalDrivers > 0 && driversWithEngine === totalDrivers && driversWithCarburetor === carbApplicable.length && hasMechanics && hasVehicles;
+
   return <div className="race-detail print-area">
     <div className="detail-back"><button type="button" onClick={onBack}>← {l.back}</button></div>
-    <section className="panel race-detail-hero">
-      <div className="race-hero-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow">MM RACE CONTROL</span><h2>{race.name}</h2><p>{countryFlag(race.countryCode)} {race.track}, {race.countryCode}</p></div></div>
+    <section className="dash-panel race-detail-hero">
+      <div className="race-hero-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{race.name}</h2><p>{countryFlag(race.countryCode)} {race.track}, {race.countryCode}</p></div></div>
       <div className="race-hero-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div className="race-hero-actions no-print">{detailTab === "plan" && <button className="secondary-compact" type="button" onClick={printRacePlan}>⌁ {l.print}</button>}{canManage && <button className="secondary-compact" type="button" onClick={() => onEdit(plan?.mechanics.map((item) => item.mechanicId) ?? [], plan?.vehicles.map((item) => item.vehicleId) ?? [])}>✎ {l.edit}</button>}{role === "superadmin" && <button className="danger-compact" type="button" onClick={onArchive}>{l.remove}</button>}</div></div>
     </section>
     {canViewFinance && <nav className="race-detail-section-tabs no-print" aria-label={locale === "cs" ? "Část detailu závodu" : "Race detail section"}>
@@ -394,15 +354,28 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
       <button className={detailTab === "finance" ? "active" : ""} type="button" onClick={() => setDetailTab("finance")}>{locale === "cs" ? "Finance" : "Finance"}</button>
     </nav>}
     <div className={`race-plan-section ${detailTab === "plan" ? "active" : "hidden"}`}>
-    <section className="race-facts">
-      <div className="panel"><small>{l.raceDates}</small><strong>{formatDateRange(race.startDate, race.endDate, locale)}</strong></div>
-      <div className="panel"><small>{l.travel}</small><strong>{formatDateRange(race.departureDate, race.returnDate, locale)}</strong></div>
-      <div className="panel"><small>{locale === "cs" ? "Trať / adresa" : "Track / address"}</small><strong>{race.track}</strong><span>{race.address || "—"}</span></div>
-      <div className="panel race-workshop-trip-fact"><small>{locale === "cs" ? "Cesta z dílny" : "Trip from workshop"}</small><strong>{race.circuitDistanceKm !== null || race.circuitDriveMinutes !== null ? <>{race.circuitDistanceKm !== null ? `${formatDecimal(race.circuitDistanceKm, locale)} km` : "—"}{race.circuitDriveMinutes !== null ? ` · ≈ ${formatDriveMinutes(race.circuitDriveMinutes, locale)}` : ""}</> : (locale === "cs" ? "Po přiřazení tratě" : "After assigning a circuit")}</strong><span>{locale === "cs" ? "Vlčovice 314 · orientačně, bez aktuální dopravy" : "Vlčovice 314 · estimate, without live traffic"}</span></div>
-      <div className="panel"><small>{l.status}</small><strong>{raceStatus(race.status, locale)}</strong><span>{race.organizer || "—"}</span></div>
+    {!loading && plan && (
+      <section className={`race-readiness no-print ${isRaceReady ? "ok" : "warn"}`}>
+        <div className="race-readiness-status"><b>{isRaceReady ? "✓" : "⚠"}</b><strong>{isRaceReady ? (locale === "cs" ? "Závod je připraven" : "Race is ready") : (locale === "cs" ? "Závod ještě není kompletní" : "Race is not complete yet")}</strong></div>
+        <div className="race-readiness-checks">
+          <span className={hasMechanics ? "done" : "pending"}>{hasMechanics ? "✓" : "○"} {l.mechanics}</span>
+          <span className={hasVehicles ? "done" : "pending"}>{hasVehicles ? "✓" : "○"} {l.cars}</span>
+          <span className={totalDrivers > 0 && driversWithEngine === totalDrivers ? "done" : "pending"}>{totalDrivers > 0 && driversWithEngine === totalDrivers ? "✓" : "○"} {locale === "cs" ? "Motory" : "Engines"}: {driversWithEngine}/{totalDrivers}</span>
+          {carbApplicable.length > 0 && <span className={driversWithCarburetor === carbApplicable.length ? "done" : "pending"}>{driversWithCarburetor === carbApplicable.length ? "✓" : "○"} {locale === "cs" ? "Karburátory" : "Carburetors"}: {driversWithCarburetor}/{carbApplicable.length}</span>}
+        </div>
+      </section>
+    )}
+    <section className="stats-panel race-facts">
+      <div className="race-facts-grid">
+        <div className="race-facts-cell"><small>{l.raceDates}</small><strong>{formatDateRange(race.startDate, race.endDate, locale)}</strong></div>
+        <div className="race-facts-cell"><small>{l.travel}</small><strong>{formatDateRange(race.departureDate, race.returnDate, locale)}</strong></div>
+        <div className="race-facts-cell"><small>{locale === "cs" ? "Trať / adresa" : "Track / address"}</small><strong>{race.track}</strong><span>{race.address || "—"}</span></div>
+        <div className="race-facts-cell workshop-trip"><small>{locale === "cs" ? "Cesta z dílny" : "Trip from workshop"}</small><strong>{race.circuitDistanceKm !== null || race.circuitDriveMinutes !== null ? <>{race.circuitDistanceKm !== null ? `${formatDecimal(race.circuitDistanceKm, locale)} km` : "—"}{race.circuitDriveMinutes !== null ? ` · ≈ ${formatDriveMinutes(race.circuitDriveMinutes, locale)}` : ""}</> : (locale === "cs" ? "Po přiřazení tratě" : "After assigning a circuit")}</strong><span>{locale === "cs" ? "Vlčovice 314 · orientačně, bez aktuální dopravy" : "Vlčovice 314 · estimate, without live traffic"}</span></div>
+        <div className="race-facts-cell"><small>{l.status}</small><strong>{raceStatus(race.status, locale)}</strong><span>{race.organizer || "—"}</span></div>
+      </div>
     </section>
-    <section className="panel race-logistics-panel">
-      <header><div><span className="eyebrow">MM RACE LOGISTICS</span><h2>{locale === "cs" ? "Posádka a doprava" : "Crew and transport"}</h2><p>{locale === "cs" ? "Mechanici a týmová auta přiřazená k tomuto závodu." : "Mechanics and team vehicles assigned to this race."}</p></div><div className="race-logistics-summary"><span><strong>{plan?.mechanics.length ?? 0}</strong>{locale === "cs" ? "mechaniků" : "mechanics"}</span><span><strong>{plan?.vehicles.length ?? 0}</strong>{locale === "cs" ? "aut" : "vehicles"}</span></div></header>
+    <section className="dash-panel race-logistics-panel">
+      <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE LOGISTICS</span><h2>{locale === "cs" ? "Posádka a doprava" : "Crew and transport"}</h2><p>{locale === "cs" ? "Mechanici a týmová auta přiřazená k tomuto závodu." : "Mechanics and team vehicles assigned to this race."}</p></div><div className="race-logistics-summary"><span><strong>{plan?.mechanics.length ?? 0}</strong>{locale === "cs" ? "mechaniků" : "mechanics"}</span><span><strong>{plan?.vehicles.length ?? 0}</strong>{locale === "cs" ? "aut" : "vehicles"}</span></div></header>
       <div className="race-logistics">
         <AssignmentStrip icon="M" title={l.mechanics} locale={locale} items={plan?.mechanics.map((item) => ({ id: item.id, label: item.mechanicName })) ?? []} options={unassignedMechanics.map((item) => ({ id: item.id, label: item.name }))} canManage={canManage} emptyText={l.noResources} onAdd={(id) => assign("mechanic", id)} onDelete={(id) => remove("mechanic", id)} />
         <AssignmentStrip icon="A" title={l.cars} locale={locale} items={plan?.vehicles.map((item) => ({ id: item.id, label: `${item.vehicleName}${item.licensePlate ? ` · ${item.licensePlate}` : ""}` })) ?? []} options={unassignedVehicles.map((item) => ({ id: item.id, label: `${item.name}${item.licensePlate ? ` · ${item.licensePlate}` : ""}` }))} canManage={canManage} emptyText={l.noResources} onAdd={(id) => assign("vehicle", id)} onDelete={(id) => remove("vehicle", id)} />
@@ -411,7 +384,7 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
     {race.circuitId && <RaceCircuitPanel race={race} locale={locale} />}
     <RaceLogisticsPanel raceId={race.id} locale={locale} role={role} />
     {plan && <RaceEquipmentOverview race={race} plan={plan} carburetors={catalog.carburetors} locale={locale} />}
-    {loading && <section className="panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám plán…" : "Loading plan…"}</p></section>}
+    {loading && <section className="dash-panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám plán…" : "Loading plan…"}</p></section>}
     {!loading && plan && <section className="race-category-stack">{race.categories.map((category) => {
       const entries = plan.entries.filter((entry) => entry.category === category);
       const extras = plan.extras
@@ -421,59 +394,64 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
       const extraEngineIds = uniqueStrings(extras.filter((extra) => extra.resourceType === "engine").map((extra) => extra.resourceId));
       const assignedCarburetorIds = uniqueStrings(entries.flatMap((entry) => [entry.carburetor1Id, entry.carburetor2Id, entry.carburetor3Id]));
       const extraCarburetorIds = uniqueStrings(extras.filter((extra) => extra.resourceType === "carburetor").map((extra) => extra.resourceId));
-      return <article className={`panel race-category category-${category.toLowerCase().replaceAll(" ", "-")}`} key={category}>
+      const isKz = category === "KZ";
+      const engineSlots = isKz ? [0, 1] : [0, 1, 2];
+      return <article className={`dash-panel race-category category-${category.toLowerCase().replaceAll(" ", "-")}`} key={category}>
         <header><div className="category-heading"><span>{l.category}</span><h2>{category}</h2></div><CategoryLoadoutStats locale={locale} pilotCount={entries.length} engineCount={assignedEngineIds.length} extraEngineCount={extraEngineIds.length} carburetorCount={assignedCarburetorIds.length} extraCarburetorCount={extraCarburetorIds.length} /><div className="category-print-context print-only"><div><strong>{race.name}</strong><small>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}</small></div><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /></div><div className="category-actions no-print">{canManage && <><button className="secondary-compact" type="button" onClick={() => setExtraForm(category)}>＋ {l.addExtra}</button><button className="primary-button" type="button" onClick={() => setEntryForm({ category, entry: null })}>＋ {l.addDriver}</button></>}</div></header>
-        {entries.length === 0 ? <p className="category-empty">{l.noDrivers}</p> : <div className="race-entry-list">{entries.map((entry) => {
-          const engineValues = [entry.engine1Id ?? "", entry.engine2Id ?? "", entry.engine3Id ?? ""];
-          const carburetorValues = [entry.carburetor1Id ?? "", entry.carburetor2Id ?? "", entry.carburetor3Id ?? ""];
-          const engineCodes = [entry.engine1Code, entry.engine2Code, entry.engine3Code];
-          const engineConfigurations = [entry.engine1Configuration, entry.engine2Configuration, entry.engine3Configuration];
-          const carburetorCodes = [entry.carburetor1Code, entry.carburetor2Code, entry.carburetor3Code];
-          const engineChoices = engines.filter((engine) => engineMatches(engine.family, category) && engine.status !== "retired" && !engine.soldAt);
-          const selectedEngines = engineValues.map((engineId) => engines.find((engine) => engine.id === engineId));
-          const carburetorChoices = catalog.carburetors.filter((carburetor) => carbMatches(carburetor.family, category) && carburetor.status !== "retired" && !carburetor.soldAt);
-          const isKz = category === "KZ";
-          const visibleEngineSlots = Math.max(storedEngineSlots(entry), expandedEngineSlots[entry.id] ?? 1);
-          const visibleCarburetorSlots = isKz ? 0 : Math.max(storedCarburetorSlots(entry), expandedCarburetorSlots[entry.id] ?? 1);
-          const enginePositions = [1, 2, 3].filter((position) => position <= visibleEngineSlots);
-          const carburetorPositions = [1, 2, 3].filter((position) => position <= visibleCarburetorSlots);
-          return <article id={`race-entry-${entry.id}`} className={`race-entry-card ${isKz ? "kz-entry-card" : "flat-entry-card"} ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`} key={entry.id}>
-            <div className="race-entry-person"><span className="race-entry-number">#{driverNumber(catalog.drivers, entry.driverId)}</span><div><strong>{entry.driverName}</strong><small>{entry.teamName || "—"}</small></div>{canManage ? <button className={`confirmation-toggle no-print ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`} type="button" onClick={() => { void toggleConfirmation(entry); }}>{entry.isConfirmed ? (locale === "cs" ? "✓ Potvrzen" : "✓ Confirmed") : (locale === "cs" ? "Nepotvrzen" : "Unconfirmed")}</button> : null}<span className={`print-only confirmation-label ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`}>{entry.isConfirmed ? (locale === "cs" ? "Potvrzen" : "Confirmed") : (locale === "cs" ? "Nepotvrzen" : "Unconfirmed")}</span></div>
-            <div className={`race-equipment-groups independent-equipment-groups ${isKz ? "kz-equipment-groups" : "flat-equipment-groups"}`}>
-              <div className="equipment-type-sequence engine-sequence">
-                {enginePositions.map((position) => <div className={isKz ? "kz-motor-field" : "flat-equipment-field"} key={`engine-${position}`}><div className="equipment-field-heading"><span>{locale === "cs" ? "Motor" : "Engine"} {position}</span>{canManage && position > 1 && <button className="remove-equipment-slot no-print" type="button" onClick={() => { void removeEquipmentSlot(entry, position, "engine"); }}>× {locale === "cs" ? "Odebrat" : "Remove"}</button>}</div>{canManage ? <InlineEquipmentPicker key={`engine-${position}-${engineValues[position - 1]}`} type="engine" position={position} entry={entry} value={engineValues[position - 1]} code={engineCodes[position - 1]} configuration={engineConfigurations[position - 1]} upgradeCode={selectedEngines[position - 1]?.upgradeCode ?? ""} labelColor={selectedEngines[position - 1]?.labelColor ?? ""} selectedIds={engineValues} choices={engineChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "engine", position, value)} /> : <EquipmentValue code={engineCodes[position - 1]} configuration={engineConfigurations[position - 1]} upgradeCode={selectedEngines[position - 1]?.upgradeCode ?? ""} labelColor={selectedEngines[position - 1]?.labelColor ?? ""} />}</div>)}
-                {canManage && visibleEngineSlots < 3 && <button className="add-kz-motor add-engine-slot no-print" type="button" onClick={() => setExpandedEngineSlots((current) => ({ ...current, [entry.id]: visibleEngineSlots + 1 }))}>＋ {locale === "cs" ? `Motor ${visibleEngineSlots + 1}` : `Engine ${visibleEngineSlots + 1}`}</button>}
-              </div>
-              {!isKz && <div className="equipment-type-sequence carburetor-sequence">
-                {carburetorPositions.map((position) => <div className="flat-equipment-field" key={`carburetor-${position}`}><div className="equipment-field-heading"><span>{locale === "cs" ? "Karburátor" : "Carburetor"} {position}</span>{canManage && position > 1 && <button className="remove-equipment-slot no-print" type="button" onClick={() => { void removeEquipmentSlot(entry, position, "carburetor"); }}>× {locale === "cs" ? "Odebrat" : "Remove"}</button>}</div>{canManage ? <InlineEquipmentPicker key={`carb-${position}-${carburetorValues[position - 1]}`} type="carburetor" position={position} entry={entry} value={carburetorValues[position - 1]} code={carburetorCodes[position - 1]} configuration="" upgradeCode="" labelColor="" selectedIds={carburetorValues} choices={carburetorChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "carburetor", position, value)} /> : <EquipmentValue code={carburetorCodes[position - 1]} />}</div>)}
-                {canManage && visibleCarburetorSlots < 3 && <button className="add-flat-equipment add-carburetor-slot no-print" type="button" onClick={() => setExpandedCarburetorSlots((current) => ({ ...current, [entry.id]: visibleCarburetorSlots + 1 }))}>＋ {locale === "cs" ? `Karburátor ${visibleCarburetorSlots + 1}` : `Carburetor ${visibleCarburetorSlots + 1}`}</button>}
-              </div>}
-            </div>
-            <div className="race-entry-note-column"><span>{locale === "cs" ? "Poznámka" : "Note"}</span><InlineDriverNote entry={entry} canManage={canManage} locale={locale} onSave={(notes) => updateEntryNote(entry, notes)} /></div>
-            {canManage && <div className="race-entry-actions no-print"><button type="button" onClick={() => setEntryForm({ category, entry })}>{l.editAssignment}</button><button className="delete" type="button" onClick={() => { void remove("entry", entry.id); }}>{l.delete}</button></div>}
-          </article>;
-        })}</div>}
-        {extras.length > 0 && <div className="race-extra-entry-list">{extras.map((extra) => <ExtraEquipmentRow key={extra.id} extra={extra} engine={extra.resourceType === "engine" ? engines.find((item) => item.id === extra.resourceId) : undefined} isKz={category === "KZ"} locale={locale} canManage={canManage} onRemove={() => remove("extra", extra.id)} />)}</div>}
+        {entries.length === 0 ? <p className="category-empty">{l.noDrivers}</p> : <div className="race-entry-list"><div className={isKz ? "entry-table kz-table" : "entry-table"}>
+          <div className="entry-table-head">
+            <span>#</span>
+            <span>{l.driver}</span>
+            {engineSlots.map((index) => <span key={`h-engine-${index}`}>{locale === "cs" ? `Motor ${index + 1}` : `Engine ${index + 1}`}</span>)}
+            {!isKz && <span>{locale === "cs" ? "Karb. 1" : "Carb. 1"}</span>}
+            {!isKz && <span>{locale === "cs" ? "Karb. 2" : "Carb. 2"}</span>}
+            {!isKz && <span>{locale === "cs" ? "Karb. 3" : "Carb. 3"}</span>}
+            <span>{l.notes}</span>
+            <span>{l.status}</span>
+            <span className="no-print">{l.actions}</span>
+          </div>
+          {entries.map((entry) => {
+            const engineValues = [entry.engine1Id ?? "", entry.engine2Id ?? "", entry.engine3Id ?? ""];
+            const carburetorValues = [entry.carburetor1Id ?? "", entry.carburetor2Id ?? "", entry.carburetor3Id ?? ""];
+            const engineCodes = [entry.engine1Code, entry.engine2Code, entry.engine3Code];
+            const engineConfigurations = [entry.engine1Configuration, entry.engine2Configuration, entry.engine3Configuration];
+            const carburetorCodes = [entry.carburetor1Code, entry.carburetor2Code, entry.carburetor3Code];
+            const engineChoices = engines.filter((engine) => engineMatches(engine.family, category) && engine.status !== "retired" && !engine.soldAt);
+            const selectedEngines = engineValues.map((engineId) => engines.find((engine) => engine.id === engineId));
+            const carburetorChoices = catalog.carburetors.filter((carburetor) => carbMatches(carburetor.family, category) && carburetor.status !== "retired" && !carburetor.soldAt);
+            const entryTeam = entry.teamId ? catalog.teams.find((team) => team.id === entry.teamId) : undefined;
+            return <div id={`race-entry-${entry.id}`} className={`entry-table-row ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`} key={entry.id}>
+              <div className="entry-num">#{driverNumber(catalog.drivers, entry.driverId)}</div>
+              <div className="entry-driver"><strong>{entry.driverName}</strong><span className="entry-team">{entryTeam?.logoUrl && <RaceLogoBadge logoUrl={entryTeam.logoUrl} name={entryTeam.name} size="small" />}{entry.teamName || "—"}</span></div>
+              {engineSlots.map((index) => <div key={`engine-${index}`} data-equip-label={locale === "cs" ? `Motor ${index + 1}` : `Engine ${index + 1}`}>{canManage ? <InlineEquipmentPicker key={`engine-${index}-${engineValues[index]}`} type="engine" position={index + 1} entry={entry} value={engineValues[index]} code={engineCodes[index]} configuration={engineConfigurations[index]} upgradeCode={selectedEngines[index]?.upgradeCode ?? ""} labelColor={selectedEngines[index]?.labelColor ?? ""} selectedIds={engineValues} choices={engineChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "engine", index + 1, value)} /> : <EquipmentValue code={engineCodes[index]} configuration={engineConfigurations[index]} upgradeCode={selectedEngines[index]?.upgradeCode ?? ""} labelColor={selectedEngines[index]?.labelColor ?? ""} />}</div>)}
+              {!isKz && [0, 1, 2].map((index) => <div key={`carb-${index}`} data-equip-label={locale === "cs" ? `Karb. ${index + 1}` : `Carb. ${index + 1}`}>{canManage ? <InlineEquipmentPicker key={`carb-${index}-${carburetorValues[index]}`} type="carburetor" position={index + 1} entry={entry} value={carburetorValues[index]} code={carburetorCodes[index]} configuration="" upgradeCode="" labelColor="" selectedIds={carburetorValues} choices={carburetorChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "carburetor", index + 1, value)} /> : <EquipmentValue code={carburetorCodes[index]} />}</div>)}
+              <div className="entry-note"><InlineDriverNote entry={entry} canManage={canManage} locale={locale} onSave={(notes) => updateEntryNote(entry, notes)} /></div>
+              <div className="entry-status">{canManage ? <button className={`confirmation-toggle no-print ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`} type="button" onClick={() => { void toggleConfirmation(entry); }}>{entry.isConfirmed ? (locale === "cs" ? "✓ Potvrzen" : "✓ Confirmed") : (locale === "cs" ? "Nepotvrzen" : "Unconfirmed")}</button> : null}<span className={`print-only confirmation-label ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`}>{entry.isConfirmed ? (locale === "cs" ? "Potvrzen" : "Confirmed") : (locale === "cs" ? "Nepotvrzen" : "Unconfirmed")}</span></div>
+              <div className="entry-actions no-print">{canManage && <><button type="button" onClick={() => setEntryForm({ category, entry })} aria-label={l.editAssignment} title={l.editAssignment}>✎</button><button className="delete" type="button" onClick={() => { void remove("entry", entry.id); }} aria-label={l.delete} title={l.delete}>×</button></>}</div>
+            </div>;
+          })}
+        </div></div>}
+        {extras.length > 0 && <div className="race-extra-entry-list">{extras.map((extra) => <ExtraEquipmentRow key={extra.id} extra={extra} engine={extra.resourceType === "engine" ? engines.find((item) => item.id === extra.resourceId) : undefined} locale={locale} canManage={canManage} onRemove={() => remove("extra", extra.id)} />)}</div>}
       </article>;
     })}</section>}
     {canViewFinance && <RaceSalesPanel race={race} locale={locale} role={role} />}
-    {race.notes && <section className="panel race-notes"><small>{l.notes}</small><p>{race.notes}</p></section>}
+    {race.notes && <section className="dash-panel race-notes"><small>{l.notes}</small><p>{race.notes}</p></section>}
     <RaceDeliveriesPanel race={race} locale={locale} role={role} />
     </div>
     {canViewFinance && detailTab === "finance" && <RaceFinancePanel race={race} locale={locale} />}
-    {entryForm && <EntryForm locale={locale} raceId={race.id} category={entryForm.category} entry={entryForm.entry} drivers={catalog.drivers} onClose={() => setEntryForm(null)} onSaved={async () => { setEntryForm(null); await loadPlan(); await onRaceChanged(); }} />}
+    {entryForm && <EntryForm locale={locale} raceId={race.id} category={entryForm.category} entry={entryForm.entry} drivers={catalog.drivers} assignedDriverIds={plan?.entries.map((item) => item.driverId) ?? []} onClose={() => setEntryForm(null)} onSaved={async () => { setEntryForm(null); await loadPlan(); await onRaceChanged(); }} />}
     {extraForm && <ExtraForm locale={locale} raceId={race.id} category={extraForm} engines={engines} carburetors={catalog.carburetors} onClose={() => setExtraForm(null)} onSaved={async () => { setExtraForm(null); await loadPlan(); }} />}
   </div>;
 }
 
 function RaceCircuitPanel({ race, locale }: { race: RaceRecord; locale: Locale }) {
   const mapsUrl = race.circuitMapsUrl || (race.circuitAddress ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(race.circuitAddress)}` : "");
-  return <section className="panel race-circuit-panel">
+  return <section className="dash-panel race-circuit-panel">
     <div className="race-circuit-image">
       {race.circuitImageUrl ? <img src={race.circuitImageUrl} alt={`${race.circuitName || race.track} · circuit`} /> : <span>⌁</span>}
     </div>
     <div className="race-circuit-copy">
-      <span className="eyebrow">MM CIRCUIT DIRECTORY</span>
+      <span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM CIRCUIT DIRECTORY</span>
       <h2>{race.circuitName || race.track}</h2>
       <p className="race-circuit-country">{countryFlag(race.countryCode)} {race.countryCode}</p>
       <p className="race-circuit-address">{race.circuitAddress || race.address || "—"}</p>
@@ -507,7 +485,7 @@ function RaceWeather({ race, locale }: { race: RaceRecord; locale: Locale }) {
 
   const current = weather?.current;
   return <div className="race-weather">
-    <div className="race-weather-heading"><span className="eyebrow">{locale === "cs" ? "POČASÍ NA TRATI" : "CIRCUIT WEATHER"}</span>{weather?.available && <small>{locale === "cs" ? "živá data" : "live data"}</small>}</div>
+    <div className="race-weather-heading"><span className="eyebrow"><span className="streak"><i /><i /><i /></span>{locale === "cs" ? "POČASÍ NA TRATI" : "CIRCUIT WEATHER"}</span>{weather?.available && <small>{locale === "cs" ? "živá data" : "live data"}</small>}</div>
     {loading ? <div className="race-weather-empty"><span className="spinner" /> {locale === "cs" ? "Načítám…" : "Loading…"}</div> : !weather?.available ? <div className="race-weather-empty">{weather?.reason === "coordinates_missing" ? (locale === "cs" ? "Doplň souřadnice tratě pro počasí." : "Add circuit coordinates for weather.") : (locale === "cs" ? "Počasí teď není dostupné." : "Weather is currently unavailable.")}</div> : <>
       {current && <div className="race-weather-current">
         <div><strong>{weatherIcon(Number(current.weather_code ?? 0))} {roundWeather(current.temperature_2m)} °C</strong><small>{locale === "cs" ? "nyní" : "now"}</small></div>
@@ -523,8 +501,8 @@ function RaceWeather({ race, locale }: { race: RaceRecord; locale: Locale }) {
 }
 
 function RaceEquipmentOverview({ race, plan, carburetors, locale }: { race: RaceRecord; plan: RacePlan; carburetors: CarburetorRecord[]; locale: Locale }) {
-  return <section className="panel race-equipment-overview">
-    <header><div><span className="eyebrow">MM RACE LOADOUT</span><h2>{locale === "cs" ? "Přehled pilotů a vybavení" : "Drivers and equipment"}</h2></div><div className="race-total-drivers"><strong>{plan.entries.length}</strong><span>{locale === "cs" ? "pilotů celkem" : "drivers total"}</span></div></header>
+  return <section className="dash-panel race-equipment-overview">
+    <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE LOADOUT</span><h2>{locale === "cs" ? "Přehled pilotů a vybavení" : "Drivers and equipment"}</h2></div><div className="race-total-drivers"><strong>{plan.entries.length}</strong><span>{locale === "cs" ? "pilotů celkem" : "drivers total"}</span></div></header>
     <div className="race-category-overview-grid">{race.categories.map((category) => {
       const entries = plan.entries.filter((entry) => entry.category === category);
       const extras = plan.extras.filter((extra) => extra.category === category);
@@ -594,32 +572,18 @@ function weatherIcon(code: number) {
   return "☁";
 }
 
-function storedEngineSlots(entry: RaceEntry) {
-  if (entry.engine3Id) return 3;
-  if (entry.engine2Id) return 2;
-  return 1;
-}
-
-function storedCarburetorSlots(entry: RaceEntry) {
-  if (entry.carburetor3Id) return 3;
-  if (entry.carburetor2Id) return 2;
-  return 1;
-}
-
 function EquipmentValue({ code, configuration = "", upgradeCode = "", labelColor = "" }: { code: string; configuration?: string; upgradeCode?: string; labelColor?: string }) {
   return <span className={code ? "equipment-code" : "equipment-empty"} style={code && labelColor ? { borderLeft: `7px solid ${labelColor}` } : undefined}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
 }
 
-function ExtraEquipmentRow({ extra, engine, isKz, locale, canManage, onRemove }: { extra: RaceExtra; engine?: EngineChoice; isKz: boolean; locale: Locale; canManage: boolean; onRemove: () => Promise<void> }) {
+function ExtraEquipmentRow({ extra, engine, locale, canManage, onRemove }: { extra: RaceExtra; engine?: EngineChoice; locale: Locale; canManage: boolean; onRemove: () => Promise<void> }) {
   const engineCode = extra.resourceType === "engine" ? extra.resourceCode : "";
   const carburetorCode = extra.resourceType === "carburetor" ? extra.resourceCode : "";
   const resourceLabel = extra.resourceType === "engine" ? (locale === "cs" ? "Extra motor" : "Extra engine") : (locale === "cs" ? "Extra karburátor" : "Extra carburetor");
-  const fieldLabel = extra.resourceType === "engine" ? (locale === "cs" ? "Motor" : "Engine") : (locale === "cs" ? "Karburátor" : "Carburetor");
 
-  return <article className={`race-entry-card extra-entry-card ${isKz ? "kz-entry-card" : "flat-entry-card"}`}>
-    <div className="race-entry-person extra-entry-person"><span className="race-entry-number">EX</span><div><strong>EXTRA</strong><small>{resourceLabel}</small></div></div>
-    <div className={`race-equipment-groups independent-equipment-groups ${isKz ? "kz-equipment-groups" : "flat-equipment-groups"}`}><div className={`equipment-type-sequence ${extra.resourceType === "engine" ? "engine-sequence" : "carburetor-sequence"}`}><div className={isKz ? "kz-motor-field" : "flat-equipment-field"}><div className="equipment-field-heading"><span>{fieldLabel} 1</span></div>{extra.resourceType === "engine" ? <EquipmentValue code={engineCode} configuration={engine?.currentConfiguration} upgradeCode={engine?.upgradeCode} labelColor={engine?.labelColor} /> : <EquipmentValue code={carburetorCode} />}</div></div></div>
-    <div className="race-entry-note-column"><span>{locale === "cs" ? "Poznámka" : "Note"}</span><div className="race-entry-note"><span>{extra.notes || "—"}</span></div></div>
+  return <article className="extra-entry-card">
+    <div className="extra-entry-person"><span className="race-entry-number">EX</span><div><strong>{resourceLabel}</strong>{extra.notes && <small>{extra.notes}</small>}</div></div>
+    {extra.resourceType === "engine" ? <EquipmentValue code={engineCode} configuration={engine?.currentConfiguration} upgradeCode={engine?.upgradeCode} labelColor={engine?.labelColor} /> : <EquipmentValue code={carburetorCode} />}
     {canManage && <div className="race-entry-actions no-print"><button className="delete" type="button" onClick={() => { void onRemove(); }}>{locale === "cs" ? "Odebrat" : "Remove"}</button></div>}
   </article>;
 }
@@ -638,7 +602,7 @@ function InlineDriverNote({ entry, canManage, locale, onSave }: { entry: RaceEnt
     setSaving(false);
   }
 
-  return <div className="race-entry-note">{canManage && <input className="no-print" value={note} maxLength={140} aria-label={`${locale === "cs" ? "Poznámka" : "Note"} · ${entry.driverName}`} placeholder={locale === "cs" ? "Poznámka – např. výfuk" : "Note – e.g. exhaust"} onChange={(event) => setNote(event.target.value)} onBlur={() => { void save(); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}{saving && <small className="no-print">{locale === "cs" ? "Ukládám…" : "Saving…"}</small>}<span className="print-only">{note || "—"}</span>{!canManage && <span className="no-print">{note || "—"}</span>}</div>;
+  return <div className="race-entry-note">{canManage && <input className="no-print" value={note} maxLength={140} aria-label={`${locale === "cs" ? "Poznámka" : "Note"} · ${entry.driverName}`} placeholder="" onChange={(event) => setNote(event.target.value)} onBlur={() => { void save(); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}{saving && <small className="no-print">{locale === "cs" ? "Ukládám…" : "Saving…"}</small>}<span className="print-only">{note || "—"}</span>{!canManage && <span className="no-print">{note || "—"}</span>}</div>;
 }
 
 function InlineEquipmentPicker({ type, position, entry, value, code, configuration, upgradeCode, labelColor, selectedIds, choices, plan, locale, onChange }: {
@@ -775,10 +739,10 @@ function RaceForm({ locale, race, catalog, circuits, mechanicIds, vehicleIds, on
   </div>{error && <p className="form-error">{error}</p>}<ModalActions locale={locale} saving={saving} onClose={onClose} /></form></Modal>;
 }
 
-function EntryForm({ locale, raceId, category, entry, drivers, onClose, onSaved }: { locale: Locale; raceId: string; category: string; entry: RaceEntry | null; drivers: DriverRecord[]; onClose: () => void; onSaved: () => void }) {
+function EntryForm({ locale, raceId, category, entry, drivers, assignedDriverIds, onClose, onSaved }: { locale: Locale; raceId: string; category: string; entry: RaceEntry | null; drivers: DriverRecord[]; assignedDriverIds: string[]; onClose: () => void; onSaved: () => void }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
-  const driverOptions = drivers.filter((driver) => driver.isActive || driver.id === entry?.driverId);
+  const driverOptions = drivers.filter((driver) => (driver.isActive || driver.id === entry?.driverId) && (driver.id === entry?.driverId || !assignedDriverIds.includes(driver.id)));
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setSaving(true);

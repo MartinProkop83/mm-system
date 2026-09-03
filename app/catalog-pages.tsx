@@ -14,7 +14,7 @@ type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
 type DriverFilter = "active" | "mini" | "okj" | "okn" | "ok" | "kz" | "inactive";
 
-export type TeamRecord = { id: string; name: string; countryCode: string; notes: string; createdAt: number; updatedAt: number };
+export type TeamRecord = { id: string; name: string; countryCode: string; notes: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
 export type RaceTypeRecord = { id: string; name: string; notes: string; calendarColor: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
 export type DriverRecord = { id: string; name: string; teamId: string | null; teamName: string; defaultCategory: string; raceNumber: string; nationality: string; isActive: boolean; notes: string; createdAt: number; updatedAt: number };
 export type MechanicRecord = { id: string; name: string; nextRace?: string; nextTrack?: string; nextCountryCode?: string; nextStartDate?: string; nextEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; raceCount?: number; createdAt: number; updatedAt: number };
@@ -177,15 +177,17 @@ function CatalogForm({ kind, locale, item, teams, carburetorTypes, onClose, onSa
       const response = await fetch("/api/catalog", { method: editing ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: kind, id: item?.id }) });
       const result = (await response.json()) as { id?: string; error?: string };
       if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
-      if (kind === "raceType" && logo instanceof File && logo.size > 0) {
+      const logoEndpoint = kind === "raceType" ? "/api/race-template-logo" : kind === "team" ? "/api/team-logo" : null;
+      const logoIdField = kind === "raceType" ? "templateId" : "teamId";
+      if (logoEndpoint && logo instanceof File && logo.size > 0) {
         const upload = new FormData();
-        upload.set("templateId", result.id);
+        upload.set(logoIdField, result.id);
         upload.set("logo", logo);
-        const logoResponse = await fetch("/api/race-template-logo", { method: "POST", body: upload });
+        const logoResponse = await fetch(logoEndpoint, { method: "POST", body: upload });
         const logoResult = await logoResponse.json() as { error?: string };
         if (!logoResponse.ok) throw new Error(logoResult.error || "Logo upload failed");
-      } else if (kind === "raceType" && removeLogo && result.id) {
-        const logoResponse = await fetch("/api/race-template-logo", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ templateId: result.id }) });
+      } else if (logoEndpoint && removeLogo && result.id) {
+        const logoResponse = await fetch(logoEndpoint, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ [logoIdField]: result.id }) });
         const logoResult = await logoResponse.json() as { error?: string };
         if (!logoResponse.ok) throw new Error(logoResult.error || "Logo delete failed");
       }
@@ -207,7 +209,7 @@ function CatalogFields({ kind, locale, item, teams, carburetorTypes }: { kind: C
   }
   if (kind === "team") {
     const team = item as TeamRecord | null;
-    return <><label><span>{locale === "cs" ? "Název týmu" : "Team name"} *</span><input name="name" defaultValue={team?.name ?? ""} required autoFocus maxLength={120} /></label><label><span>{locale === "cs" ? "Země" : "Country"}</span><CountrySelect name="countryCode" defaultValue={team?.countryCode} locale={locale} /></label><Notes value={team?.notes} label={l.notes} /></>;
+    return <TeamFields team={team} locale={locale} notesLabel={l.notes} />;
   }
   if (kind === "driver") {
     const driver = item as DriverRecord | null;
@@ -236,6 +238,21 @@ function RaceTypeFields({ raceType, locale, notesLabel }: { raceType: RaceTypeRe
       <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Nový obrázek nahradí původní logo." : "PNG, JPG or WebP, up to 5 MB. A new image replaces the current logo."}</small>
     </label>
     <Notes value={raceType?.notes} label={notesLabel} />
+  </>;
+}
+
+function TeamFields({ team, locale, notesLabel }: { team: TeamRecord | null; locale: Locale; notesLabel: string }) {
+  const [removeLogo, setRemoveLogo] = useState(false);
+  return <>
+    <label><span>{locale === "cs" ? "Název týmu" : "Team name"} *</span><input name="name" defaultValue={team?.name ?? ""} required autoFocus maxLength={120} /></label>
+    <label><span>{locale === "cs" ? "Země" : "Country"}</span><CountrySelect name="countryCode" defaultValue={team?.countryCode} locale={locale} /></label>
+    <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Logo týmu" : "Team logo"}</span>
+      {team?.logoUrl && !removeLogo && <div className="race-logo-preview"><RaceLogoBadge logoUrl={team.logoUrl} name={team.name} size="large" /><div><strong>{locale === "cs" ? "Aktuální logo" : "Current logo"}</strong><button type="button" onClick={() => setRemoveLogo(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
+      {removeLogo && <input type="hidden" name="removeLogo" value="1" />}
+      <input name="logo" type="file" accept="image/png,image/jpeg,image/webp" />
+      <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Nový obrázek nahradí původní logo." : "PNG, JPG or WebP, up to 5 MB. A new image replaces the current logo."}</small>
+    </label>
+    <Notes value={team?.notes} label={notesLabel} />
   </>;
 }
 
@@ -312,7 +329,7 @@ function pluralKey(kind: CatalogKind): keyof CatalogData {
 
 function headers(kind: CatalogKind, locale: Locale) {
   if (kind === "raceType") return ["Logo", locale === "cs" ? "Závod" : "Race", locale === "cs" ? "Kalendář" : "Calendar", locale === "cs" ? "Poznámka" : "Notes"];
-  if (kind === "team") return [locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Země" : "Country", locale === "cs" ? "Poznámka" : "Notes"];
+  if (kind === "team") return ["Logo", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Země" : "Country", locale === "cs" ? "Poznámka" : "Notes"];
   if (kind === "driver") return [locale === "cs" ? "Pilot" : "Driver", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Kategorie" : "Category", "#", locale === "cs" ? "Národnost" : "Nationality", locale === "cs" ? "Stav" : "Status"];
   if (kind === "mechanic") return [locale === "cs" ? "Mechanik" : "Mechanic", locale === "cs" ? "Nejbližší závod / evidence" : "Next race / history"];
   if (kind === "vehicle") return [locale === "cs" ? "Auto" : "Car", "SPZ", locale === "cs" ? "Poznámka" : "Notes"];
@@ -321,7 +338,7 @@ function headers(kind: CatalogKind, locale: Locale) {
 
 function cells(kind: CatalogKind, item: CatalogItem, locale: Locale): React.ReactNode[] {
   if (kind === "raceType") { const value = item as RaceTypeRecord; const color = raceCalendarColorDefinition(value.calendarColor); return [<RaceLogoBadge key="logo" logoUrl={value.logoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, <span className="race-color-table" key="color" style={{ "--swatch-accent": color.accent, "--swatch-bg": color.background } as React.CSSProperties}><i /><b>{locale === "cs" ? color.labelCs : color.labelEn}</b></span>, value.notes || "—"]; }
-  if (kind === "team") { const value = item as TeamRecord; return [<strong key="name">{value.name}</strong>, value.countryCode ? `${countryFlag(value.countryCode)} ${value.countryCode}` : "—", value.notes || "—"]; }
+  if (kind === "team") { const value = item as TeamRecord; return [<RaceLogoBadge key="logo" logoUrl={value.logoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.countryCode ? `${countryFlag(value.countryCode)} ${value.countryCode}` : "—", value.notes || "—"]; }
   if (kind === "driver") { const value = item as DriverRecord; return [<strong key="name">{value.name}</strong>, value.teamName || "—", value.defaultCategory || "—", value.raceNumber || "—", value.nationality ? `${countryFlag(value.nationality)} ${value.nationality}` : "—", <span className={`status-pill ${value.isActive ? "success" : "neutral"}`} key="status">{value.isActive ? (locale === "cs" ? "Aktivní" : "Active") : (locale === "cs" ? "Neaktivní" : "Inactive")}</span>]; }
   if (kind === "mechanic") { const value = item as MechanicRecord; return [<strong key="name">{value.name}</strong>, value.nextRace ? <span className="mechanic-race-cell" key="race"><strong>{value.nextCountryCode ? countryFlag(value.nextCountryCode) : ""} {value.nextRace}</strong><small>{[value.nextTrack, mechanicDateRange(value.nextStartDate, value.nextEndDate, locale)].filter(Boolean).join(" · ")}</small>{value.assignmentStatus === "assigned" ? <em>{locale === "cs" ? "Přiřazen" : "Assigned"}</em> : <em className="history">{locale === "cs" ? `Naposledy · ${value.raceCount ?? 0}×` : `Last · ${value.raceCount ?? 0}×`}</em>}</span> : <span className="mechanic-empty-cell" key="empty">{locale === "cs" ? "Bez plánovaného závodu" : "No upcoming race"}</span>]; }
   if (kind === "vehicle") { const value = item as VehicleRecord; return [<strong key="name">{value.name}</strong>, value.licensePlate || "—", value.notes || "—"]; }

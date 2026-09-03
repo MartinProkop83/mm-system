@@ -60,9 +60,9 @@ export function RaceSalesPanel({ race, locale, role }: { race: RaceInfo; locale:
   const undeliveredCount = activeSales.filter((sale) => !sale.isDelivered).length;
 
   return <>
-    <section className="panel race-sales-panel race-sales-print-page">
+    <section className="dash-panel race-sales-panel race-sales-print-page">
       <header className="race-sales-header">
-        <div className="race-sales-title"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div><span className="eyebrow">MM SALES · RACE</span><h2>{locale === "cs" ? "Prodej a servis na závodě" : "Race sales and service"}</h2><p>{race.name} · {race.track} · {formatRaceDates(race.startDate, race.endDate, locale)}</p></div></div>
+        <div className="race-sales-title"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM SALES · RACE</span><h2>{locale === "cs" ? "Prodej a servis na závodě" : "Race sales and service"}</h2><p>{race.name} · {race.track} · {formatRaceDates(race.startDate, race.endDate, locale)}</p></div></div>
         <div className="race-sales-summary"><span>{activeSales.length} {locale === "cs" ? "objednávek" : "orders"}</span>{totals.map((total) => <strong key={total.currency}>{formatMoney(total.cents, total.currency, locale)}</strong>)}{undeliveredCount > 0 && <em>{undeliveredCount} {locale === "cs" ? "nepředáno" : "not delivered"}</em>}{unpaidCount > 0 && <em>{unpaidCount} {locale === "cs" ? "nezaplaceno" : "unpaid"}</em>}</div>
         {canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Nová objednávka" : "New order"}</button>}
       </header>

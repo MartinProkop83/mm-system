@@ -3,6 +3,7 @@ import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
 import { isCountryCode } from "../../countries";
 import { raceLogoUrl } from "../../race-logo";
+import { teamLogoUrl } from "../../team-logo";
 import { normalizeRaceCalendarColor } from "../../race-calendar-colors";
 
 const catalogTypes = new Set(["raceType", "team", "driver", "mechanic", "vehicle", "carburetor"]);
@@ -49,7 +50,7 @@ export async function GET() {
   const d1 = getD1();
   const [raceTypes, teams, drivers, mechanics, vehicles, carburetors, carburetorAssignments, mechanicAssignments] = await Promise.all([
     d1.prepare(`SELECT id, name, notes, calendar_color AS calendarColor, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM race_templates WHERE archived_at IS NULL ORDER BY name`).all(),
-    d1.prepare(`SELECT id, name, country_code AS countryCode, notes, created_at AS createdAt, updated_at AS updatedAt FROM teams WHERE archived_at IS NULL ORDER BY name`).all(),
+    d1.prepare(`SELECT id, name, country_code AS countryCode, notes, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM teams WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`
       SELECT d.id, d.name, d.team_id AS teamId, COALESCE(t.name, '') AS teamName,
              d.default_category AS defaultCategory, d.race_number AS raceNumber,
@@ -103,6 +104,10 @@ export async function GET() {
     };
   });
   const normalizedDrivers = drivers.results.map((driver: Record<string, unknown>) => ({ ...driver, isActive: Boolean(driver.isActive) }));
+  const normalizedTeams = (teams.results as Array<Record<string, unknown>>).map((team) => ({
+    ...team,
+    logoUrl: teamLogoUrl(team.id, team.logoKey, team.logoUpdatedAt),
+  }));
   const normalizedRaceTypes = (raceTypes.results as Array<Record<string, unknown>>).map((template) => ({
     id: template.id,
     name: template.name,
@@ -113,7 +118,7 @@ export async function GET() {
     createdAt: template.createdAt,
     updatedAt: template.updatedAt,
   }));
-  return Response.json({ raceTypes: normalizedRaceTypes, teams: teams.results, drivers: normalizedDrivers, mechanics: enrichedMechanics, vehicles: vehicles.results, carburetors: enrichedCarburetors });
+  return Response.json({ raceTypes: normalizedRaceTypes, teams: normalizedTeams, drivers: normalizedDrivers, mechanics: enrichedMechanics, vehicles: vehicles.results, carburetors: enrichedCarburetors });
 }
 
 export async function POST(request: Request) {
@@ -186,7 +191,7 @@ export async function DELETE(request: Request) {
   const d1 = getD1();
   const now = Date.now();
   const table = tableFor(payload.type!);
-  const logoKey = payload.type === "raceType" ? text(existing.logo_key, 500) : "";
+  const logoKey = payload.type === "raceType" || payload.type === "team" ? text(existing.logo_key, 500) : "";
   await d1.batch([
     d1.prepare(`UPDATE ${table} SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`).bind(now, now, payload.id),
     d1.prepare(`INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'archive', ?, ?, ?, ?)`).bind(

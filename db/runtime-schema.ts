@@ -105,6 +105,9 @@ async function createRuntimeSchema() {
         name TEXT NOT NULL,
         country_code TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
+        logo_key TEXT,
+        logo_content_type TEXT,
+        logo_updated_at INTEGER,
         archived_at INTEGER,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -741,6 +744,15 @@ async function createRuntimeSchema() {
     ["logo_updated_at", "ALTER TABLE race_templates ADD COLUMN logo_updated_at INTEGER"],
   ].filter(([name]) => !existingTemplateColumns.has(name));
   if (templateAdditions.length > 0) await d1.batch(templateAdditions.map(([, statement]) => d1.prepare(statement)));
+
+  const teamColumns = await d1.prepare("PRAGMA table_info(teams)").all<{ name: string }>();
+  const existingTeamColumns = new Set(teamColumns.results.map((column: { name: string }) => column.name));
+  const teamAdditions = [
+    ["logo_key", "ALTER TABLE teams ADD COLUMN logo_key TEXT"],
+    ["logo_content_type", "ALTER TABLE teams ADD COLUMN logo_content_type TEXT"],
+    ["logo_updated_at", "ALTER TABLE teams ADD COLUMN logo_updated_at INTEGER"],
+  ].filter(([name]) => !existingTeamColumns.has(name));
+  if (teamAdditions.length > 0) await d1.batch(teamAdditions.map(([, statement]) => d1.prepare(statement)));
 
   const driverColumns = await d1.prepare("PRAGMA table_info(drivers)").all<{ name: string }>();
   if (!driverColumns.results.some((column: { name: string }) => column.name === "is_active")) {

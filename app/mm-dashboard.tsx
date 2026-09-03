@@ -665,7 +665,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className={view === "dashboard" || view === "calendar" ? "workspace wrc-scope" : "workspace"}>
+      <section className={view === "dashboard" || view === "calendar" || view === "races" ? "workspace wrc-scope" : "workspace"}>
         <div className="util-bar">
           <button className="hamburger-btn" type="button" aria-label={locale === "cs" ? "Otevřít menu" : "Open menu"} onClick={() => setSidebarOpen(true)}>☰</button>
           <label className="util-search">
@@ -881,7 +881,6 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
   const raceGroup = nextRace ? upcoming.filter((race) => race.startDate <= nextRace.endDate && race.endDate >= nextRace.startDate) : [];
   const seasonOrder = [...dashboardRaces].sort((a, b) => a.startDate.localeCompare(b.startDate));
   const raceRoundNumber = new Map(seasonOrder.map((race, index) => [race.id, index + 1]));
-  const seasonGroups = groupRacesByWeekend(upcoming, 8);
   const ownedEngines = engines.filter((engine) => !engine.soldAt && engine.status !== "retired");
   const ownedCarburetors = catalog.carburetors.filter((carburetor) => !carburetor.soldAt && carburetor.status !== "retired");
   const engineStats = {
@@ -992,17 +991,12 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         <div>
           <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{t.upcomingRaces}</h2><a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celý kalendář" : "Full calendar"}</a></div>
           <div className="season">
-            {seasonGroups.map(({ race, extraCount, extraNames }) => (
+            {upcoming.slice(0, 8).map((race) => (
               <button className={race.id === nextRace?.id ? "round-card next" : "round-card"} type="button" key={race.id} onClick={() => onOpenRace(race.id)}>
                 <span className="race-watermark" style={{ color: raceWatermarkColor(race.id) }} aria-hidden="true">{raceWatermarkCode(race.name)}</span>
                 <div className="round-card-head">
                   <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="small" />
-                  <span className="round-tag">
-                    {locale === "cs" ? "Kolo" : "Round"} {raceRoundNumber.get(race.id) ?? "—"}
-                    {extraCount > 0 && (
-                      <span className="round-multi" title={`+${extraCount} ${locale === "cs" ? "další závody stejný víkend" : "more races the same weekend"}: ${extraNames.join(", ")}`}>+{extraCount}</span>
-                    )}
-                  </span>
+                  <span className="round-tag">{locale === "cs" ? "Kolo" : "Round"} {raceRoundNumber.get(race.id) ?? "—"}</span>
                   <span className="round-flag-inline">{countryFlag(race.countryCode)}</span>
                 </div>
                 <div className="round-name">{race.name}</div>
@@ -1949,19 +1943,6 @@ function raceCountdown(race: DashboardRace, today: string, locale: Locale) {
   const days = Math.max(0, Math.ceil((parseIsoDate(race.startDate).getTime() - parseIsoDate(today).getTime()) / 86_400_000));
   if (days === 0) return locale === "cs" ? "dnes" : "today";
   return locale === "cs" ? `za ${days} dní` : `${days} days`;
-}
-
-function groupRacesByWeekend(races: DashboardRace[], limit: number) {
-  const consumed = new Set<string>();
-  const groups: Array<{ race: DashboardRace; extraCount: number; extraNames: string[] }> = [];
-  for (const race of races) {
-    if (groups.length >= limit) break;
-    if (consumed.has(race.id)) continue;
-    const group = races.filter((other) => !consumed.has(other.id) && other.startDate <= race.endDate && other.endDate >= race.startDate);
-    group.forEach((item) => consumed.add(item.id));
-    groups.push({ race, extraCount: group.length - 1, extraNames: group.slice(1).map((item) => item.name) });
-  }
-  return groups;
 }
 
 const RACE_WATERMARK_STOPWORDS = new Set(["a", "v", "na", "of", "the", "de", "di", "and", "za", "pro"]);

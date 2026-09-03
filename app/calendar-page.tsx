@@ -30,6 +30,12 @@ export function CalendarPage({ locale, onOpenRace }: { locale: Locale; onOpenRac
   const races = useMemo(() => data.races.filter((race) => (!mechanicId || race.mechanics.some((item) => item.id === mechanicId)) && (!vehicleId || race.vehicles.some((item) => item.id === vehicleId))), [data.races, mechanicId, vehicleId]);
   const days = useMemo(() => calendarDays(month), [month]);
   const monthLabel = new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { month: "long", year: "numeric" }).format(month);
+  const activeMechanicName = mechanics.find((item) => item.id === mechanicId)?.name;
+  const activeVehicleName = vehicles.find((item) => item.id === vehicleId)?.name;
+  const printFilterParts = [
+    activeMechanicName ? `${locale === "cs" ? "Mechanik" : "Mechanic"}: ${activeMechanicName}` : null,
+    activeVehicleName ? `${locale === "cs" ? "Auto" : "Vehicle"}: ${activeVehicleName}` : null,
+  ].filter((part): part is string => Boolean(part));
 
   function printCalendar() {
     const previousTitle = document.title;
@@ -48,7 +54,7 @@ export function CalendarPage({ locale, onOpenRace }: { locale: Locale; onOpenRac
       </div>
     </section>
     <section className="dash-panel calendar-board calendar-print-area">
-      <header><button type="button" className="no-print" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><div><h3>{monthLabel}</h3><button type="button" className="no-print" onClick={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); }}>{locale === "cs" ? "Dnes" : "Today"}</button></div><button type="button" className="no-print" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></header>
+      <header><button type="button" className="no-print" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><div><h3>{monthLabel}</h3>{printFilterParts.length > 0 && <span className="print-only calendar-print-filter">{printFilterParts.join(" · ")}</span>}<button type="button" className="no-print" onClick={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); }}>{locale === "cs" ? "Dnes" : "Today"}</button></div><button type="button" className="no-print" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></header>
       {loading ? <div className="empty-state"><span className="spinner" /></div> : <div className="calendar-grid">{(locale === "cs" ? ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]).map((day) => <strong className="calendar-weekday" key={day}>{day}</strong>)}{days.map((day) => { const iso = isoDate(day); const dayRaces = races.filter((race) => race.departureDate <= iso && race.returnDate >= iso); return <div className={`calendar-day ${day.getMonth() !== month.getMonth() ? "outside" : ""} ${iso === isoDate(new Date()) ? "today" : ""}`} key={iso}><span className="calendar-date">{day.getDate()}</span>{dayRaces.slice(0, 3).map((race) => <CalendarRaceEvent key={race.id} race={race} locale={locale} onOpen={() => onOpenRace(race.id)} />)}</div>; })}</div>}
     </section>
     <section className="calendar-agenda"><div className="calendar-agenda-heading"><h3>{locale === "cs" ? "Přehled výjezdů" : "Travel overview"}</h3><span>{races.length} {locale === "cs" ? "závodů" : "races"}</span></div>{races.length === 0 ? <div className="dash-panel empty-state"><h3>{locale === "cs" ? "Pro tento filtr nejsou žádné výjezdy" : "No trips match this filter"}</h3><p>{locale === "cs" ? "Volné dny zůstávají v kalendáři bez označení." : "Free days remain blank in the calendar."}</p></div> : races.map((race) => <RaceAgenda key={race.id} race={race} data={data} locale={locale} />)}</section>
