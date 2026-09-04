@@ -19,6 +19,7 @@ type CatalogPayload = {
   name?: string;
   countryCode?: string;
   notes?: string;
+  seriesOptions?: unknown;
   calendarColor?: string;
   teamId?: string | null;
   defaultCategory?: string;
@@ -39,6 +40,16 @@ function text(value: unknown, max = 200) {
   return String(value ?? "").trim().slice(0, max);
 }
 
+function parseSeriesOptions(value: unknown) {
+  let source = value;
+  if (typeof value === "string") {
+    try { source = JSON.parse(value); }
+    catch { source = value.split(","); }
+  }
+  if (!Array.isArray(source)) return [];
+  return [...new Set(source.map((item) => text(item, 40)).filter(Boolean))].slice(0, 20);
+}
+
 function validType(value: unknown): value is CatalogType {
   return typeof value === "string" && catalogTypes.has(value);
 }
@@ -49,7 +60,7 @@ export async function GET() {
   await ensureRuntimeSchema();
   const d1 = getD1();
   const [raceTypes, teams, drivers, mechanics, vehicles, carburetors, carburetorAssignments, mechanicAssignments] = await Promise.all([
-    d1.prepare(`SELECT id, name, notes, calendar_color AS calendarColor, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM race_templates WHERE archived_at IS NULL ORDER BY name`).all(),
+    d1.prepare(`SELECT id, name, notes, series_options AS seriesOptions, calendar_color AS calendarColor, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM race_templates WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`SELECT id, name, country_code AS countryCode, notes, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM teams WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`
       SELECT d.id, d.name, d.team_id AS teamId, COALESCE(t.name, '') AS teamName,
@@ -112,6 +123,7 @@ export async function GET() {
     id: template.id,
     name: template.name,
     notes: template.notes,
+    seriesOptions: parseSeriesOptions(template.seriesOptions),
     calendarColor: normalizeRaceCalendarColor(template.calendarColor),
     logoUrl: raceLogoUrl(template.id, template.logoKey, template.logoUpdatedAt),
     logoUpdatedAt: template.logoUpdatedAt,
@@ -244,7 +256,7 @@ async function validatePayload(payload: CatalogPayload) {
 
 function createStatement(type: CatalogType, id: string, payload: CatalogPayload, actor: string, now: number) {
   const d1 = getD1();
-  if (type === "raceType") return d1.prepare("INSERT INTO race_templates (id, name, notes, calendar_color, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.notes, 1000), normalizeRaceCalendarColor(payload.calendarColor), actor, now, now);
+  if (type === "raceType") return d1.prepare("INSERT INTO race_templates (id, name, notes, series_options, calendar_color, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.notes, 1000), JSON.stringify(parseSeriesOptions(payload.seriesOptions)), normalizeRaceCalendarColor(payload.calendarColor), actor, now, now);
   if (type === "team") return d1.prepare("INSERT INTO teams (id, name, country_code, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), actor, now, now);
   if (type === "driver") return d1.prepare("INSERT INTO drivers (id, name, team_id, default_category, race_number, nationality, is_active, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), actor, now, now);
   if (type === "mechanic") return d1.prepare("INSERT INTO mechanics (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), actor, now, now);
@@ -254,7 +266,7 @@ function createStatement(type: CatalogType, id: string, payload: CatalogPayload,
 
 function updateStatement(type: CatalogType, id: string, payload: CatalogPayload, now: number) {
   const d1 = getD1();
-  if (type === "raceType") return d1.prepare("UPDATE race_templates SET name = ?, notes = ?, calendar_color = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.notes, 1000), normalizeRaceCalendarColor(payload.calendarColor), now, id);
+  if (type === "raceType") return d1.prepare("UPDATE race_templates SET name = ?, notes = ?, series_options = ?, calendar_color = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.notes, 1000), JSON.stringify(parseSeriesOptions(payload.seriesOptions)), normalizeRaceCalendarColor(payload.calendarColor), now, id);
   if (type === "team") return d1.prepare("UPDATE teams SET name = ?, country_code = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), now, id);
   if (type === "driver") return d1.prepare("UPDATE drivers SET name = ?, team_id = ?, default_category = ?, race_number = ?, nationality = ?, is_active = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), now, id);
   if (type === "mechanic") return d1.prepare("UPDATE mechanics SET name = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), now, id);

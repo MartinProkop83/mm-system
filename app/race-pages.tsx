@@ -22,6 +22,7 @@ type RaceRecord = {
   calendarColor: string;
   name: string;
   series: string;
+  seriesRound: number | null;
   raceType: string;
   track: string;
   address: string;
@@ -35,6 +36,8 @@ type RaceRecord = {
   status: "planned" | "active" | "completed";
   categories: string[];
   driverCount: number;
+  engineCount: number;
+  carburetorCount: number;
   mechanicCount: number;
   vehicleCount: number;
   circuitName: string | null;
@@ -143,8 +146,18 @@ export function RacePage({ locale, role, openRaceId = null }: { locale: Locale; 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [raceForm, setRaceForm] = useState<RaceFormState | null>(null);
+  const [listView, setListView] = useState<"cards" | "table">("cards");
   const canManage = role !== "mechanic";
   const selectedRace = races.find((race) => race.id === selectedId) ?? null;
+  const seasonOrder = [...races].sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const roundNumber = new Map(seasonOrder.map((race, index) => [race.id, index + 1]));
+  const currentRaces = seasonOrder.filter((race) => race.status !== "completed");
+  const archivedRaces = races.filter((race) => race.status === "completed");
+  const archiveYears = [...new Set(archivedRaces.map((race) => race.startDate.slice(0, 4)))].sort((a, b) => b.localeCompare(a));
+  const archiveByYear = archiveYears.map((year) => ({
+    year,
+    races: archivedRaces.filter((race) => race.startDate.slice(0, 4) === year).sort((a, b) => b.startDate.localeCompare(a.startDate)),
+  }));
 
   async function load() {
     setLoading(true);
@@ -201,12 +214,44 @@ export function RacePage({ locale, role, openRaceId = null }: { locale: Locale; 
       {loading && <div className="empty-state"><span className="spinner" /><p>{l.loading}</p></div>}
       {!loading && loadError && <div className="empty-state error-state"><b>!</b><p>{l.error}</p></div>}
       {!loading && !loadError && races.length === 0 && <div className="empty-state"><span className="empty-engine">⚑</span><h2>{l.empty}</h2>{canManage && <button className="primary-button" type="button" onClick={() => setRaceForm({ race: null, mechanicIds: [], vehicleIds: [] })}>＋ {l.newRace}</button>}</div>}
-      {!loading && !loadError && races.length > 0 && <div className="race-cards">{races.map((race) => <button className="race-card" key={race.id} type="button" onClick={() => setSelectedId(race.id)}>
-        <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
-        <span className="race-card-main"><small>MM RACE CONTROL</small><strong>{race.name}</strong><span>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}, {race.countryCode}</span><i>{race.categories.join(" · ")}</i></span>
-        <span className="race-card-counts"><b>{race.driverCount}</b><small>{locale === "cs" ? "pilotů" : "drivers"}</small><em className={`race-status ${race.status}`}>{raceStatus(race.status, locale)}</em></span>
-      </button>)}</div>}
+      {!loading && !loadError && races.length > 0 && <>
+        <div className="race-list-toggle no-print">
+          <button className={listView === "cards" ? "active" : ""} type="button" onClick={() => setListView("cards")}>{locale === "cs" ? "Karty" : "Cards"}</button>
+          <button className={listView === "table" ? "active" : ""} type="button" onClick={() => setListView("table")}>{locale === "cs" ? "Tabulka" : "Table"}</button>
+        </div>
+        {currentRaces.length === 0 && <p className="category-empty">{locale === "cs" ? "Žádný nadcházející ani probíhající závod." : "No upcoming or active race."}</p>}
+        {currentRaces.length > 0 && listView === "cards" && <div className="race-cards">{currentRaces.map((race) => <button className="race-card" key={race.id} type="button" onClick={() => setSelectedId(race.id)}>
+          <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
+          <span className="race-card-main"><small>MM RACE CONTROL{(race.series || race.seriesRound) && ` · ${[race.series, race.seriesRound ? `Round ${race.seriesRound}` : ""].filter(Boolean).join(" · ")}`}</small><strong>{race.name}</strong><span>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}, {race.countryCode}</span><i>{race.categories.join(" · ")}</i></span>
+          <span className="race-card-counts"><b>{race.driverCount}</b><small>{locale === "cs" ? "pilotů" : "drivers"}</small><em className={`race-status ${race.status}`}>{raceStatus(race.status, locale)}</em></span>
+        </button>)}</div>}
+        {currentRaces.length > 0 && listView === "table" && <div className="results-panel">
+          <table className="results">
+            <thead><tr><th>{locale === "cs" ? "Kolo" : "Round"}</th><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{l.status}</th><th className="num-col">{locale === "cs" ? "Pilotů" : "Drivers"}</th><th className="num-col">{locale === "cs" ? "Motorů" : "Engines"}</th><th className="num-col">{locale === "cs" ? "Karb." : "Carbs"}</th><th /></tr></thead>
+            <tbody>{currentRaces.map((race) => <tr key={race.id}>
+              <td className="r-round num">{roundNumber.get(race.id) ?? "—"}</td>
+              <td className="r-name"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="small" /><span>{countryFlag(race.countryCode)} {race.name}<small>{race.track}</small></span></td>
+              <td>{formatDateRange(race.startDate, race.endDate, locale)}</td>
+              <td><span className={`r-status ${race.status === "active" ? "next" : "upcoming"}`}>{raceStatus(race.status, locale)}</span></td>
+              <td className="num-col">{race.driverCount}</td>
+              <td className="num-col">{race.engineCount}</td>
+              <td className="num-col">{race.carburetorCount}</td>
+              <td><button type="button" className="r-link" onClick={() => setSelectedId(race.id)}>{locale === "cs" ? "Otevřít" : "Open"}</button></td>
+            </tr>)}</tbody>
+          </table>
+        </div>}
+      </>}
     </section>
+    {!loading && !loadError && archiveByYear.length > 0 && <section className="dash-panel data-panel race-archive">
+      <header><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE ARCHIVE</span><h2>{locale === "cs" ? "Archiv závodů" : "Race archive"}</h2></header>
+      {archiveByYear.map((group) => <div className="race-archive-year" key={group.year}>
+        <h3>{group.year}<small>{group.races.length} {locale === "cs" ? "závodů" : "races"}</small></h3>
+        <div className="race-archive-grid">{group.races.map((race) => <button className="race-archive-tile" key={race.id} type="button" onClick={() => setSelectedId(race.id)} title={`${race.name} · ${race.track} · ${formatDateRange(race.startDate, race.endDate, locale)}`}>
+          <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
+          <span>{race.name}<small>{formatDateRange(race.startDate, race.endDate, locale)}</small></span>
+        </button>)}</div>
+      </div>)}
+    </section>}
     {raceForm && <RaceForm locale={locale} race={raceForm.race} catalog={catalog} circuits={circuits} mechanicIds={raceForm.mechanicIds} vehicleIds={raceForm.vehicleIds} onClose={() => setRaceForm(null)} onSaved={async (id) => { setRaceForm(null); await load(); setSelectedId(id); }} />}
   </div>;
 }
@@ -346,7 +391,7 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
   return <div className="race-detail print-area">
     <div className="detail-back"><button type="button" onClick={onBack}>← {l.back}</button></div>
     <section className="dash-panel race-detail-hero">
-      <div className="race-hero-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{race.name}</h2><p>{countryFlag(race.countryCode)} {race.track}, {race.countryCode}</p></div></div>
+      <div className="race-hero-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL{(race.series || race.seriesRound) && <span className="race-series-tag">{[race.series, race.seriesRound ? `Round ${race.seriesRound}` : ""].filter(Boolean).join(" · ")}</span>}</span><h2>{race.name}</h2><p>{countryFlag(race.countryCode)} {race.track}, {race.countryCode}</p></div></div>
       <div className="race-hero-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div className="race-hero-actions no-print">{detailTab === "plan" && <button className="secondary-compact" type="button" onClick={printRacePlan}>⌁ {l.print}</button>}{canManage && <button className="secondary-compact" type="button" onClick={() => onEdit(plan?.mechanics.map((item) => item.mechanicId) ?? [], plan?.vehicles.map((item) => item.vehicleId) ?? [])}>✎ {l.edit}</button>}{role === "superadmin" && <button className="danger-compact" type="button" onClick={onArchive}>{l.remove}</button>}</div></div>
     </section>
     {canViewFinance && <nav className="race-detail-section-tabs no-print" aria-label={locale === "cs" ? "Část detailu závodu" : "Race detail section"}>
@@ -420,9 +465,10 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
             const selectedEngines = engineValues.map((engineId) => engines.find((engine) => engine.id === engineId));
             const carburetorChoices = catalog.carburetors.filter((carburetor) => carbMatches(carburetor.family, category) && carburetor.status !== "retired" && !carburetor.soldAt);
             const entryTeam = entry.teamId ? catalog.teams.find((team) => team.id === entry.teamId) : undefined;
+            const entryDriver = catalog.drivers.find((driver) => driver.id === entry.driverId);
             return <div id={`race-entry-${entry.id}`} className={`entry-table-row ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`} key={entry.id}>
               <div className="entry-num">#{driverNumber(catalog.drivers, entry.driverId)}</div>
-              <div className="entry-driver"><strong>{entry.driverName}</strong><span className="entry-team">{entryTeam?.logoUrl && <RaceLogoBadge logoUrl={entryTeam.logoUrl} name={entryTeam.name} size="small" />}{entry.teamName || "—"}</span></div>
+              <div className="entry-driver"><strong>{entryDriver?.nationality && <span className="entry-flag">{countryFlag(entryDriver.nationality)}</span>}{entry.driverName}</strong><span className="entry-team">{entryTeam?.logoUrl && <RaceLogoBadge logoUrl={entryTeam.logoUrl} name={entryTeam.name} size="small" />}{entry.teamName || "—"}</span></div>
               {engineSlots.map((index) => <div key={`engine-${index}`} data-equip-label={locale === "cs" ? `Motor ${index + 1}` : `Engine ${index + 1}`}>{canManage ? <InlineEquipmentPicker key={`engine-${index}-${engineValues[index]}`} type="engine" position={index + 1} entry={entry} value={engineValues[index]} code={engineCodes[index]} configuration={engineConfigurations[index]} upgradeCode={selectedEngines[index]?.upgradeCode ?? ""} labelColor={selectedEngines[index]?.labelColor ?? ""} selectedIds={engineValues} choices={engineChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "engine", index + 1, value)} /> : <EquipmentValue code={engineCodes[index]} configuration={engineConfigurations[index]} upgradeCode={selectedEngines[index]?.upgradeCode ?? ""} labelColor={selectedEngines[index]?.labelColor ?? ""} />}</div>)}
               {!isKz && [0, 1, 2].map((index) => <div key={`carb-${index}`} data-equip-label={locale === "cs" ? `Karb. ${index + 1}` : `Carb. ${index + 1}`}>{canManage ? <InlineEquipmentPicker key={`carb-${index}-${carburetorValues[index]}`} type="carburetor" position={index + 1} entry={entry} value={carburetorValues[index]} code={carburetorCodes[index]} configuration="" upgradeCode="" labelColor="" selectedIds={carburetorValues} choices={carburetorChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "carburetor", index + 1, value)} /> : <EquipmentValue code={carburetorCodes[index]} />}</div>)}
               <div className="entry-note"><InlineDriverNote entry={entry} canManage={canManage} locale={locale} onSave={(notes) => updateEntryNote(entry, notes)} /></div>
@@ -686,7 +732,7 @@ function AssignmentStrip({ icon, title, locale, items, options, canManage, empty
   return <div className="assignment-strip"><div className="assignment-title"><span className="assignment-icon">{icon}</span><div><small>{items.length} {title.toLocaleLowerCase(locale === "cs" ? "cs" : "en")}</small><h3>{title}</h3></div></div><div className="assignment-chips">{items.map((item) => <span key={item.id}>{item.label}{canManage && <button className="no-print" type="button" aria-label={`${locale === "cs" ? "Odebrat" : "Remove"} ${item.label}`} onClick={() => onDelete(item.id)}>×</button>}</span>)}{items.length === 0 && <small>{emptyText}</small>}</div>{canManage && <div className="assignment-add no-print"><select aria-label={`${title} – ${locale === "cs" ? "přidat" : "add"}`} value={selected} onChange={(event) => setSelected(event.target.value)}><option value="">{options.length ? `＋ ${locale === "cs" ? "Vybrat" : "Select"}` : "—"}</option>{options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select><button className="secondary-compact" type="button" disabled={!selected} onClick={() => { onAdd(selected); setSelected(""); }}>{locale === "cs" ? "Přidat" : "Add"}</button></div>}</div>;
 }
 
-function RaceForm({ locale, race, catalog, circuits, mechanicIds, vehicleIds, onClose, onSaved }: { locale: Locale; race: RaceRecord | null; catalog: CatalogData; circuits: CircuitRecord[]; mechanicIds: string[]; vehicleIds: string[]; onClose: () => void; onSaved: (id: string) => void }) {
+function RaceForm({ locale, race, catalog, circuits, mechanicIds: initialMechanicIds, vehicleIds: initialVehicleIds, onClose, onSaved }: { locale: Locale; race: RaceRecord | null; catalog: CatalogData; circuits: CircuitRecord[]; mechanicIds: string[]; vehicleIds: string[]; onClose: () => void; onSaved: (id: string) => void }) {
   const l = text[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -694,6 +740,16 @@ function RaceForm({ locale, race, catalog, circuits, mechanicIds, vehicleIds, on
   const [circuitId, setCircuitId] = useState(race?.circuitId ?? "");
   const [track, setTrack] = useState(race?.track ?? "");
   const [address, setAddress] = useState(race?.address ?? "");
+  const [startDate, setStartDate] = useState(race?.startDate ?? "");
+  const [endDate, setEndDate] = useState(race?.endDate ?? "");
+  const [departureDate, setDepartureDate] = useState(race?.departureDate ?? "");
+  const [returnDate, setReturnDate] = useState(race?.returnDate ?? "");
+  const [departureTouched, setDepartureTouched] = useState(Boolean(race?.departureDate));
+  const [returnTouched, setReturnTouched] = useState(Boolean(race?.returnDate));
+  const [raceTemplateId, setRaceTemplateId] = useState(race?.raceTemplateId ?? catalog.raceTypes.find((template) => template.name === race?.name)?.id ?? "");
+  const selectedRaceType = catalog.raceTypes.find((template) => template.id === raceTemplateId);
+  const [selectedMechanicIds, setSelectedMechanicIds] = useState(initialMechanicIds);
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState(initialVehicleIds);
   const availableCircuits = circuits.filter((circuit) => !countryCode || circuit.countryCode === countryCode);
   function selectCircuit(nextId: string) {
     setCircuitId(nextId);
@@ -719,23 +775,32 @@ function RaceForm({ locale, race, catalog, circuits, mechanicIds, vehicleIds, on
       setSaving(false);
     }
   }
-  const selectedTemplate = race?.raceTemplateId ?? catalog.raceTypes.find((template) => template.name === race?.name)?.id ?? "";
   return <Modal title={race ? l.edit : l.newRace} onClose={onClose}><form onSubmit={submit}><div className="form-grid race-form-grid">
-    <label><span>{locale === "cs" ? "Závod" : "Race"} *</span><select name="raceTemplateId" required autoFocus defaultValue={selectedTemplate}><option value="">{locale === "cs" ? "Vyber závod z databáze…" : "Select a race preset…"}</option>{catalog.raceTypes.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>{catalog.raceTypes.length === 0 && <small className="field-help">{locale === "cs" ? "Nejdříve přidej závod v levém menu Typy závodů." : "First add a preset in Race types."}</small>}</label>
-    <label><span>{locale === "cs" ? "Země" : "Country"} *</span><CountrySelect name="countryCode" required value={countryCode} onChange={(event) => { const next=event.target.value; setCountryCode(next); if (!circuits.some((circuit)=>circuit.id===circuitId&&circuit.countryCode===next)) { setCircuitId(""); setTrack(""); setAddress(""); } }} locale={locale} /></label>
-    <label><span>{locale === "cs" ? "Trať z databáze" : "Circuit from directory"}</span><select name="circuitId" value={circuitId} onChange={(event)=>selectCircuit(event.target.value)} disabled={!countryCode}><option value="">{locale === "cs" ? "Ručně / zatím neurčeno" : "Manual / not decided"}</option>{availableCircuits.map((circuit)=><option key={circuit.id} value={circuit.id}>{countryFlag(circuit.countryCode)} {circuit.name}</option>)}</select>{countryCode&&availableCircuits.length===0&&<small className="field-help">{locale === "cs" ? "Pro tuto zemi ještě není trať v adresáři." : "No circuit saved for this country yet."}</small>}</label>
-    <label><span>{locale === "cs" ? "Trať / město" : "Track / city"} *</span><input name="track" required value={track} readOnly={Boolean(circuitId)} onChange={(event)=>setTrack(event.target.value)} /></label>
-    <label><span>{locale === "cs" ? "Adresa" : "Address"}</span><input name="address" value={address} readOnly={Boolean(circuitId)} onChange={(event)=>setAddress(event.target.value)} /></label>
-    <label><span>{locale === "cs" ? "Odjezd" : "Departure"} *</span><input type="date" name="departureDate" required defaultValue={race?.departureDate ?? ""} /></label>
-    <label><span>{locale === "cs" ? "Začátek závodu" : "Race start"} *</span><input type="date" name="startDate" required defaultValue={race?.startDate ?? ""} /></label>
-    <label><span>{locale === "cs" ? "Konec závodu" : "Race end"} *</span><input type="date" name="endDate" required defaultValue={race?.endDate ?? ""} /></label>
-    <label><span>{locale === "cs" ? "Návrat" : "Return"} *</span><input type="date" name="returnDate" required defaultValue={race?.returnDate ?? ""} /></label>
-    <label><span>{locale === "cs" ? "Pořadatel" : "Organizer"}</span><input name="organizer" defaultValue={race?.organizer ?? ""} /></label>
-    <label><span>{l.status}</span><select name="status" defaultValue={race?.status ?? "planned"}><option value="planned">{locale === "cs" ? "Plánováno" : "Planned"}</option><option value="active">{locale === "cs" ? "Probíhá" : "Active"}</option><option value="completed">{locale === "cs" ? "Dokončeno" : "Completed"}</option></select></label>
-    <fieldset className="category-picker full-field"><legend>{locale === "cs" ? "Kategorie na závodě" : "Race categories"} *</legend>{categoryOrder.map((category) => <label key={category}><input type="checkbox" name="categories" value={category} defaultChecked={race?.categories.includes(category) ?? false} /><span>{category}</span></label>)}</fieldset>
-    <fieldset className="category-picker full-field"><legend>{locale === "cs" ? "Mechanici" : "Mechanics"}</legend>{catalog.mechanics.length === 0 ? <small>{locale === "cs" ? "Nejdříve přidej mechaniky v levém menu." : "First add mechanics in the left menu."}</small> : catalog.mechanics.map((mechanic) => <label key={mechanic.id}><input type="checkbox" name="mechanicIds" value={mechanic.id} defaultChecked={mechanicIds.includes(mechanic.id)} /><span>{mechanic.name}</span></label>)}</fieldset>
-    <fieldset className="category-picker full-field"><legend>{locale === "cs" ? "Auta" : "Cars"}</legend>{catalog.vehicles.length === 0 ? <small>{locale === "cs" ? "Nejdříve přidej auta v levém menu." : "First add cars in the left menu."}</small> : catalog.vehicles.map((vehicle) => <label key={vehicle.id}><input type="checkbox" name="vehicleIds" value={vehicle.id} defaultChecked={vehicleIds.includes(vehicle.id)} /><span>{vehicle.name}{vehicle.licensePlate ? ` · ${vehicle.licensePlate}` : ""}</span></label>)}</fieldset>
-    <label className="full-field"><span>{l.notes}</span><textarea name="notes" rows={3} defaultValue={race?.notes ?? ""} /></label>
+    <div className="race-form-info">
+      <label><span>{locale === "cs" ? "Závod" : "Race"} *</span><select name="raceTemplateId" required autoFocus value={raceTemplateId} onChange={(event) => setRaceTemplateId(event.target.value)}><option value="">{locale === "cs" ? "Vyber závod z databáze…" : "Select a race preset…"}</option>{catalog.raceTypes.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>{catalog.raceTypes.length === 0 && <small className="field-help">{locale === "cs" ? "Nejdříve přidej závod v levém menu Typy závodů." : "First add a preset in Race types."}</small>}</label>
+      <label><span>{locale === "cs" ? "Série" : "Series"}</span><input name="series" list="race-series-options" defaultValue={race?.series ?? ""} maxLength={60} placeholder={locale === "cs" ? "např. Final Cup, Euro…" : "e.g. Final Cup, Euro…"} />{selectedRaceType && selectedRaceType.seriesOptions.length > 0 && <datalist id="race-series-options">{selectedRaceType.seriesOptions.map((option) => <option key={option} value={option} />)}</datalist>}<small className="field-help">{locale === "cs" ? "Volitelné — vyber nebo napiš vlastní." : "Optional — pick one or type your own."}</small></label>
+      <label><span>Round</span><select name="seriesRound" defaultValue={race?.seriesRound ? String(race.seriesRound) : ""}><option value="">{locale === "cs" ? "— Neuvedeno" : "— Not set"}</option>{Array.from({ length: 10 }, (_, index) => index + 1).map((round) => <option key={round} value={round}>Round {round}</option>)}</select></label>
+      <label><span>{locale === "cs" ? "Země" : "Country"} *</span><CountrySelect name="countryCode" required value={countryCode} onChange={(event) => { const next=event.target.value; setCountryCode(next); if (!circuits.some((circuit)=>circuit.id===circuitId&&circuit.countryCode===next)) { setCircuitId(""); setTrack(""); setAddress(""); } }} locale={locale} /></label>
+      <label><span>{locale === "cs" ? "Trať z databáze" : "Circuit from directory"}</span><select name="circuitId" value={circuitId} onChange={(event)=>selectCircuit(event.target.value)} disabled={!countryCode}><option value="">{locale === "cs" ? "Ručně / zatím neurčeno" : "Manual / not decided"}</option>{availableCircuits.map((circuit)=><option key={circuit.id} value={circuit.id}>{countryFlag(circuit.countryCode)} {circuit.name}</option>)}</select>{countryCode&&availableCircuits.length===0&&<small className="field-help">{locale === "cs" ? "Pro tuto zemi ještě není trať v adresáři." : "No circuit saved for this country yet."}</small>}</label>
+      <label><span>{locale === "cs" ? "Trať / město" : "Track / city"} *</span><input name="track" required value={track} readOnly={Boolean(circuitId)} onChange={(event)=>setTrack(event.target.value)} /></label>
+      <input type="hidden" name="address" value={address} />
+      <label><span>{locale === "cs" ? "Odjezd" : "Departure"} *</span><input type="date" name="departureDate" required value={departureDate} onChange={(event) => { setDepartureDate(event.target.value); setDepartureTouched(true); }} /></label>
+      <label><span>{locale === "cs" ? "Začátek závodu" : "Race start"} *</span><input type="date" name="startDate" required value={startDate} onChange={(event) => { const next = event.target.value; setStartDate(next); if (!departureTouched) setDepartureDate(shiftDate(next, -1)); }} /></label>
+      <label><span>{locale === "cs" ? "Konec závodu" : "Race end"} *</span><input type="date" name="endDate" required value={endDate} onChange={(event) => { const next = event.target.value; setEndDate(next); if (!returnTouched) setReturnDate(next); }} /></label>
+      <label><span>{locale === "cs" ? "Návrat" : "Return"} *</span><input type="date" name="returnDate" required value={returnDate} onChange={(event) => { setReturnDate(event.target.value); setReturnTouched(true); }} /></label>
+    </div>
+    <div className="race-form-selections">
+      <fieldset className="category-toggle-group"><legend>{locale === "cs" ? "Kategorie na závodě" : "Race categories"} *</legend><div>{categoryOrder.map((category) => <label key={category}><input type="checkbox" name="categories" value={category} defaultChecked={race?.categories.includes(category) ?? false} /><span>{category}</span></label>)}</div></fieldset>
+      <div>
+        <AssignmentStrip icon="M" title={locale === "cs" ? "Mechanici" : "Mechanics"} locale={locale} items={selectedMechanicIds.map((id) => ({ id, label: catalog.mechanics.find((mechanic) => mechanic.id === id)?.name ?? id }))} options={catalog.mechanics.filter((mechanic) => !selectedMechanicIds.includes(mechanic.id)).map((mechanic) => ({ id: mechanic.id, label: mechanic.name }))} canManage emptyText={locale === "cs" ? "Zatím nikdo nevybrán." : "No one selected yet."} onAdd={(id) => setSelectedMechanicIds((current) => [...current, id])} onDelete={(id) => setSelectedMechanicIds((current) => current.filter((item) => item !== id))} />
+        {selectedMechanicIds.map((id) => <input key={id} type="hidden" name="mechanicIds" value={id} />)}
+      </div>
+      <div>
+        <AssignmentStrip icon="A" title={locale === "cs" ? "Auta" : "Cars"} locale={locale} items={selectedVehicleIds.map((id) => ({ id, label: catalog.vehicles.find((vehicle) => vehicle.id === id)?.name ?? id }))} options={catalog.vehicles.filter((vehicle) => !selectedVehicleIds.includes(vehicle.id)).map((vehicle) => ({ id: vehicle.id, label: vehicle.licensePlate ? `${vehicle.name} · ${vehicle.licensePlate}` : vehicle.name }))} canManage emptyText={locale === "cs" ? "Zatím nevybráno." : "None selected yet."} onAdd={(id) => setSelectedVehicleIds((current) => [...current, id])} onDelete={(id) => setSelectedVehicleIds((current) => current.filter((item) => item !== id))} />
+        {selectedVehicleIds.map((id) => <input key={id} type="hidden" name="vehicleIds" value={id} />)}
+      </div>
+      <label><span>{l.notes}</span><textarea name="notes" rows={3} defaultValue={race?.notes ?? ""} /></label>
+    </div>
   </div>{error && <p className="form-error">{error}</p>}<ModalActions locale={locale} saving={saving} onClose={onClose} /></form></Modal>;
 }
 
@@ -844,6 +909,15 @@ function carbMatches(family: string, category: string) {
 function raceStatus(status: RaceRecord["status"], locale: Locale) {
   const labels = { planned: ["Plánováno", "Planned"], active: ["Probíhá", "Active"], completed: ["Dokončeno", "Completed"] } as const;
   return labels[status][locale === "cs" ? 0 : 1];
+}
+
+function shiftDate(value: string, days: number) {
+  if (!value) return "";
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
 function formatDateRange(start: string, end: string, locale: Locale) {

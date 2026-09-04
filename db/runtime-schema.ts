@@ -234,6 +234,7 @@ async function createRuntimeSchema() {
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL UNIQUE,
         notes TEXT NOT NULL DEFAULT '',
+        series_options TEXT NOT NULL DEFAULT '[]',
         calendar_color TEXT NOT NULL DEFAULT 'blue',
         logo_key TEXT,
         logo_content_type TEXT,
@@ -272,6 +273,7 @@ async function createRuntimeSchema() {
         circuit_id TEXT,
         name TEXT NOT NULL,
         series TEXT NOT NULL DEFAULT '',
+        series_round INTEGER,
         race_type TEXT NOT NULL DEFAULT '',
         track TEXT NOT NULL,
         address TEXT NOT NULL DEFAULT '',
@@ -711,6 +713,7 @@ async function createRuntimeSchema() {
     ["return_date", "ALTER TABLE races ADD COLUMN return_date TEXT NOT NULL DEFAULT ''"],
     ["organizer", "ALTER TABLE races ADD COLUMN organizer TEXT NOT NULL DEFAULT ''"],
     ["notes", "ALTER TABLE races ADD COLUMN notes TEXT NOT NULL DEFAULT ''"],
+    ["series_round", "ALTER TABLE races ADD COLUMN series_round INTEGER"],
   ].filter(([name]) => !existingRaceColumns.has(name));
   if (raceAdditions.length > 0) await d1.batch(raceAdditions.map(([, statement]) => d1.prepare(statement)));
   await d1.prepare("CREATE INDEX IF NOT EXISTS races_template_idx ON races (race_template_id)").run();
@@ -742,6 +745,7 @@ async function createRuntimeSchema() {
     ["logo_key", "ALTER TABLE race_templates ADD COLUMN logo_key TEXT"],
     ["logo_content_type", "ALTER TABLE race_templates ADD COLUMN logo_content_type TEXT"],
     ["logo_updated_at", "ALTER TABLE race_templates ADD COLUMN logo_updated_at INTEGER"],
+    ["series_options", "ALTER TABLE race_templates ADD COLUMN series_options TEXT NOT NULL DEFAULT '[]'"],
   ].filter(([name]) => !existingTemplateColumns.has(name));
   if (templateAdditions.length > 0) await d1.batch(templateAdditions.map(([, statement]) => d1.prepare(statement)));
 

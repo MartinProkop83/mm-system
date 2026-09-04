@@ -8,12 +8,24 @@ import { circuitImageUrl } from "../../circuit-image";
 
 const categoryOrder = ["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"];
 const allowedCategories = new Set(categoryOrder);
-const allowedStatuses = new Set(["planned", "active", "completed"]);
+
+function todayIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function deriveStatus(startDate: string, endDate: string) {
+  const today = todayIso();
+  if (today < startDate) return "planned";
+  if (today > endDate) return "completed";
+  return "active";
+}
 
 type RacePayload = {
   id?: string;
   raceTemplateId?: string;
   circuitId?: string;
+  series?: string;
+  seriesRound?: string | number;
   track?: string;
   address?: string;
   countryCode?: string;
@@ -91,6 +103,9 @@ async function prepareTravelAssignments(
 function normalize(payload: RacePayload) {
   const raceTemplateId = clean(payload.raceTemplateId, 80);
   const circuitId = clean(payload.circuitId, 80);
+  const series = clean(payload.series, 60);
+  const seriesRoundRaw = clean(payload.seriesRound, 4);
+  const seriesRound = seriesRoundRaw ? Number(seriesRoundRaw) : null;
   const track = clean(payload.track, 140);
   const address = clean(payload.address, 300);
   const countryCode = clean(payload.countryCode, 3).toUpperCase();
@@ -100,7 +115,7 @@ function normalize(payload: RacePayload) {
   const returnDate = clean(payload.returnDate, 10);
   const organizer = clean(payload.organizer, 120);
   const notes = clean(payload.notes, 2000);
-  const status = clean(payload.status) || "planned";
+  const status = validDate(startDate) && validDate(endDate) ? deriveStatus(startDate, endDate) : "planned";
   const categories = categoryOrder.filter((category) => new Set(payload.categories ?? []).has(category));
   let error = "";
   const mechanicIds = uniqueIds(payload.mechanicIds);
@@ -108,9 +123,9 @@ function normalize(payload: RacePayload) {
   if (!raceTemplateId || !track || !isCountryCode(countryCode)) error = "Race, track and country are required";
   else if (![startDate, endDate, departureDate, returnDate].every(validDate)) error = "All race and travel dates are required";
   else if (!(departureDate <= startDate && startDate <= endDate && endDate <= returnDate)) error = "Dates must follow departure, race and return order";
-  else if (!allowedStatuses.has(status)) error = "Invalid race status";
   else if (categories.length === 0 || categories.some((category) => !allowedCategories.has(category))) error = "Select at least one valid category";
-  return { raceTemplateId, circuitId, track, address, countryCode, startDate, endDate, departureDate, returnDate, organizer, notes, status, categories, mechanicIds, vehicleIds, error };
+  else if (seriesRound !== null && (!Number.isInteger(seriesRound) || seriesRound < 1 || seriesRound > 10)) error = "Series round must be between 1 and 10";
+  return { raceTemplateId, circuitId, series, seriesRound, track, address, countryCode, startDate, endDate, departureDate, returnDate, organizer, notes, status, categories, mechanicIds, vehicleIds, error };
 }
 
 async function resolveCircuit(race: ReturnType<typeof normalize>) {
@@ -128,10 +143,15 @@ export async function GET() {
   const d1 = getD1();
   const [races, categories, counts, entryResources, extraResources] = await Promise.all([
     d1.prepare(`
-      SELECT r.id, r.race_template_id AS raceTemplateId, r.circuit_id AS circuitId, r.name, r.series, r.race_type AS raceType, r.track, r.address,
+      SELECT r.id, r.race_template_id AS raceTemplateId, r.circuit_id AS circuitId, r.name, r.series, r.series_round AS seriesRound, r.race_type AS raceType, r.track, r.address,
              r.country_code AS countryCode, start_date AS startDate, end_date AS endDate,
              departure_date AS departureDate, return_date AS returnDate,
-             organizer, r.notes, r.status, r.created_at AS createdAt, r.updated_at AS updatedAt,
+             organizer, r.notes,
+             CASE WHEN r.status = 'archived' THEN 'archived'
+                  WHEN r.end_date < date('now') THEN 'completed'
+                  WHEN r.start_date > date('now') THEN 'planned'
+                  ELSE 'active' END AS status,
+             r.created_at AS createdAt, r.updated_at AS updatedAt,
              rt.calendar_color AS calendarColor, rt.logo_key AS logoKey, rt.logo_updated_at AS logoUpdatedAt,
              c.name AS circuitName, c.address AS circuitAddress, c.website_url AS circuitWebsiteUrl, c.maps_url AS circuitMapsUrl,
              c.latitude AS circuitLatitude, c.longitude AS circuitLongitude, c.distance_km AS circuitDistanceKm,
@@ -211,11 +231,11 @@ export async function POST(request: Request) {
   await d1.batch([
     d1.prepare(`
       INSERT INTO races (
-        id, race_template_id, circuit_id, name, series, race_type, track, address, country_code,
+        id, race_template_id, circuit_id, name, series, series_round, race_type, track, address, country_code,
         start_date, end_date, departure_date, return_date, organizer,
         notes, status, created_by, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, template.id, race.circuitId || null, template.name, "", template.name, race.track, race.address, race.countryCode, race.startDate, race.endDate, race.departureDate, race.returnDate, race.organizer, race.notes, race.status, user.email, now, now),
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, template.id, race.circuitId || null, template.name, race.series, race.seriesRound, template.name, race.track, race.address, race.countryCode, race.startDate, race.endDate, race.departureDate, race.returnDate, race.organizer, race.notes, race.status, user.email, now, now),
     ...race.categories.map((category) => d1.prepare("INSERT INTO race_categories (id, race_id, category, sort_order, notes) VALUES (?, ?, ?, ?, '')").bind(crypto.randomUUID(), id, category, categoryOrder.indexOf(category))),
     ...travel.mechanics.map((mechanic) => d1.prepare("INSERT INTO race_mechanics (id, race_id, mechanic_id, mechanic_name_snapshot) VALUES (?, ?, ?, ?)").bind(crypto.randomUUID(), id, mechanic.id, mechanic.name)),
     ...travel.vehicles.map((vehicle) => d1.prepare("INSERT INTO race_vehicles (id, race_id, vehicle_id, vehicle_name_snapshot, license_plate_snapshot) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), id, vehicle.id, vehicle.name, vehicle.licensePlate)),
@@ -251,11 +271,11 @@ export async function PUT(request: Request) {
   const now = Date.now();
   await d1.batch([
     d1.prepare(`
-      UPDATE races SET race_template_id = ?, circuit_id = ?, name = ?, series = '', race_type = ?, track = ?, address = ?,
+      UPDATE races SET race_template_id = ?, circuit_id = ?, name = ?, series = ?, series_round = ?, race_type = ?, track = ?, address = ?,
         country_code = ?, start_date = ?, end_date = ?, departure_date = ?, return_date = ?,
         organizer = ?, notes = ?, status = ?, updated_at = ?
       WHERE id = ? AND status != 'archived'
-    `).bind(template.id, race.circuitId || null, template.name, template.name, race.track, race.address, race.countryCode, race.startDate, race.endDate, race.departureDate, race.returnDate, race.organizer, race.notes, race.status, now, payload.id),
+    `).bind(template.id, race.circuitId || null, template.name, race.series, race.seriesRound, template.name, race.track, race.address, race.countryCode, race.startDate, race.endDate, race.departureDate, race.returnDate, race.organizer, race.notes, race.status, now, payload.id),
     d1.prepare("DELETE FROM race_categories WHERE race_id = ?").bind(payload.id),
     ...race.categories.map((category) => d1.prepare("INSERT INTO race_categories (id, race_id, category, sort_order, notes) VALUES (?, ?, ?, ?, '')").bind(crypto.randomUUID(), payload.id, category, categoryOrder.indexOf(category))),
     d1.prepare("DELETE FROM race_mechanics WHERE race_id = ?").bind(payload.id),
