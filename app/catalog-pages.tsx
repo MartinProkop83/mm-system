@@ -7,7 +7,8 @@ import { CarburetorDetail } from "./carburetor-detail";
 import { MechanicDetail } from "./mechanic-detail";
 import { CompetitionHistoryDetail } from "./competition-history-detail";
 import { RaceLogoBadge } from "./race-logo-badge";
-import { raceCalendarColorDefinition, raceCalendarColors } from "./race-calendar-colors";
+import { raceCalendarColorDefinition } from "./race-calendar-colors";
+import { CalendarColorSelect } from "./calendar-color-select";
 
 export type CatalogKind = "raceType" | "team" | "driver" | "mechanic" | "vehicle" | "carburetor";
 type Locale = "cs" | "en";
@@ -20,7 +21,7 @@ export type DriverRecord = { id: string; name: string; teamId: string | null; te
 export type MechanicRecord = { id: string; name: string; nextRace?: string; nextTrack?: string; nextCountryCode?: string; nextStartDate?: string; nextEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; raceCount?: number; createdAt: number; updatedAt: number };
 export type VehicleRecord = { id: string; name: string; licensePlate: string; notes: string; createdAt: number; updatedAt: number };
 export type CarburetorRecord = { id: string; code: string; carburetorTypeId?: string | null; category?: string; family: string; brand: string; model: string; status: string; notes: string; soldAt?: number | null; lastDriver?: string; lastRace?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
-export type CarburetorTypeRecord = { id: string; brand: string; model: string; categories: string[]; notes: string; createdAt: number; updatedAt: number };
+export type CarburetorTypeRecord = { id: string; brand: string; model: string; categories: string[]; notes: string; photoUrl: string; createdAt: number; updatedAt: number };
 
 export type CatalogData = {
   raceTypes: RaceTypeRecord[];
@@ -60,6 +61,8 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>("active");
+  const [carbCategoryFilter, setCarbCategoryFilter] = useState<CarbUnitFilter>("all");
+  const [carbStatusFilter, setCarbStatusFilter] = useState<CarbStatusFilter>("all");
   const allItems = useMemo(() => {
     const records = data[pluralKey(kind)] as CatalogItem[];
     return kind === "carburetor" ? records.filter((item) => !(item as CarburetorRecord).soldAt) : records;
@@ -114,13 +117,15 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
         <div className="catalog-summary-actions"><strong>{allItems.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {l.new} {l[kind][1].toLowerCase()}</button>}</div>
       </section>
       {kind === "driver" && <DriverCategoryTiles locale={locale} items={data.drivers} selected={driverFilter} onSelect={setDriverFilter} />}
-      {kind === "carburetor" && <CarburetorTypesSection locale={locale} role={role} items={data.carburetorTypes ?? []} onChanged={load} />}
-      <section className="panel data-panel catalog-table-panel">
+      {kind === "carburetor" && <CarburetorTypesSection locale={locale} role={role} items={data.carburetorTypes ?? []} carburetors={data.carburetors} onChanged={load} />}
+      {kind === "carburetor" && <CarburetorFilterTiles locale={locale} items={allItems as CarburetorRecord[]} category={carbCategoryFilter} status={carbStatusFilter} onCategoryChange={setCarbCategoryFilter} onStatusChange={setCarbStatusFilter} />}
+      {kind === "carburetor" && <CarburetorResultsPanel locale={locale} role={role} items={allItems as CarburetorRecord[]} types={data.carburetorTypes ?? []} category={carbCategoryFilter} status={carbStatusFilter} onOpen={(item) => setSelectedCarburetorId(item.id)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
+      {kind !== "carburetor" && <section className="panel data-panel catalog-table-panel">
         {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
         {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
         {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{l.empty}</h2><p>{l.history}</p></div>}
-        {!loading && !error && items.length > 0 && <CatalogTable kind={kind} locale={locale} items={items} role={role} onOpen={(item) => { if (kind === "carburetor") setSelectedCarburetorId((item as CarburetorRecord).id); if (kind === "mechanic") setSelectedMechanicId((item as MechanicRecord).id); if (kind === "driver") setSelectedDriverId((item as DriverRecord).id); if (kind === "team") setSelectedTeamId((item as TeamRecord).id); }} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
-      </section>
+        {!loading && !error && items.length > 0 && <CatalogTable kind={kind} locale={locale} items={items} role={role} onOpen={(item) => { if (kind === "mechanic") setSelectedMechanicId((item as MechanicRecord).id); if (kind === "driver") setSelectedDriverId((item as DriverRecord).id); if (kind === "team") setSelectedTeamId((item as TeamRecord).id); }} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
+      </section>}
       {formOpen && <CatalogForm kind={kind} locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}
     </div>
   );
@@ -229,9 +234,9 @@ function CatalogFields({ kind, locale, item, teams, carburetorTypes }: { kind: C
 function RaceTypeFields({ raceType, locale, notesLabel }: { raceType: RaceTypeRecord | null; locale: Locale; notesLabel: string }) {
   const [removeLogo, setRemoveLogo] = useState(false);
   return <>
-    <label className="full-field"><span>{locale === "cs" ? "Název přednastaveného závodu" : "Preset race name"} *</span><input name="name" defaultValue={raceType?.name ?? ""} required autoFocus maxLength={120} placeholder="RMC Germany" /></label>
-    <label className="full-field"><span>{locale === "cs" ? "Série (volitelné)" : "Series (optional)"}</span><input name="seriesOptions" defaultValue={raceType?.seriesOptions?.join(", ") ?? ""} placeholder="Final Cup, Euro, Champions Cup" /><small className="field-help">{locale === "cs" ? "Série odděluj čárkou. U jednotlivého závodu si pak vybereš jednu z nich, nebo napíšeš vlastní — nic není povinné." : "Separate series with commas. When creating a race you'll pick one or type your own — none of this is required."}</small></label>
-    <fieldset className="race-color-picker full-field"><legend>{locale === "cs" ? "Barva v kalendáři" : "Calendar color"}</legend><p>{locale === "cs" ? "Podle této barvy závod rychle poznáš v kalendáři a přehledu výjezdů." : "This color identifies the race in the calendar and travel overview."}</p><div>{raceCalendarColors.map((color) => <label key={color.id} style={{ "--swatch-accent": color.accent, "--swatch-bg": color.background, "--swatch-text": color.text } as React.CSSProperties}><input type="radio" name="calendarColor" value={color.id} defaultChecked={(raceType?.calendarColor ?? "blue") === color.id} /><span className="race-color-swatch" aria-hidden="true" /><b>{locale === "cs" ? color.labelCs : color.labelEn}</b></label>)}</div></fieldset>
+    <label><span>{locale === "cs" ? "Název přednastaveného závodu" : "Preset race name"} *</span><input name="name" defaultValue={raceType?.name ?? ""} required autoFocus maxLength={120} placeholder="RMC Germany" /></label>
+    <label><span>{locale === "cs" ? "Série (volitelné)" : "Series (optional)"}</span><input name="seriesOptions" defaultValue={raceType?.seriesOptions?.join(", ") ?? ""} placeholder="Final Cup, Euro, Champions Cup" /><small className="field-help">{locale === "cs" ? "Série odděluj čárkou. U jednotlivého závodu vybereš jednu z nich, nebo napíšeš vlastní." : "Separate series with commas. When creating a race you'll pick one or type your own."}</small></label>
+    <label className="full-field"><span>{locale === "cs" ? "Barva v kalendáři" : "Calendar color"}</span><CalendarColorSelect name="calendarColor" defaultValue={raceType?.calendarColor ?? "sky"} locale={locale} /><small className="field-help">{locale === "cs" ? "Podle této barvy závod rychle poznáš v kalendáři a přehledu výjezdů." : "This color identifies the race in the calendar and travel overview."}</small></label>
     <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Logo typu závodu" : "Race type logo"}</span>
       {raceType?.logoUrl && !removeLogo && <div className="race-logo-preview"><RaceLogoBadge logoUrl={raceType.logoUrl} name={raceType.name} size="large" /><div><strong>{locale === "cs" ? "Aktuální logo" : "Current logo"}</strong><button type="button" onClick={() => setRemoveLogo(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
       {removeLogo && <input type="hidden" name="removeLogo" value="1" />}
@@ -274,7 +279,7 @@ function CarburetorFields({ carb, types, locale }: { carb: CarburetorRecord | nu
   </>;
 }
 
-function CarburetorTypesSection({ locale, role, items, onChanged }: { locale: Locale; role: Role; items: CarburetorTypeRecord[]; onChanged: () => Promise<void> }) {
+function CarburetorTypesSection({ locale, role, items, carburetors, onChanged }: { locale: Locale; role: Role; items: CarburetorTypeRecord[]; carburetors: CarburetorRecord[]; onChanged: () => Promise<void> }) {
   const [editing, setEditing] = useState<CarburetorTypeRecord | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const canManage = role !== "mechanic";
@@ -287,24 +292,145 @@ function CarburetorTypesSection({ locale, role, items, onChanged }: { locale: Lo
     await onChanged();
   }
 
-  return <section className="panel carb-type-library"><header><div><span className="eyebrow">MASTER DATA</span><h3>{locale === "cs" ? "Katalog typů karburátorů" : "Carburetor type catalog"}</h3><p>{locale === "cs" ? "Předdefinované značky, modely a kompatibilní závodní kategorie." : "Preset brands, models and compatible race categories."}</p></div>{canManage && <button className="secondary-compact" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {locale === "cs" ? "Přidat typ" : "Add type"}</button>}</header>{items.length === 0 ? <div className="carb-type-empty"><strong>{locale === "cs" ? "Zatím není vytvořený žádný typ" : "No types yet"}</strong><span>{locale === "cs" ? "Začni značkou, modelem a vyber jednu nebo více kategorií." : "Start with a brand, model and one or more categories."}</span></div> : <div className="carb-type-grid">{items.map((item) => <article className={`carb-type-card tone-${normalizeCarbFamily(item.categories[0] ?? "").toLowerCase()}`} key={item.id}><div><span>{item.brand}</span><h4>{item.model}</h4></div><div className="carb-category-chips">{item.categories.map((category) => <b key={category}>{category}</b>)}</div>{item.notes && <p>{item.notes}</p>}{canManage && <footer><button type="button" onClick={() => { setEditing(item); setFormOpen(true); }}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => { void remove(item); }}>{locale === "cs" ? "Smazat" : "Delete"}</button>}</footer>}</article>)}</div>}{formOpen && <CarburetorTypeForm locale={locale} item={editing} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await onChanged(); }} />}</section>;
+  return <section className="panel carb-type-library"><header><div><span className="eyebrow">MASTER DATA</span><h3>{locale === "cs" ? "Katalog typů karburátorů" : "Carburetor type catalog"}</h3><p>{locale === "cs" ? "Předdefinované značky, modely a kompatibilní závodní kategorie." : "Preset brands, models and compatible race categories."}</p></div>{canManage && <button className="secondary-compact" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {locale === "cs" ? "Přidat typ" : "Add type"}</button>}</header>{items.length === 0 ? <div className="carb-type-empty"><strong>{locale === "cs" ? "Zatím není vytvořený žádný typ" : "No types yet"}</strong><span>{locale === "cs" ? "Začni značkou, modelem a vyber jednu nebo více kategorií." : "Start with a brand, model and one or more categories."}</span></div> : <div className="carb-type-grid">{items.map((item) => {
+    const unitCount = carburetors.filter((carb) => carb.carburetorTypeId === item.id && !carb.soldAt).length;
+    return <article className={`carb-type-card tone-${normalizeCarbFamily(item.categories[0] ?? "").toLowerCase()}`} key={item.id}>
+      <RaceLogoBadge logoUrl={item.photoUrl} name={`${item.brand} ${item.model}`} fallback="⌁" size="large" />
+      <div className="carb-type-card-main">
+        <span>{item.brand}</span>
+        <h4>{item.model}</h4>
+        <div className="carb-category-chips">{item.categories.map((category) => <b key={category}>{category}</b>)}</div>
+        {item.notes && <p>{item.notes}</p>}
+      </div>
+      <div className="carb-type-card-count"><b>{unitCount}</b><small>{locale === "cs" ? "ks" : "pcs"}</small></div>
+      {canManage && <footer><button type="button" onClick={() => { setEditing(item); setFormOpen(true); }}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => { void remove(item); }}>{locale === "cs" ? "Smazat" : "Delete"}</button>}</footer>}
+    </article>;
+  })}</div>}{formOpen && <CarburetorTypeForm locale={locale} item={editing} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await onChanged(); }} />}</section>;
 }
 
 function CarburetorTypeForm({ locale, item, onClose, onSaved }: { locale: Locale; item: CarburetorTypeRecord | null; onClose: () => void; onSaved: () => void }) {
   const [selected, setSelected] = useState<string[]>(item?.categories ?? []);
+  const [removePhoto, setRemovePhoto] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault(); setSaving(true); setError("");
-    const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
+    const form = new FormData(event.currentTarget);
+    const photo = form.get("photo");
+    const removePhotoFlag = form.get("removePhoto") === "1";
+    form.delete("photo");
+    form.delete("removePhoto");
+    const payload = Object.fromEntries(form.entries());
     try {
       const response = await fetch("/api/carburetor-types", { method: item ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, id: item?.id, categories: selected }) });
-      const result = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(result.error || "Save failed");
+      const result = await response.json() as { id?: string; error?: string };
+      if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
+      if (photo instanceof File && photo.size > 0) {
+        const upload = new FormData();
+        upload.set("typeId", result.id);
+        upload.set("photo", photo);
+        const photoResponse = await fetch("/api/carburetor-type-photo", { method: "POST", body: upload });
+        const photoResult = await photoResponse.json() as { error?: string };
+        if (!photoResponse.ok) throw new Error(photoResult.error || "Photo upload failed");
+      } else if (removePhotoFlag && result.id) {
+        const photoResponse = await fetch("/api/carburetor-type-photo", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ typeId: result.id }) });
+        const photoResult = await photoResponse.json() as { error?: string };
+        if (!photoResponse.ok) throw new Error(photoResult.error || "Photo delete failed");
+      }
       onSaved();
     } catch (saveError) { setError(typeError(saveError instanceof Error ? saveError.message : "Save failed", locale)); setSaving(false); }
   }
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">MASTER DATA</span><h2>{item ? (locale === "cs" ? "Upravit typ karburátoru" : "Edit carburetor type") : (locale === "cs" ? "Nový typ karburátoru" : "New carburetor type")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid"><label><span>{locale === "cs" ? "Značka" : "Brand"} *</span><input name="brand" required autoFocus maxLength={80} defaultValue={item?.brand ?? ""} placeholder="Tillotson" /></label><label><span>{locale === "cs" ? "Typ / model" : "Type / model"} *</span><input name="model" required maxLength={80} defaultValue={item?.model ?? ""} placeholder="HW-49A" /></label><fieldset className="category-checklist full-field"><legend>{locale === "cs" ? "Pro kategorie" : "For categories"} *</legend>{categoryOrder.map((category) => <label key={category}><input type="checkbox" checked={selected.includes(category)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, category] : current.filter((value) => value !== category))} /><span>{category}</span></label>)}</fieldset><Notes value={item?.notes} label={locale === "cs" ? "Poznámky" : "Notes"} /></div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving || !selected.length}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Uložit typ" : "Save type")}</button></div></form></section></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">MASTER DATA</span><h2>{item ? (locale === "cs" ? "Upravit typ karburátoru" : "Edit carburetor type") : (locale === "cs" ? "Nový typ karburátoru" : "New carburetor type")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid">
+    <label><span>{locale === "cs" ? "Značka" : "Brand"} *</span><input name="brand" required autoFocus maxLength={80} defaultValue={item?.brand ?? ""} placeholder="Tillotson" /></label>
+    <label><span>{locale === "cs" ? "Typ / model" : "Type / model"} *</span><input name="model" required maxLength={80} defaultValue={item?.model ?? ""} placeholder="HW-49A" /></label>
+    <fieldset className="category-toggle-group full-field"><legend>{locale === "cs" ? "Pro kategorie" : "For categories"} *</legend><div>{categoryOrder.map((category) => <label key={category}><input type="checkbox" checked={selected.includes(category)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, category] : current.filter((value) => value !== category))} /><span>{category}</span></label>)}</div></fieldset>
+    <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Fotka karburátoru" : "Carburetor photo"}</span>
+      {item?.photoUrl && !removePhoto && <div className="race-logo-preview"><RaceLogoBadge logoUrl={item.photoUrl} name={`${item.brand} ${item.model}`} size="large" /><div><strong>{locale === "cs" ? "Aktuální fotka" : "Current photo"}</strong><button type="button" onClick={() => setRemovePhoto(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
+      {removePhoto && <input type="hidden" name="removePhoto" value="1" />}
+      <input name="photo" type="file" accept="image/png,image/jpeg,image/webp" />
+      <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Pomůže rychle poznat typ a velikost karburátoru." : "PNG, JPG or WebP, up to 5 MB. Helps recognize the carburetor's type and size at a glance."}</small>
+    </label>
+    <Notes value={item?.notes} label={locale === "cs" ? "Poznámky" : "Notes"} />
+  </div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving || !selected.length}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Uložit typ" : "Save type")}</button></div></form></section></div>;
+}
+
+type CarbUnitFilter = "all" | "mini" | "okj" | "okn" | "ok" | "kz";
+type CarbStatusFilter = "all" | "ready" | "service" | "storage" | "retired";
+
+function CarburetorFilterTiles({ locale, items, category, status, onCategoryChange, onStatusChange }: { locale: Locale; items: CarburetorRecord[]; category: CarbUnitFilter; status: CarbStatusFilter; onCategoryChange: (value: CarbUnitFilter) => void; onStatusChange: (value: CarbStatusFilter) => void }) {
+  const definitions: Array<{ id: CarbUnitFilter; title: string }> = [
+    { id: "all", title: locale === "cs" ? "Vše" : "All" },
+    { id: "mini", title: "MINI" },
+    { id: "okj", title: "OKJ" },
+    { id: "okn", title: "OKN" },
+    { id: "ok", title: "OK" },
+    { id: "kz", title: "KZ" },
+  ];
+  const statusOptions: Array<{ id: CarbStatusFilter; label: string }> = [
+    { id: "all", label: locale === "cs" ? "Všechny stavy" : "All statuses" },
+    { id: "ready", label: locale === "cs" ? "Připraveno" : "Ready" },
+    { id: "service", label: locale === "cs" ? "Servis" : "Service" },
+    { id: "storage", label: locale === "cs" ? "Sklad" : "Storage" },
+    { id: "retired", label: locale === "cs" ? "Vyřazen" : "Retired" },
+  ];
+  return <div className="carb-unit-filters">
+    <div className="carb-unit-category-tiles">{definitions.map((def) => <button key={def.id} type="button" className={`carb-unit-tile tone-${def.id}${category === def.id ? " active" : ""}`} onClick={() => onCategoryChange(def.id)}>{def.title}<small>{def.id === "all" ? items.length : items.filter((item) => carbUnitFamily(item.family) === def.id.toUpperCase()).length}</small></button>)}</div>
+    <select className="carb-unit-status-select" value={status} onChange={(event) => onStatusChange(event.target.value as CarbStatusFilter)} aria-label={locale === "cs" ? "Filtr podle stavu" : "Filter by status"}>{statusOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</select>
+  </div>;
+}
+
+function carbUnitFamily(family: string) {
+  const normalized = normalizeCarbFamily(family);
+  return normalized === "BABY" ? "MINI" : normalized;
+}
+
+function statusLabel(status: string, locale: Locale) {
+  const map: Record<string, [string, string]> = { ready: ["Připraveno", "Ready"], service: ["Servis", "Service"], storage: ["Sklad", "Storage"], retired: ["Vyřazen", "Retired"] };
+  const pair = map[status];
+  return pair ? pair[locale === "cs" ? 0 : 1] : status;
+}
+
+function CarburetorResultsPanel({ locale, role, items, types, category, status, onOpen, onEdit, onDelete }: { locale: Locale; role: Role; items: CarburetorRecord[]; types: CarburetorTypeRecord[]; category: CarbUnitFilter; status: CarbStatusFilter; onOpen: (item: CarburetorRecord) => void; onEdit: (item: CarburetorRecord) => void; onDelete: (item: CarburetorRecord) => void }) {
+  const l = labels[locale];
+  const [page, setPage] = useState(1);
+  const pageSize = 15;
+  const filtered = useMemo(() => [...items]
+    .filter((item) => category === "all" || carbUnitFamily(item.family) === category.toUpperCase())
+    .filter((item) => status === "all" || item.status === status)
+    .sort((a, b) => b.createdAt - a.createdAt), [items, category, status]);
+  useEffect(() => { setPage(1); }, [category, status]);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
+  return <section className="dash-panel data-panel latest-carb-panel">
+    <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM CARBURETOR CARD</span><h2>{locale === "cs" ? "Seznam karburátorů" : "Carburetor list"}</h2></div></header>
+    {pageItems.length === 0 ? <p className="category-empty">{locale === "cs" ? "Žádný karburátor neodpovídá filtru." : "No carburetor matches the filter."}</p> : <div className="table-wrap"><table className="results zebra latest-carb-table">
+      <thead><tr><th className="num-col">#</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th><th>{locale === "cs" ? "Přidáno" : "Added"}</th>{role !== "mechanic" && <th className="no-print">{l.actions}</th>}</tr></thead>
+      <tbody>{pageItems.map((item, index) => {
+        const type = types.find((candidate) => candidate.id === item.carburetorTypeId);
+        const familyLower = carbUnitFamily(item.family).toLowerCase();
+        return <tr key={item.id} className="clickable-row" onClick={() => onOpen(item)}>
+          <td className="num-col">{(currentPage - 1) * pageSize + index + 1}</td>
+          <td><div className="latest-carb-identity"><RaceLogoBadge logoUrl={type?.photoUrl} name={`${item.brand} ${item.model}`} fallback="⌁" size="small" /><strong>{item.code}</strong></div></td>
+          <td>{[item.brand, item.model].filter(Boolean).join(" · ") || "—"}</td>
+          <td><span className={`carb-category-badge tone-${familyLower}`}>{item.category || item.family}</span></td>
+          <td>{item.soldAt ? <span className="status-pill neutral">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${item.status === "ready" ? "success" : "warning-pill"}`}>{statusLabel(item.status, locale)}</span>}</td>
+          <td>{formatAddedDate(item.createdAt, locale)}</td>
+          {role !== "mechanic" && <td className="no-print" onClick={(event) => event.stopPropagation()}><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}
+        </tr>;
+      })}</tbody>
+    </table></div>}
+    {totalPages > 1 && <div className="carb-unit-pagination">
+      <button type="button" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹ {locale === "cs" ? "Předchozí" : "Previous"}</button>
+      <span>{locale === "cs" ? `Strana ${currentPage} z ${totalPages}` : `Page ${currentPage} of ${totalPages}`}</span>
+      <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{locale === "cs" ? "Další" : "Next"} ›</button>
+    </div>}
+  </section>;
+}
+
+function formatAddedDate(createdAt: number, locale: Locale) {
+  return new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(createdAt));
 }
 
 function normalizeCarbFamily(category: string) {

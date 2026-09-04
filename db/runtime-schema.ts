@@ -208,6 +208,9 @@ async function createRuntimeSchema() {
         model TEXT NOT NULL,
         categories TEXT NOT NULL DEFAULT '[]',
         notes TEXT NOT NULL DEFAULT '',
+        photo_key TEXT,
+        photo_content_type TEXT,
+        photo_updated_at INTEGER,
         archived_at INTEGER,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -235,7 +238,7 @@ async function createRuntimeSchema() {
         name TEXT NOT NULL UNIQUE,
         notes TEXT NOT NULL DEFAULT '',
         series_options TEXT NOT NULL DEFAULT '[]',
-        calendar_color TEXT NOT NULL DEFAULT 'blue',
+        calendar_color TEXT NOT NULL DEFAULT 'sky',
         logo_key TEXT,
         logo_content_type TEXT,
         logo_updated_at INTEGER,
@@ -741,7 +744,7 @@ async function createRuntimeSchema() {
   const templateColumns = await d1.prepare("PRAGMA table_info(race_templates)").all<{ name: string }>();
   const existingTemplateColumns = new Set(templateColumns.results.map((column: { name: string }) => column.name));
   const templateAdditions = [
-    ["calendar_color", "ALTER TABLE race_templates ADD COLUMN calendar_color TEXT NOT NULL DEFAULT 'blue'"],
+    ["calendar_color", "ALTER TABLE race_templates ADD COLUMN calendar_color TEXT NOT NULL DEFAULT 'sky'"],
     ["logo_key", "ALTER TABLE race_templates ADD COLUMN logo_key TEXT"],
     ["logo_content_type", "ALTER TABLE race_templates ADD COLUMN logo_content_type TEXT"],
     ["logo_updated_at", "ALTER TABLE race_templates ADD COLUMN logo_updated_at INTEGER"],
@@ -775,6 +778,15 @@ async function createRuntimeSchema() {
   if (!carburetorColumns.results.some((column: { name: string }) => column.name === "sold_at")) {
     await d1.prepare("ALTER TABLE carburetors ADD COLUMN sold_at INTEGER").run();
   }
+
+  const carburetorTypeColumns = await d1.prepare("PRAGMA table_info(carburetor_types)").all<{ name: string }>();
+  const existingCarburetorTypeColumns = new Set(carburetorTypeColumns.results.map((column: { name: string }) => column.name));
+  const carburetorTypeAdditions = [
+    ["photo_key", "ALTER TABLE carburetor_types ADD COLUMN photo_key TEXT"],
+    ["photo_content_type", "ALTER TABLE carburetor_types ADD COLUMN photo_content_type TEXT"],
+    ["photo_updated_at", "ALTER TABLE carburetor_types ADD COLUMN photo_updated_at INTEGER"],
+  ].filter(([name]) => !existingCarburetorTypeColumns.has(name));
+  if (carburetorTypeAdditions.length > 0) await d1.batch(carburetorTypeAdditions.map(([, statement]) => d1.prepare(statement)));
 
   const flightColumns = await d1.prepare("PRAGMA table_info(race_flights)").all<{ name: string }>();
   const existingFlightColumns = new Set(flightColumns.results.map((column: { name: string }) => column.name));
@@ -1032,7 +1044,7 @@ async function ensureArchivedScopedUniqueness(d1: ReturnType<typeof getD1>) {
           id TEXT PRIMARY KEY NOT NULL,
           name TEXT NOT NULL,
           notes TEXT NOT NULL DEFAULT '',
-          calendar_color TEXT NOT NULL DEFAULT 'blue',
+          calendar_color TEXT NOT NULL DEFAULT 'sky',
           logo_key TEXT,
           logo_content_type TEXT,
           logo_updated_at INTEGER,

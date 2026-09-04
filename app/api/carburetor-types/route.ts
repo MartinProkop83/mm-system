@@ -1,6 +1,7 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
+import { carburetorTypePhotoUrl } from "../../carburetor-type-photo";
 
 const categories = new Set(["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"]);
 type Payload = { id?: string; brand?: string; model?: string; categories?: unknown; notes?: string };
@@ -17,8 +18,8 @@ export async function GET() {
   const user = await getAppUser();
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   await ensureRuntimeSchema();
-  const rows = await getD1().prepare(`SELECT id, brand, model, categories, notes, created_at AS createdAt, updated_at AS updatedAt FROM carburetor_types WHERE archived_at IS NULL ORDER BY brand, model`).all<Record<string, unknown>>();
-  return Response.json({ carburetorTypes: rows.results.map((row) => ({ ...row, categories: parseCategories(row.categories) })) });
+  const rows = await getD1().prepare(`SELECT id, brand, model, categories, notes, photo_key AS photoKey, photo_updated_at AS photoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM carburetor_types WHERE archived_at IS NULL ORDER BY brand, model`).all<Record<string, unknown>>();
+  return Response.json({ carburetorTypes: rows.results.map((row) => ({ ...row, categories: parseCategories(row.categories), photoUrl: carburetorTypePhotoUrl(row.id, row.photoKey, row.photoUpdatedAt) })) });
 }
 
 export async function POST(request: Request) {
