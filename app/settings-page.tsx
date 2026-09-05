@@ -249,7 +249,7 @@ export function SettingsPage({
 
   if (role !== "superadmin") {
     return (
-      <section className="panel settings-forbidden">
+      <section className="dash-panel settings-forbidden">
         <span aria-hidden="true">🔒</span>
         <h2>{t.title}</h2>
         <p>{t.forbidden}</p>
@@ -259,7 +259,7 @@ export function SettingsPage({
 
   return (
     <section className="settings-page">
-      <article className="panel settings-hero">
+      <article className="dash-panel settings-hero">
         <div>
           <span className="settings-kicker">MM SYSTEM · SECURITY</span>
           <h2>{t.title}</h2>
@@ -269,21 +269,21 @@ export function SettingsPage({
       </article>
 
       <div className="settings-stat-grid">
-        <article className="panel settings-stat">
+        <article className="dash-panel settings-stat">
           <span className="settings-stat-icon green" aria-hidden="true">●</span>
           <div><small>{t.activeUsers}</small><strong>{counts.active}</strong></div>
         </article>
-        <article className="panel settings-stat">
+        <article className="dash-panel settings-stat">
           <span className="settings-stat-icon red" aria-hidden="true">◆</span>
           <div><small>{t.superadmins}</small><strong>{counts.superadmins}</strong></div>
         </article>
-        <article className="panel settings-stat settings-stat-wide">
+        <article className="dash-panel settings-stat settings-stat-wide">
           <span className="settings-stat-icon dark" aria-hidden="true">✓</span>
           <div><small>{t.protected}</small><strong>{t.protectedNote}</strong></div>
         </article>
       </div>
 
-      <article className="panel settings-auth-policy">
+      <article className="dash-panel settings-auth-policy">
         <span className="settings-auth-lock" aria-hidden="true">🔐</span>
         <div className="settings-auth-copy"><h3>{t.authTitle}</h3><p>{t.authIntro}</p></div>
         <dl>
@@ -293,7 +293,7 @@ export function SettingsPage({
         </dl>
       </article>
 
-      <article className="panel settings-roles">
+      <article className="dash-panel settings-roles">
         <header className="settings-section-heading">
           <div><h3>{t.rolesTitle}</h3><p>{t.rolesIntro}</p></div>
         </header>
@@ -307,7 +307,7 @@ export function SettingsPage({
         </div>
       </article>
 
-      <article className="panel settings-users">
+      <article className="dash-panel settings-users">
         <header className="settings-section-heading">
           <div><h3>{t.usersTitle}</h3><p>{t.usersIntro}</p></div>
         </header>

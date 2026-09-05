@@ -90,11 +90,11 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
     }
   }
 
-  if (loading) return <section className="panel clothing-message"><span className="spinner" /><p>{locale === "cs" ? "Načítám oblečení…" : "Loading clothing…"}</p></section>;
-  if (error) return <section className="panel clothing-message clothing-error"><b>!</b><p>{locale === "cs" ? "Oblečení se nepodařilo načíst." : "Clothing could not be loaded."}</p><button className="secondary-compact" type="button" onClick={() => { setLoading(true); void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></section>;
+  if (loading) return <section className="dash-panel clothing-message"><span className="spinner" /><p>{locale === "cs" ? "Načítám oblečení…" : "Loading clothing…"}</p></section>;
+  if (error) return <section className="dash-panel clothing-message clothing-error"><b>!</b><p>{locale === "cs" ? "Oblečení se nepodařilo načíst." : "Clothing could not be loaded."}</p><button className="secondary-compact" type="button" onClick={() => { setLoading(true); void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></section>;
 
   return <div className="clothing-page">
-    <section className="panel clothing-hero">
+    <section className="dash-panel clothing-hero">
       <div className="clothing-hero-icon" aria-hidden="true"><span /><span /><span /></div>
       <div>
         <span className="eyebrow">MM TEAM EQUIPMENT</span>
@@ -112,7 +112,7 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
       <button className={tab === "catalog" ? "active" : ""} type="button" onClick={() => setTab("catalog")}><span>02</span>{locale === "cs" ? "Nastavení oblečení" : "Clothing settings"}</button>
     </nav>
 
-    {tab === "assignments" && <section className="panel clothing-assignment-panel">
+    {tab === "assignments" && <section className="dash-panel clothing-assignment-panel">
       <header className="clothing-section-header">
         <div><span className="eyebrow">WELCOME PACK</span><h3>{locale === "cs" ? "Přiřazení a velikosti" : "Assignments and sizes"}</h3><p>{locale === "cs" ? "Vyber mechanika a ulož mu jednotlivé kusy oblečení." : "Select a mechanic and save each clothing item."}</p></div>
         {data.mechanics.length > 0 && <label className="clothing-mechanic-picker"><span>{locale === "cs" ? "Mechanik" : "Mechanic"}</span><select value={selectedMechanicId} onChange={(event) => setSelectedMechanicId(event.target.value)}>{data.mechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}</select></label>}
@@ -133,7 +133,7 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
         </>}
     </section>}
 
-    {tab === "catalog" && <section className="panel clothing-catalog-panel">
+    {tab === "catalog" && <section className="dash-panel clothing-catalog-panel">
       <header className="clothing-section-header">
         <div><span className="eyebrow">CATALOG SETTINGS</span><h3>{locale === "cs" ? "Jaké oblečení používáme" : "Clothing catalog"}</h3><p>{locale === "cs" ? "Nastav názvy položek, dostupné velikosti a výchozí počet kusů." : "Set item names, available sizes and default quantities."}</p></div>
         {canManage && <div className="clothing-header-actions">{!data.items.length && <button className="secondary-compact" type="button" disabled={seeding} onClick={() => void seedDefaults()}>{locale === "cs" ? "Doporučená sada" : "Recommended set"}</button>}<button className="primary-button" type="button" onClick={() => setItemForm("new")}>＋ {locale === "cs" ? "Nový typ" : "New item"}</button></div>}
