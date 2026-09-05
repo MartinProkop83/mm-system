@@ -124,6 +124,9 @@ async function createRuntimeSchema() {
         nationality TEXT NOT NULL DEFAULT '',
         is_active INTEGER NOT NULL DEFAULT 1,
         notes TEXT NOT NULL DEFAULT '',
+        photo_key TEXT,
+        photo_content_type TEXT,
+        photo_updated_at INTEGER,
         archived_at INTEGER,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -832,6 +835,15 @@ async function createRuntimeSchema() {
     ["mechanic_name_snapshot", "ALTER TABLE vehicle_service_entries ADD COLUMN mechanic_name_snapshot TEXT NOT NULL DEFAULT ''"],
   ].filter(([name]) => !existingVehicleServiceEntryColumns.has(name));
   if (vehicleServiceEntryAdditions.length > 0) await d1.batch(vehicleServiceEntryAdditions.map(([, statement]) => d1.prepare(statement)));
+
+  const driverPhotoColumns = await d1.prepare("PRAGMA table_info(drivers)").all<{ name: string }>();
+  const existingDriverPhotoColumns = new Set(driverPhotoColumns.results.map((column: { name: string }) => column.name));
+  const driverPhotoAdditions = [
+    ["photo_key", "ALTER TABLE drivers ADD COLUMN photo_key TEXT"],
+    ["photo_content_type", "ALTER TABLE drivers ADD COLUMN photo_content_type TEXT"],
+    ["photo_updated_at", "ALTER TABLE drivers ADD COLUMN photo_updated_at INTEGER"],
+  ].filter(([name]) => !existingDriverPhotoColumns.has(name));
+  if (driverPhotoAdditions.length > 0) await d1.batch(driverPhotoAdditions.map(([, statement]) => d1.prepare(statement)));
 
   const raceMechanicColumns = await d1.prepare("PRAGMA table_info(race_mechanics)").all<{ name: string }>();
   if (!raceMechanicColumns.results.some((column: { name: string }) => column.name === "vehicle_id")) {

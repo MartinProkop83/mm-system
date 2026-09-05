@@ -5,6 +5,7 @@ import { isCountryCode } from "../../countries";
 import { raceLogoUrl } from "../../race-logo";
 import { teamLogoUrl } from "../../team-logo";
 import { vehiclePhotoUrl } from "../../vehicle-photo";
+import { driverPhotoUrl } from "../../driver-photo";
 import { normalizeRaceCalendarColor } from "../../race-calendar-colors";
 
 const catalogTypes = new Set(["raceType", "team", "driver", "mechanic", "vehicle", "carburetor"]);
@@ -77,6 +78,7 @@ export async function GET() {
       SELECT d.id, d.name, d.team_id AS teamId, COALESCE(t.name, '') AS teamName,
              d.default_category AS defaultCategory, d.race_number AS raceNumber,
              d.nationality, d.is_active AS isActive, d.notes,
+             d.photo_key AS photoKey, d.photo_updated_at AS photoUpdatedAt,
              d.created_at AS createdAt, d.updated_at AS updatedAt
       FROM drivers d LEFT JOIN teams t ON t.id = d.team_id
       WHERE d.archived_at IS NULL ORDER BY d.name
@@ -160,7 +162,7 @@ export async function GET() {
       assignmentStatus: current ? "assigned" : latest ? "history" : "none",
     };
   });
-  const normalizedDrivers = drivers.results.map((driver: Record<string, unknown>) => ({ ...driver, isActive: Boolean(driver.isActive) }));
+  const normalizedDrivers = drivers.results.map((driver: Record<string, unknown>) => ({ ...driver, isActive: Boolean(driver.isActive), photoUrl: driverPhotoUrl(driver.id, driver.photoKey, driver.photoUpdatedAt) }));
   const normalizedTeams = (teams.results as Array<Record<string, unknown>>).map((team) => ({
     ...team,
     logoUrl: teamLogoUrl(team.id, team.logoKey, team.logoUpdatedAt),

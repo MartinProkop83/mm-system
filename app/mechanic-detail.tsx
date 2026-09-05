@@ -63,8 +63,8 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
     return available.sort((left, right) => left.departureDate.localeCompare(right.departureDate))[0] ?? null;
   }, [data]);
 
-  if (error) return <section className="panel empty-state error-state"><b>!</b><p>{locale === "cs" ? "Kartu mechanika se nepodařilo načíst." : "Could not load the mechanic card."}</p><button className="secondary-compact" type="button" onClick={onBack}>{locale === "cs" ? "Zpět" : "Back"}</button></section>;
-  if (!data) return <section className="panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám kartu mechanika…" : "Loading mechanic card…"}</p></section>;
+  if (error) return <section className="dash-panel empty-state error-state"><b>!</b><p>{locale === "cs" ? "Kartu mechanika se nepodařilo načíst." : "Could not load the mechanic card."}</p><button className="secondary-compact" type="button" onClick={onBack}>{locale === "cs" ? "Zpět" : "Back"}</button></section>;
+  if (!data) return <section className="dash-panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám kartu mechanika…" : "Loading mechanic card…"}</p></section>;
 
   const today = todayIso();
   const upcomingCount = data.assignments.filter((item) => item.raceStatus !== "completed" && item.returnDate >= today).length;
@@ -82,26 +82,26 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
 
   return <div className="mechanic-detail mechanic-print-area">
     <button className="detail-back no-print" type="button" onClick={onBack}>← {locale === "cs" ? "Zpět na mechaniky" : "Back to mechanics"}</button>
-    <section className="panel mechanic-detail-hero">
+    <section className="dash-panel mechanic-detail-hero">
       <div className="mechanic-avatar">{initials || "MM"}</div>
       <div><span className="eyebrow">MM MECHANIC CARD</span><h2>{data.mechanic.name}</h2><p>{locale === "cs" ? "Přehled oblečení, přiřazení a historie závodů" : "Clothing, race assignments and history"}</p></div>
       <div className="mechanic-hero-actions no-print"><button className="secondary-compact" type="button" onClick={() => printCard(false)}>⌁ {locale === "cs" ? "Vytisknout" : "Print"}</button><button className="secondary-compact pdf-button" type="button" onClick={() => printCard(true)}>PDF {locale === "cs" ? "Uložit PDF" : "Save PDF"}</button>{role !== "mechanic" && <button className="primary-button" type="button" onClick={() => onEdit(data.mechanic)}>✎ {locale === "cs" ? "Upravit" : "Edit"}</button>}</div>
     </section>
 
     <section className="mechanic-stat-grid">
-      <article className="panel"><span>{locale === "cs" ? "Závodů celkem" : "Total races"}</span><strong>{data.assignments.length}</strong></article>
-      <article className="panel"><span>{locale === "cs" ? "Nadcházející" : "Upcoming"}</span><strong>{upcomingCount}</strong></article>
-      <article className="panel"><span>{locale === "cs" ? "Navštívených zemí" : "Countries visited"}</span><strong>{countries}</strong></article>
-      <article className="panel"><span>{locale === "cs" ? "Dnů na cestách" : "Travel days"}</span><strong>{travelDays}</strong></article>
+      <article className="dash-panel"><span>{locale === "cs" ? "Závodů celkem" : "Total races"}</span><strong>{data.assignments.length}</strong></article>
+      <article className="dash-panel"><span>{locale === "cs" ? "Nadcházející" : "Upcoming"}</span><strong>{upcomingCount}</strong></article>
+      <article className="dash-panel"><span>{locale === "cs" ? "Navštívených zemí" : "Countries visited"}</span><strong>{countries}</strong></article>
+      <article className="dash-panel"><span>{locale === "cs" ? "Dnů na cestách" : "Travel days"}</span><strong>{travelDays}</strong></article>
     </section>
 
-    <section className={`panel mechanic-next-race ${current ? "assigned" : ""}`}>
+    <section className={`dash-panel mechanic-next-race ${current ? "assigned" : ""}`}>
       <div><span className="eyebrow">{locale === "cs" ? "NEJBLIŽŠÍ ZÁVOD" : "NEXT RACE"}</span>{current ? <div className="race-history-identity featured"><RaceLogoBadge logoUrl={current.logoUrl} name={current.raceName} fallback={countryFlag(current.countryCode)} /><span><h3>{current.raceName}</h3><p>{countryFlag(current.countryCode)} {current.track}{current.address ? ` · ${current.address}` : ""}</p></span></div> : <h3>{locale === "cs" ? "Žádný plánovaný závod" : "No upcoming race"}</h3>}</div>
       {current && <div className="mechanic-next-facts"><span><small>{locale === "cs" ? "Závod" : "Race"}</small><strong>{dateRange(current.startDate, current.endDate, locale)}</strong></span><span><small>{locale === "cs" ? "Cesta" : "Travel"}</small><strong>{dateRange(current.departureDate, current.returnDate, locale)}</strong></span><span><small>{locale === "cs" ? "Auto" : "Car"}</small><strong>{formatVehicles(current.vehicles)}</strong></span><RaceStatus value={current.raceStatus} locale={locale} /></div>}
       {current && <MechanicRaceTravel assignment={current} locale={locale} compact />}
     </section>
 
-    <section className="panel mechanic-clothing-panel">
+    <section className="dash-panel mechanic-clothing-panel">
       <header><div><span className="eyebrow">TEAM CLOTHING</span><h3>{locale === "cs" ? "Oblečení a velikosti" : "Clothing and sizes"}</h3><p>{locale === "cs" ? "Aktuální týmové vybavení mechanika." : "Current team equipment for this mechanic."}</p></div><strong>{data.clothing.length}</strong></header>
       {data.clothing.length ? <div className="mechanic-clothing-grid">{data.clothing.map((item, index) => <article key={item.id}>
         <ClothingPhoto imageUrl={item.imageUrl} name={item.itemName} fallback={item.itemName.slice(0, 2).toUpperCase()} className={`mechanic-clothing-mark tone-${index % 4}`} onOpen={setPhotoPreview} />
@@ -110,7 +110,7 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
       </article>)}</div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez oblečení" : "No clothing yet"}</strong><p>{locale === "cs" ? "Položky přiřadíš v nové sekci Oblečení v levém menu." : "Assign items from the Clothing section in the left menu."}</p></div>}
     </section>
 
-    <section className="panel mechanic-history-panel">
+    <section className="dash-panel mechanic-history-panel">
       <header><div><span className="eyebrow">RACE HISTORY</span><h3>{locale === "cs" ? "Kompletní historie závodů" : "Complete race history"}</h3><p>{locale === "cs" ? "Kdy a kde byl mechanik přiřazený." : "When and where the mechanic was assigned."}</p></div><strong>{data.assignments.length}</strong></header>
       {data.assignments.length ? <div className="table-wrap"><table className="engine-table mechanic-history-table race-logo-history-table"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Místo" : "Location"}</th><th>{locale === "cs" ? "Termín závodu" : "Race dates"}</th><th>{locale === "cs" ? "Cesta" : "Travel"}</th><th>{locale === "cs" ? "Auto" : "Car"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th></tr></thead><tbody>{data.assignments.map((item) => <MechanicHistoryRows key={item.id} item={item} locale={locale} />)}</tbody></table></div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez závodu" : "No races yet"}</strong><p>{locale === "cs" ? "Historie se vytvoří automaticky po přiřazení mechanika k závodu." : "History is created automatically after assigning the mechanic to a race."}</p></div>}
     </section>

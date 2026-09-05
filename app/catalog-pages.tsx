@@ -18,7 +18,7 @@ type DriverFilter = "active" | "mini" | "okj" | "okn" | "ok" | "kz" | "inactive"
 
 export type TeamRecord = { id: string; name: string; countryCode: string; notes: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
 export type RaceTypeRecord = { id: string; name: string; notes: string; seriesOptions: string[]; calendarColor: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
-export type DriverRecord = { id: string; name: string; teamId: string | null; teamName: string; defaultCategory: string; raceNumber: string; nationality: string; isActive: boolean; notes: string; createdAt: number; updatedAt: number };
+export type DriverRecord = { id: string; name: string; teamId: string | null; teamName: string; defaultCategory: string; raceNumber: string; nationality: string; isActive: boolean; notes: string; photoUrl?: string; createdAt: number; updatedAt: number };
 export type MechanicRecord = { id: string; name: string; nextRace?: string; nextTrack?: string; nextCountryCode?: string; nextStartDate?: string; nextEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; raceCount?: number; createdAt: number; updatedAt: number };
 export type VehicleRecord = { id: string; name: string; licensePlate: string; notes: string; photoUrl?: string; currentKm?: number | null; serviceIntervalKm?: number | null; lastServiceKm?: number | null; lastServiceNote?: string; lastServiceDate?: string; lastRace?: string; lastRaceLogoUrl?: string; lastRaceCountryCode?: string; lastRaceStartDate?: string; lastRaceEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
 export type CarburetorRecord = { id: string; code: string; carburetorTypeId?: string | null; category?: string; family: string; brand: string; model: string; status: string; notes: string; soldAt?: number | null; lastDriver?: string; lastRace?: string; lastRaceLogoUrl?: string; lastRaceCountryCode?: string; lastRaceStartDate?: string; lastRaceEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
@@ -194,8 +194,8 @@ function CatalogForm({ kind, locale, item, teams, carburetorTypes, onClose, onSa
       const response = await fetch("/api/catalog", { method: editing ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: kind, id: item?.id }) });
       const result = (await response.json()) as { id?: string; error?: string };
       if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
-      const logoEndpoint = kind === "raceType" ? "/api/race-template-logo" : kind === "team" ? "/api/team-logo" : kind === "vehicle" ? "/api/vehicle-photo" : null;
-      const logoIdField = kind === "raceType" ? "templateId" : kind === "vehicle" ? "vehicleId" : "teamId";
+      const logoEndpoint = kind === "raceType" ? "/api/race-template-logo" : kind === "team" ? "/api/team-logo" : kind === "vehicle" ? "/api/vehicle-photo" : kind === "driver" ? "/api/driver-photo" : null;
+      const logoIdField = kind === "raceType" ? "templateId" : kind === "vehicle" ? "vehicleId" : kind === "driver" ? "driverId" : "teamId";
       if (logoEndpoint && logo instanceof File && logo.size > 0) {
         const upload = new FormData();
         upload.set(logoIdField, result.id);
@@ -230,7 +230,7 @@ function CatalogFields({ kind, locale, item, teams, carburetorTypes }: { kind: C
   }
   if (kind === "driver") {
     const driver = item as DriverRecord | null;
-    return <><label><span>{locale === "cs" ? "Jméno pilota" : "Driver name"} *</span><input name="name" defaultValue={driver?.name ?? ""} required autoFocus maxLength={120} /></label><label><span>{locale === "cs" ? "Tým" : "Team"}</span><select name="teamId" defaultValue={driver?.teamId ?? ""}><option value="">{locale === "cs" ? "Bez týmu" : "No team"}</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label><label><span>{locale === "cs" ? "Výchozí kategorie" : "Default category"}</span><select name="defaultCategory" defaultValue={driver?.defaultCategory ?? ""}><option value="">—</option>{categoryOrder.map((category) => <option key={category}>{category}</option>)}</select></label><label><span>{locale === "cs" ? "Startovní číslo" : "Race number"}</span><input name="raceNumber" defaultValue={driver?.raceNumber ?? ""} maxLength={10} /></label><label><span>{locale === "cs" ? "Národnost" : "Nationality"}</span><CountrySelect name="nationality" defaultValue={driver?.nationality} locale={locale} /></label><label><span>{locale === "cs" ? "Stav pilota" : "Driver status"}</span><select name="isActive" defaultValue={driver?.isActive === false ? "0" : "1"}><option value="1">{locale === "cs" ? "Aktivní" : "Active"}</option><option value="0">{locale === "cs" ? "Neaktivní – historie zůstane zachována" : "Inactive – history is preserved"}</option></select></label><Notes value={driver?.notes} label={l.notes} /></>;
+    return <DriverFields driver={driver} teams={teams} locale={locale} notesLabel={l.notes} />;
   }
   if (kind === "mechanic") {
     const mechanic = item as MechanicRecord | null;
@@ -271,6 +271,25 @@ function TeamFields({ team, locale, notesLabel }: { team: TeamRecord | null; loc
       <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Nový obrázek nahradí původní logo." : "PNG, JPG or WebP, up to 5 MB. A new image replaces the current logo."}</small>
     </label>
     <Notes value={team?.notes} label={notesLabel} />
+  </>;
+}
+
+function DriverFields({ driver, teams, locale, notesLabel }: { driver: DriverRecord | null; teams: TeamRecord[]; locale: Locale; notesLabel: string }) {
+  const [removeLogo, setRemoveLogo] = useState(false);
+  return <>
+    <label><span>{locale === "cs" ? "Jméno pilota" : "Driver name"} *</span><input name="name" defaultValue={driver?.name ?? ""} required autoFocus maxLength={120} /></label>
+    <label><span>{locale === "cs" ? "Tým" : "Team"}</span><select name="teamId" defaultValue={driver?.teamId ?? ""}><option value="">{locale === "cs" ? "Bez týmu" : "No team"}</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+    <label><span>{locale === "cs" ? "Výchozí kategorie" : "Default category"}</span><select name="defaultCategory" defaultValue={driver?.defaultCategory ?? ""}><option value="">—</option>{categoryOrder.map((category) => <option key={category}>{category}</option>)}</select></label>
+    <label><span>{locale === "cs" ? "Startovní číslo" : "Race number"}</span><input name="raceNumber" defaultValue={driver?.raceNumber ?? ""} maxLength={10} /></label>
+    <label><span>{locale === "cs" ? "Národnost" : "Nationality"}</span><CountrySelect name="nationality" defaultValue={driver?.nationality} locale={locale} /></label>
+    <label><span>{locale === "cs" ? "Stav pilota" : "Driver status"}</span><select name="isActive" defaultValue={driver?.isActive === false ? "0" : "1"}><option value="1">{locale === "cs" ? "Aktivní" : "Active"}</option><option value="0">{locale === "cs" ? "Neaktivní – historie zůstane zachována" : "Inactive – history is preserved"}</option></select></label>
+    <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Fotka pilota" : "Driver photo"}</span>
+      {driver?.photoUrl && !removeLogo && <div className="race-logo-preview"><RaceLogoBadge logoUrl={driver.photoUrl} name={driver.name} size="large" /><div><strong>{locale === "cs" ? "Aktuální fotka" : "Current photo"}</strong><button type="button" onClick={() => setRemoveLogo(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
+      {removeLogo && <input type="hidden" name="removeLogo" value="1" />}
+      <input name="logo" type="file" accept="image/png,image/jpeg,image/webp" />
+      <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Nepovinné." : "PNG, JPG or WebP, up to 5 MB. Optional."}</small>
+    </label>
+    <Notes value={driver?.notes} label={notesLabel} />
   </>;
 }
 
@@ -487,7 +506,7 @@ function pluralKey(kind: CatalogKind): keyof CatalogData {
 function headers(kind: CatalogKind, locale: Locale) {
   if (kind === "raceType") return ["Logo", locale === "cs" ? "Závod" : "Race", locale === "cs" ? "Kalendář" : "Calendar", locale === "cs" ? "Poznámka" : "Notes"];
   if (kind === "team") return ["Logo", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Země" : "Country", locale === "cs" ? "Poznámka" : "Notes"];
-  if (kind === "driver") return [locale === "cs" ? "Pilot" : "Driver", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Kategorie" : "Category", "#", locale === "cs" ? "Národnost" : "Nationality", locale === "cs" ? "Stav" : "Status"];
+  if (kind === "driver") return ["Foto", locale === "cs" ? "Pilot" : "Driver", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Kategorie" : "Category", "#", locale === "cs" ? "Národnost" : "Nationality", locale === "cs" ? "Stav" : "Status"];
   if (kind === "mechanic") return [locale === "cs" ? "Mechanik" : "Mechanic", locale === "cs" ? "Nejbližší závod / evidence" : "Next race / history"];
   if (kind === "vehicle") return ["Foto", locale === "cs" ? "Auto" : "Car", "SPZ", locale === "cs" ? "Nájezd" : "Mileage", locale === "cs" ? "Stav" : "Status", locale === "cs" ? "Poslední závod" : "Last race", locale === "cs" ? "Poznámka" : "Notes"];
   return [locale === "cs" ? "Kód" : "Code", locale === "cs" ? "Kategorie" : "Category", locale === "cs" ? "Značka / model" : "Brand / model", locale === "cs" ? "Stav" : "Status", locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"];
@@ -496,7 +515,7 @@ function headers(kind: CatalogKind, locale: Locale) {
 function cells(kind: CatalogKind, item: CatalogItem, locale: Locale): React.ReactNode[] {
   if (kind === "raceType") { const value = item as RaceTypeRecord; const color = raceCalendarColorDefinition(value.calendarColor); return [<RaceLogoBadge key="logo" logoUrl={value.logoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, <span className="race-color-table" key="color" style={{ "--swatch-accent": color.accent, "--swatch-bg": color.background } as React.CSSProperties}><i /><b>{locale === "cs" ? color.labelCs : color.labelEn}</b></span>, value.notes || "—"]; }
   if (kind === "team") { const value = item as TeamRecord; return [<RaceLogoBadge key="logo" logoUrl={value.logoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.countryCode ? `${countryFlag(value.countryCode)} ${value.countryCode}` : "—", value.notes || "—"]; }
-  if (kind === "driver") { const value = item as DriverRecord; return [<strong key="name">{value.name}</strong>, value.teamName || "—", value.defaultCategory || "—", value.raceNumber || "—", value.nationality ? `${countryFlag(value.nationality)} ${value.nationality}` : "—", <span className={`status-pill ${value.isActive ? "success" : "neutral"}`} key="status">{value.isActive ? (locale === "cs" ? "Aktivní" : "Active") : (locale === "cs" ? "Neaktivní" : "Inactive")}</span>]; }
+  if (kind === "driver") { const value = item as DriverRecord; return [<RaceLogoBadge key="logo" logoUrl={value.photoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.teamName || "—", value.defaultCategory || "—", value.raceNumber || "—", value.nationality ? `${countryFlag(value.nationality)} ${value.nationality}` : "—", <span className={`status-pill ${value.isActive ? "success" : "neutral"}`} key="status">{value.isActive ? (locale === "cs" ? "Aktivní" : "Active") : (locale === "cs" ? "Neaktivní" : "Inactive")}</span>]; }
   if (kind === "mechanic") { const value = item as MechanicRecord; return [<strong key="name">{value.name}</strong>, value.nextRace ? <span className="mechanic-race-cell" key="race"><strong>{value.nextCountryCode ? countryFlag(value.nextCountryCode) : ""} {value.nextRace}</strong><small>{[value.nextTrack, mechanicDateRange(value.nextStartDate, value.nextEndDate, locale)].filter(Boolean).join(" · ")}</small>{value.assignmentStatus === "assigned" ? <em>{locale === "cs" ? "Přiřazen" : "Assigned"}</em> : <em className="history">{locale === "cs" ? `Naposledy · ${value.raceCount ?? 0}×` : `Last · ${value.raceCount ?? 0}×`}</em>}</span> : <span className="mechanic-empty-cell" key="empty">{locale === "cs" ? "Bez plánovaného závodu" : "No upcoming race"}</span>]; }
   if (kind === "vehicle") { const value = item as VehicleRecord; return [<RaceLogoBadge key="logo" logoUrl={value.photoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.licensePlate || "—", value.currentKm != null ? `${value.currentKm.toLocaleString(locale === "cs" ? "cs-CZ" : "en-GB")} km` : "—", vehicleStatusPill(value, locale), vehicleLastRaceCell(value, locale), value.notes || "—"]; }
   const value = item as CarburetorRecord;

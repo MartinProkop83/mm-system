@@ -2,6 +2,8 @@ import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
 import { raceLogoUrl } from "../../race-logo";
+import { driverPhotoUrl } from "../../driver-photo";
+import { teamLogoUrl } from "../../team-logo";
 
 type HistoryType = "driver" | "team";
 
@@ -26,6 +28,7 @@ export async function GET(request: Request) {
         SELECT d.id, d.name, d.team_id AS teamId, COALESCE(t.name, '') AS teamName,
                d.default_category AS defaultCategory, d.race_number AS raceNumber,
                d.nationality, d.is_active AS isActive, d.notes,
+               d.photo_key AS photoKey, d.photo_updated_at AS photoUpdatedAt,
                d.created_at AS createdAt, d.updated_at AS updatedAt
         FROM drivers d
         LEFT JOIN teams t ON t.id = d.team_id
@@ -33,6 +36,7 @@ export async function GET(request: Request) {
       `).bind(id)
     : d1.prepare(`
         SELECT id, name, country_code AS countryCode, notes,
+               logo_key AS logoKey, logo_updated_at AS logoUpdatedAt,
                created_at AS createdAt, updated_at AS updatedAt
         FROM teams
         WHERE id = ? AND archived_at IS NULL
@@ -76,7 +80,9 @@ export async function GET(request: Request) {
   ]);
 
   if (!subject) return Response.json({ error: type === "driver" ? "Driver not found" : "Team not found" }, { status: 404 });
-  const normalizedSubject = type === "driver" ? { ...subject, isActive: Boolean(subject.isActive) } : subject;
+  const normalizedSubject = type === "driver"
+    ? { ...subject, isActive: Boolean(subject.isActive), photoUrl: driverPhotoUrl(subject.id, subject.photoKey, subject.photoUpdatedAt) }
+    : { ...subject, logoUrl: teamLogoUrl(subject.id, subject.logoKey, subject.logoUpdatedAt) };
   return Response.json({
     type,
     canViewFinance,
