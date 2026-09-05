@@ -40,8 +40,8 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
     await load();
   }
   return <div className="commerce-page">
-    <section className="panel commerce-summary"><div><span className="eyebrow">{config.eyebrow}</span><h2>{locale === "cs" ? config.titleCs : config.titleEn}</h2><p>{locale === "cs" ? config.subtitleCs : config.subtitleEn}</p></div><div><strong>{items.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
-    <section className="panel data-panel commerce-list">
+    <section className="dash-panel commerce-summary"><div><span className="eyebrow">{config.eyebrow}</span><h2>{locale === "cs" ? config.titleCs : config.titleEn}</h2><p>{locale === "cs" ? config.subtitleCs : config.subtitleEn}</p></div><div><strong>{items.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
+    <section className="dash-panel data-panel commerce-list">
       {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
       {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
       {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{locale === "cs" ? "Zatím bez záznamů" : "No records yet"}</h2></div>}
@@ -68,7 +68,7 @@ function CommerceTable({ kind, locale, role, items, onEdit, onDelete }: { kind: 
     : kind === "services"
       ? [locale === "cs" ? "Servis" : "Service", locale === "cs" ? "Popis" : "Description", "CZK bez DPH", "EUR bez DPH"]
       : [locale === "cs" ? "Kód" : "Code", locale === "cs" ? "Díl" : "Part", locale === "cs" ? "Skladem" : "In stock", "CZK bez DPH", "EUR bez DPH", locale === "cs" ? "Poznámka" : "Notes"];
-  return <div className="table-wrap"><table className="engine-table commerce-table"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="engine-table commerce-table zebra"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
 }
 
 function commerceCells(kind: PageKind, record: CommerceRecord, locale: Locale): React.ReactNode[] {
