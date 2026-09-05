@@ -85,7 +85,7 @@ type RaceEntry = {
   notes: string;
 };
 
-type AssignedMechanic = { id: string; mechanicId: string; mechanicName: string };
+type AssignedMechanic = { id: string; mechanicId: string; mechanicName: string; vehicleId: string | null };
 type AssignedVehicle = { id: string; vehicleId: string; vehicleName: string; licensePlate: string };
 type RaceExtra = { id: string; category: string; resourceType: "engine" | "carburetor"; resourceId: string; resourceCode: string; notes: string };
 type EquipmentAssignment = {
@@ -310,6 +310,17 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
     await onRaceChanged();
   }
 
+  async function updateMechanicVehicle(mechanicRowId: string, vehicleId: string) {
+    setPlan((current) => current ? { ...current, mechanics: current.mechanics.map((item) => item.id === mechanicRowId ? { ...item, vehicleId: vehicleId || null } : item) } : current);
+    const response = await fetch("/api/race-planning", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ raceId: race.id, kind: "mechanic", id: mechanicRowId, vehicleId }) });
+    if (!response.ok) {
+      await showApiError(response, locale);
+      await loadPlan();
+      return;
+    }
+    await onRaceChanged();
+  }
+
   async function updateEquipment(entry: RaceEntry, type: "engine" | "carburetor", position: number, resourceId: string) {
     const previousTop = document.getElementById(`race-entry-${entry.id}`)?.getBoundingClientRect().top ?? null;
     const engineIds = [entry.engine1Id ?? "", entry.engine2Id ?? "", entry.engine3Id ?? ""];
@@ -425,6 +436,16 @@ function RaceDetail({ race, catalog, engines, locale, role, onBack, onEdit, onAr
         <AssignmentStrip icon="M" title={l.mechanics} locale={locale} items={plan?.mechanics.map((item) => ({ id: item.id, label: item.mechanicName })) ?? []} options={unassignedMechanics.map((item) => ({ id: item.id, label: item.name }))} canManage={canManage} emptyText={l.noResources} onAdd={(id) => assign("mechanic", id)} onDelete={(id) => remove("mechanic", id)} />
         <AssignmentStrip icon="A" title={l.cars} locale={locale} items={plan?.vehicles.map((item) => ({ id: item.id, label: `${item.vehicleName}${item.licensePlate ? ` · ${item.licensePlate}` : ""}` })) ?? []} options={unassignedVehicles.map((item) => ({ id: item.id, label: `${item.name}${item.licensePlate ? ` · ${item.licensePlate}` : ""}` }))} canManage={canManage} emptyText={l.noResources} onAdd={(id) => assign("vehicle", id)} onDelete={(id) => remove("vehicle", id)} />
       </div>
+      {hasMechanics && hasVehicles && <div className="race-crew-pairing">
+        <span className="field-help">{locale === "cs" ? "Kdo jede v kterém autě (nepovinné)" : "Who rides in which vehicle (optional)"}</span>
+        {plan!.mechanics.map((mechanic) => <div className="race-crew-pairing-row" key={mechanic.id}>
+          <span>{mechanic.mechanicName}</span>
+          <select disabled={!canManage} value={mechanic.vehicleId ?? ""} onChange={(event) => void updateMechanicVehicle(mechanic.id, event.target.value)}>
+            <option value="">{locale === "cs" ? "— bez přiřazení —" : "— unassigned —"}</option>
+            {plan!.vehicles.map((vehicle) => <option key={vehicle.id} value={vehicle.vehicleId}>{vehicle.vehicleName}</option>)}
+          </select>
+        </div>)}
+      </div>}
     </section>
     {race.circuitId && <RaceCircuitPanel race={race} locale={locale} />}
     <RaceLogisticsPanel raceId={race.id} locale={locale} role={role} />

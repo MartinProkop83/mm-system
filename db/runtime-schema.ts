@@ -177,10 +177,31 @@ async function createRuntimeSchema() {
         name TEXT NOT NULL,
         license_plate TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
+        photo_key TEXT,
+        photo_content_type TEXT,
+        photo_updated_at INTEGER,
+        current_km INTEGER,
+        service_interval_km INTEGER,
+        last_service_km INTEGER,
+        last_service_note TEXT NOT NULL DEFAULT '',
+        last_service_date TEXT NOT NULL DEFAULT '',
         archived_at INTEGER,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS vehicle_service_entries (
+        id TEXT PRIMARY KEY NOT NULL,
+        vehicle_id TEXT NOT NULL,
+        service_date TEXT NOT NULL,
+        km INTEGER,
+        work_done TEXT NOT NULL DEFAULT '',
+        mechanic_id TEXT,
+        mechanic_name_snapshot TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
       )
     `),
     d1.prepare(`
@@ -355,7 +376,8 @@ async function createRuntimeSchema() {
         id TEXT PRIMARY KEY NOT NULL,
         race_id TEXT NOT NULL,
         mechanic_id TEXT NOT NULL,
-        mechanic_name_snapshot TEXT NOT NULL
+        mechanic_name_snapshot TEXT NOT NULL,
+        vehicle_id TEXT
       )
     `),
     d1.prepare(`
@@ -632,6 +654,7 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS circuits_country_name_idx ON circuits (country_code, name) WHERE archived_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS circuits_country_idx ON circuits (country_code, name)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS carburetor_service_entries_carb_idx ON carburetor_service_entries (carburetor_id, service_date)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS vehicle_service_entries_vehicle_idx ON vehicle_service_entries (vehicle_id, service_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_categories_race_idx ON race_categories (race_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS race_entries_driver_idx ON race_entries (race_id, driver_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_entries_race_idx ON race_entries (race_id, category)"),
@@ -788,6 +811,33 @@ async function createRuntimeSchema() {
   ].filter(([name]) => !existingCarburetorTypeColumns.has(name));
   if (carburetorTypeAdditions.length > 0) await d1.batch(carburetorTypeAdditions.map(([, statement]) => d1.prepare(statement)));
 
+  const vehicleColumns = await d1.prepare("PRAGMA table_info(vehicles)").all<{ name: string }>();
+  const existingVehicleColumns = new Set(vehicleColumns.results.map((column: { name: string }) => column.name));
+  const vehicleAdditions = [
+    ["photo_key", "ALTER TABLE vehicles ADD COLUMN photo_key TEXT"],
+    ["photo_content_type", "ALTER TABLE vehicles ADD COLUMN photo_content_type TEXT"],
+    ["photo_updated_at", "ALTER TABLE vehicles ADD COLUMN photo_updated_at INTEGER"],
+    ["current_km", "ALTER TABLE vehicles ADD COLUMN current_km INTEGER"],
+    ["service_interval_km", "ALTER TABLE vehicles ADD COLUMN service_interval_km INTEGER"],
+    ["last_service_km", "ALTER TABLE vehicles ADD COLUMN last_service_km INTEGER"],
+    ["last_service_note", "ALTER TABLE vehicles ADD COLUMN last_service_note TEXT NOT NULL DEFAULT ''"],
+    ["last_service_date", "ALTER TABLE vehicles ADD COLUMN last_service_date TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existingVehicleColumns.has(name));
+  if (vehicleAdditions.length > 0) await d1.batch(vehicleAdditions.map(([, statement]) => d1.prepare(statement)));
+
+  const vehicleServiceEntryColumns = await d1.prepare("PRAGMA table_info(vehicle_service_entries)").all<{ name: string }>();
+  const existingVehicleServiceEntryColumns = new Set(vehicleServiceEntryColumns.results.map((column: { name: string }) => column.name));
+  const vehicleServiceEntryAdditions = [
+    ["mechanic_id", "ALTER TABLE vehicle_service_entries ADD COLUMN mechanic_id TEXT"],
+    ["mechanic_name_snapshot", "ALTER TABLE vehicle_service_entries ADD COLUMN mechanic_name_snapshot TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existingVehicleServiceEntryColumns.has(name));
+  if (vehicleServiceEntryAdditions.length > 0) await d1.batch(vehicleServiceEntryAdditions.map(([, statement]) => d1.prepare(statement)));
+
+  const raceMechanicColumns = await d1.prepare("PRAGMA table_info(race_mechanics)").all<{ name: string }>();
+  if (!raceMechanicColumns.results.some((column: { name: string }) => column.name === "vehicle_id")) {
+    await d1.prepare("ALTER TABLE race_mechanics ADD COLUMN vehicle_id TEXT").run();
+  }
+
   const flightColumns = await d1.prepare("PRAGMA table_info(race_flights)").all<{ name: string }>();
   const existingFlightColumns = new Set(flightColumns.results.map((column: { name: string }) => column.name));
   const needsTripKindBackfill = !existingFlightColumns.has("trip_kind");
@@ -883,6 +933,20 @@ async function createRuntimeSchema() {
     await d1.prepare("ALTER TABLE mechanic_clothing_assignments ADD COLUMN assigned_at INTEGER NOT NULL DEFAULT 0").run();
   }
   await d1.prepare("UPDATE mechanic_clothing_assignments SET assigned_at = created_at WHERE assigned_at = 0").run();
+
+  const vehiclesNeedingServiceBackfill = await d1.prepare(`
+    SELECT v.id, v.last_service_km AS lastServiceKm, v.last_service_note AS lastServiceNote, v.last_service_date AS lastServiceDate, v.updated_at AS updatedAt, v.created_by AS createdBy
+    FROM vehicles v
+    WHERE v.last_service_km IS NOT NULL AND NOT EXISTS (SELECT 1 FROM vehicle_service_entries e WHERE e.vehicle_id = v.id)
+  `).all<{ id: string; lastServiceKm: number; lastServiceNote: string; lastServiceDate: string; updatedAt: number; createdBy: string }>();
+  const vehiclesToBackfill: Array<{ id: string; lastServiceKm: number; lastServiceNote: string; lastServiceDate: string; updatedAt: number; createdBy: string }> = vehiclesNeedingServiceBackfill.results;
+  if (vehiclesToBackfill.length > 0) {
+    await d1.batch(vehiclesToBackfill.map((vehicle) => {
+      const serviceDate = vehicle.lastServiceDate || new Date(vehicle.updatedAt).toISOString().slice(0, 10);
+      return d1.prepare("INSERT INTO vehicle_service_entries (id, vehicle_id, service_date, km, work_done, mechanic_id, mechanic_name_snapshot, created_by, created_at) VALUES (?, ?, ?, ?, ?, NULL, '', ?, ?)")
+        .bind(crypto.randomUUID(), vehicle.id, serviceDate, vehicle.lastServiceKm, vehicle.lastServiceNote || "", vehicle.createdBy, vehicle.updatedAt);
+    }));
+  }
 }
 
 async function ensureEngineCodeCategoryIndex(d1: ReturnType<typeof getD1>) {

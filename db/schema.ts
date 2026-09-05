@@ -159,10 +159,30 @@ export const vehicles = sqliteTable("vehicles", {
   name: text("name").notNull(),
   licensePlate: text("license_plate").notNull().default(""),
   notes: text("notes").notNull().default(""),
+  photoKey: text("photo_key"),
+  photoContentType: text("photo_content_type"),
+  photoUpdatedAt: integer("photo_updated_at", { mode: "timestamp_ms" }),
+  currentKm: integer("current_km"),
+  serviceIntervalKm: integer("service_interval_km"),
+  lastServiceKm: integer("last_service_km"),
+  lastServiceNote: text("last_service_note").notNull().default(""),
+  lastServiceDate: text("last_service_date").notNull().default(""),
   archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const vehicleServiceEntries = sqliteTable("vehicle_service_entries", {
+  id: text("id").primaryKey(),
+  vehicleId: text("vehicle_id").notNull(),
+  serviceDate: text("service_date").notNull(),
+  km: integer("km"),
+  workDone: text("work_done").notNull().default(""),
+  mechanicId: text("mechanic_id"),
+  mechanicNameSnapshot: text("mechanic_name_snapshot").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
 export const carburetors = sqliteTable("carburetors", {
@@ -328,6 +348,7 @@ export const raceMechanics = sqliteTable("race_mechanics", {
   raceId: text("race_id").notNull(),
   mechanicId: text("mechanic_id").notNull(),
   mechanicNameSnapshot: text("mechanic_name_snapshot").notNull(),
+  vehicleId: text("vehicle_id"),
 });
 
 export const raceVehicles = sqliteTable("race_vehicles", {

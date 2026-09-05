@@ -267,6 +267,9 @@ export async function PUT(request: Request) {
   if (removedAssigned) return Response.json({ error: `Category ${removedAssigned.category} still has assignments` }, { status: 409 });
   const travel = await prepareTravelAssignments(race.mechanicIds, race.vehicleIds, race, payload.id);
   if (travel instanceof Response) return travel;
+  const previousPairings = await d1.prepare("SELECT mechanic_id AS mechanicId, vehicle_id AS vehicleId FROM race_mechanics WHERE race_id = ? AND vehicle_id IS NOT NULL").bind(payload.id).all<{ mechanicId: string; vehicleId: string }>();
+  const previousPairingRows: Array<{ mechanicId: string; vehicleId: string }> = previousPairings.results;
+  const preservedVehicleByMechanic = new Map(previousPairingRows.map((row) => [row.mechanicId, row.vehicleId]));
 
   const now = Date.now();
   await d1.batch([
@@ -280,7 +283,11 @@ export async function PUT(request: Request) {
     ...race.categories.map((category) => d1.prepare("INSERT INTO race_categories (id, race_id, category, sort_order, notes) VALUES (?, ?, ?, ?, '')").bind(crypto.randomUUID(), payload.id, category, categoryOrder.indexOf(category))),
     d1.prepare("DELETE FROM race_mechanics WHERE race_id = ?").bind(payload.id),
     d1.prepare("DELETE FROM race_vehicles WHERE race_id = ?").bind(payload.id),
-    ...travel.mechanics.map((mechanic) => d1.prepare("INSERT INTO race_mechanics (id, race_id, mechanic_id, mechanic_name_snapshot) VALUES (?, ?, ?, ?)").bind(crypto.randomUUID(), payload.id, mechanic.id, mechanic.name)),
+    ...travel.mechanics.map((mechanic) => {
+      const preservedVehicleId = preservedVehicleByMechanic.get(mechanic.id);
+      const vehicleId = preservedVehicleId && race.vehicleIds.includes(preservedVehicleId) ? preservedVehicleId : null;
+      return d1.prepare("INSERT INTO race_mechanics (id, race_id, mechanic_id, mechanic_name_snapshot, vehicle_id) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), payload.id, mechanic.id, mechanic.name, vehicleId);
+    }),
     ...travel.vehicles.map((vehicle) => d1.prepare("INSERT INTO race_vehicles (id, race_id, vehicle_id, vehicle_name_snapshot, license_plate_snapshot) VALUES (?, ?, ?, ?, ?)").bind(crypto.randomUUID(), payload.id, vehicle.id, vehicle.name, vehicle.licensePlate)),
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'update', 'race', ?, ?, ?)").bind(crypto.randomUUID(), user.email, payload.id, JSON.stringify({ before: existing, after: { ...race, raceName: template.name } }), now),
   ]);

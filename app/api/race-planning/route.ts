@@ -64,7 +64,7 @@ export async function GET(request: Request) {
   const d1 = getD1();
   const [entries, mechanics, vehicles, extras, equipmentAssignments] = await Promise.all([
     d1.prepare(`SELECT id, category, driver_id AS driverId, driver_name_snapshot AS driverName, team_id AS teamId, team_name_snapshot AS teamName, engine_1_id AS engine1Id, engine_1_code AS engine1Code, engine_1_configuration AS engine1Configuration, engine_2_id AS engine2Id, engine_2_code AS engine2Code, engine_2_configuration AS engine2Configuration, engine_3_id AS engine3Id, engine_3_code AS engine3Code, engine_3_configuration AS engine3Configuration, carburetor_1_id AS carburetor1Id, carburetor_1_code AS carburetor1Code, carburetor_2_id AS carburetor2Id, carburetor_2_code AS carburetor2Code, carburetor_3_id AS carburetor3Id, carburetor_3_code AS carburetor3Code, is_confirmed AS isConfirmed, notes FROM race_entries WHERE race_id = ? ORDER BY category, driver_name_snapshot`).bind(raceId).all(),
-    d1.prepare("SELECT id, mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName FROM race_mechanics WHERE race_id = ? ORDER BY mechanic_name_snapshot").bind(raceId).all(),
+    d1.prepare("SELECT id, mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName, vehicle_id AS vehicleId FROM race_mechanics WHERE race_id = ? ORDER BY mechanic_name_snapshot").bind(raceId).all(),
     d1.prepare("SELECT id, vehicle_id AS vehicleId, vehicle_name_snapshot AS vehicleName, license_plate_snapshot AS licensePlate FROM race_vehicles WHERE race_id = ? ORDER BY vehicle_name_snapshot").bind(raceId).all(),
     d1.prepare("SELECT id, category, resource_type AS resourceType, resource_id AS resourceId, resource_code_snapshot AS resourceCode, notes FROM race_extras WHERE race_id = ? ORDER BY category, resource_type, resource_code_snapshot").bind(raceId).all(),
     loadEquipmentAssignments(),
@@ -126,13 +126,14 @@ export async function PUT(request: Request) {
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
-  if (!["entry", "confirmation"].includes(payload.kind ?? "") || !payload.id) return Response.json({ error: "Entry id is required" }, { status: 400 });
+  if (!["entry", "confirmation", "mechanic"].includes(payload.kind ?? "") || !payload.id) return Response.json({ error: "Entry id is required" }, { status: 400 });
   await ensureRuntimeSchema();
   const race = await getRace(clean(payload.raceId));
   if (!race) return Response.json({ error: "Race not found" }, { status: 404 });
   const writeError = await assertWritable(race, user);
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
   if (payload.kind === "confirmation") return updateConfirmation(payload, race, user);
+  if (payload.kind === "mechanic") return updateMechanicVehicle(payload, race, user);
   return saveEntry(payload, race, user, true);
 }
 
@@ -240,24 +241,47 @@ function parseBoolean(value: PlanningPayload["isConfirmed"]) {
   return value === true || value === 1 || value === "1" || value === "true";
 }
 
+async function resolveRaceVehicle(vehicleId: string, race: RaceRow) {
+  if (!vehicleId) return null;
+  return getD1().prepare("SELECT vehicle_id AS vehicleId FROM race_vehicles WHERE race_id = ? AND vehicle_id = ?").bind(race.id, vehicleId).first<{ vehicleId: string }>();
+}
+
 async function addMechanic(payload: PlanningPayload, race: RaceRow, user: AppUser) {
   const mechanicId = clean(payload.mechanicId);
   const mechanic = await getD1().prepare("SELECT id, name FROM mechanics WHERE id = ? AND archived_at IS NULL").bind(mechanicId).first<{ id: string; name: string }>();
   if (!mechanic) return Response.json({ error: "Mechanic not found" }, { status: 404 });
   const conflict = await findTravelConflict("mechanic", mechanic.id, race);
   if (conflict) return Response.json({ error: conflict }, { status: 409 });
+  const requestedVehicleId = clean(payload.vehicleId);
+  const vehicle = requestedVehicleId ? await resolveRaceVehicle(requestedVehicleId, race) : null;
   const id = crypto.randomUUID();
   const now = Date.now();
   const d1 = getD1();
   try {
     await d1.batch([
-      d1.prepare("INSERT INTO race_mechanics (id, race_id, mechanic_id, mechanic_name_snapshot) VALUES (?, ?, ?, ?)").bind(id, race.id, mechanic.id, mechanic.name),
-      d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'assign', 'race_mechanic', ?, ?, ?)").bind(crypto.randomUUID(), user.email, id, JSON.stringify({ raceId: race.id, raceName: race.name, mechanicId, mechanicName: mechanic.name }), now),
+      d1.prepare("INSERT INTO race_mechanics (id, race_id, mechanic_id, mechanic_name_snapshot, vehicle_id) VALUES (?, ?, ?, ?, ?)").bind(id, race.id, mechanic.id, mechanic.name, vehicle?.vehicleId ?? null),
+      d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'assign', 'race_mechanic', ?, ?, ?)").bind(crypto.randomUUID(), user.email, id, JSON.stringify({ raceId: race.id, raceName: race.name, mechanicId, mechanicName: mechanic.name, vehicleId: vehicle?.vehicleId ?? null }), now),
     ]);
   } catch {
     return Response.json({ error: "Mechanic is already assigned to this race" }, { status: 409 });
   }
   return Response.json({ id }, { status: 201 });
+}
+
+async function updateMechanicVehicle(payload: PlanningPayload, race: RaceRow, user: AppUser) {
+  const id = clean(payload.id);
+  const existing = await getD1().prepare("SELECT id, mechanic_name_snapshot AS mechanicName FROM race_mechanics WHERE id = ? AND race_id = ?").bind(id, race.id).first<{ id: string; mechanicName: string }>();
+  if (!existing) return Response.json({ error: "Mechanic assignment not found" }, { status: 404 });
+  const requestedVehicleId = clean(payload.vehicleId);
+  const vehicle = requestedVehicleId ? await resolveRaceVehicle(requestedVehicleId, race) : null;
+  if (requestedVehicleId && !vehicle) return Response.json({ error: "Vehicle is not assigned to this race" }, { status: 400 });
+  const now = Date.now();
+  const d1 = getD1();
+  await d1.batch([
+    d1.prepare("UPDATE race_mechanics SET vehicle_id = ? WHERE id = ? AND race_id = ?").bind(vehicle?.vehicleId ?? null, id, race.id),
+    d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'update', 'race_mechanic', ?, ?, ?)").bind(crypto.randomUUID(), user.email, id, JSON.stringify({ raceId: race.id, raceName: race.name, mechanicName: existing.mechanicName, vehicleId: vehicle?.vehicleId ?? null }), now),
+  ]);
+  return Response.json({ id, vehicleId: vehicle?.vehicleId ?? null });
 }
 
 async function addVehicle(payload: PlanningPayload, race: RaceRow, user: AppUser) {

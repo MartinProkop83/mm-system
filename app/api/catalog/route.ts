@@ -4,6 +4,7 @@ import { getAppUser } from "../../server-auth";
 import { isCountryCode } from "../../countries";
 import { raceLogoUrl } from "../../race-logo";
 import { teamLogoUrl } from "../../team-logo";
+import { vehiclePhotoUrl } from "../../vehicle-photo";
 import { normalizeRaceCalendarColor } from "../../race-calendar-colors";
 
 const catalogTypes = new Set(["raceType", "team", "driver", "mechanic", "vehicle", "carburetor"]);
@@ -27,6 +28,8 @@ type CatalogPayload = {
   nationality?: string;
   isActive?: boolean | string | number;
   licensePlate?: string;
+  currentKm?: string | number;
+  serviceIntervalKm?: string | number;
   code?: string;
   carburetorTypeId?: string;
   category?: string;
@@ -38,6 +41,14 @@ type CatalogPayload = {
 
 function text(value: unknown, max = 200) {
   return String(value ?? "").trim().slice(0, max);
+}
+
+function wholeNumberOrNull(value: unknown) {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed) || parsed < 0) return null;
+  return Math.round(parsed);
 }
 
 function parseSeriesOptions(value: unknown) {
@@ -59,7 +70,7 @@ export async function GET() {
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   await ensureRuntimeSchema();
   const d1 = getD1();
-  const [raceTypes, teams, drivers, mechanics, vehicles, carburetors, carburetorAssignments, mechanicAssignments] = await Promise.all([
+  const [raceTypes, teams, drivers, mechanics, vehicles, carburetors, carburetorAssignments, mechanicAssignments, vehicleAssignments] = await Promise.all([
     d1.prepare(`SELECT id, name, notes, series_options AS seriesOptions, calendar_color AS calendarColor, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM race_templates WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`SELECT id, name, country_code AS countryCode, notes, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM teams WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`
@@ -71,15 +82,17 @@ export async function GET() {
       WHERE d.archived_at IS NULL ORDER BY d.name
     `).all(),
     d1.prepare(`SELECT id, name, created_at AS createdAt, updated_at AS updatedAt FROM mechanics WHERE archived_at IS NULL ORDER BY name`).all(),
-    d1.prepare(`SELECT id, name, license_plate AS licensePlate, notes, created_at AS createdAt, updated_at AS updatedAt FROM vehicles WHERE archived_at IS NULL ORDER BY name`).all(),
+    d1.prepare(`SELECT id, name, license_plate AS licensePlate, notes, photo_key AS photoKey, photo_updated_at AS photoUpdatedAt, current_km AS currentKm, service_interval_km AS serviceIntervalKm, last_service_km AS lastServiceKm, last_service_note AS lastServiceNote, last_service_date AS lastServiceDate, created_at AS createdAt, updated_at AS updatedAt FROM vehicles WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`SELECT id, code, carburetor_type_id AS carburetorTypeId, category, family, brand, model, status, notes, sold_at AS soldAt, created_at AS createdAt, updated_at AS updatedAt FROM carburetors WHERE archived_at IS NULL ORDER BY code`).all(),
     d1.prepare(`
       SELECT e.driver_name_snapshot AS driverName, r.name AS raceName, r.status AS raceStatus,
-             r.start_date AS startDate, r.end_date AS endDate,
+             r.start_date AS startDate, r.end_date AS endDate, r.country_code AS countryCode,
+             r.race_template_id AS raceTemplateId, rt.logo_key AS logoKey, rt.logo_updated_at AS logoUpdatedAt,
              e.carburetor_1_id AS carburetor1Id, e.carburetor_2_id AS carburetor2Id, e.carburetor_3_id AS carburetor3Id
       FROM race_entries e JOIN races r ON r.id = e.race_id
+      LEFT JOIN race_templates rt ON rt.id = r.race_template_id
       WHERE r.status != 'archived'
-    `).all<{ driverName: string; raceName: string; raceStatus: string; startDate: string; endDate: string; carburetor1Id: string | null; carburetor2Id: string | null; carburetor3Id: string | null }>(),
+    `).all<{ driverName: string; raceName: string; raceStatus: string; startDate: string; endDate: string; countryCode: string; raceTemplateId: string | null; logoKey: string | null; logoUpdatedAt: number | null; carburetor1Id: string | null; carburetor2Id: string | null; carburetor3Id: string | null }>(),
     d1.prepare(`
       SELECT rm.mechanic_id AS mechanicId, r.name AS raceName, r.track,
              r.country_code AS countryCode, r.start_date AS startDate, r.end_date AS endDate,
@@ -87,6 +100,14 @@ export async function GET() {
       FROM race_mechanics rm JOIN races r ON r.id = rm.race_id
       WHERE r.status != 'archived'
     `).all<{ mechanicId: string; raceName: string; track: string; countryCode: string; startDate: string; endDate: string; departureDate: string; returnDate: string; raceStatus: string }>(),
+    d1.prepare(`
+      SELECT rv.vehicle_id AS vehicleId, r.name AS raceName, r.status AS raceStatus,
+             r.start_date AS startDate, r.end_date AS endDate, r.country_code AS countryCode,
+             r.race_template_id AS raceTemplateId, rt.logo_key AS logoKey, rt.logo_updated_at AS logoUpdatedAt
+      FROM race_vehicles rv JOIN races r ON r.id = rv.race_id
+      LEFT JOIN race_templates rt ON rt.id = r.race_template_id
+      WHERE r.status != 'archived'
+    `).all<{ vehicleId: string; raceName: string; raceStatus: string; startDate: string; endDate: string; countryCode: string; raceTemplateId: string | null; logoKey: string | null; logoUpdatedAt: number | null }>(),
   ]);
   const assignments = carburetorAssignments.results;
   const today = localIsoDate(new Date());
@@ -94,7 +115,16 @@ export async function GET() {
     const matches = assignments.filter((assignment) => [assignment.carburetor1Id, assignment.carburetor2Id, assignment.carburetor3Id].includes(String(carburetor.id)));
     const current = matches.filter((assignment) => assignment.raceStatus !== "completed" && assignment.endDate >= today).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
     const latest = current ?? matches.sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
-    return { ...carburetor, lastDriver: latest?.driverName ?? "", lastRace: latest?.raceName ?? "", assignmentStatus: current ? "assigned" : latest ? "history" : "none" };
+    return {
+      ...carburetor,
+      lastDriver: latest?.driverName ?? "",
+      lastRace: latest?.raceName ?? "",
+      lastRaceLogoUrl: latest ? raceLogoUrl(latest.raceTemplateId, latest.logoKey, latest.logoUpdatedAt) : "",
+      lastRaceCountryCode: latest?.countryCode ?? "",
+      lastRaceStartDate: latest?.startDate ?? "",
+      lastRaceEndDate: latest?.endDate ?? "",
+      assignmentStatus: current ? "assigned" : latest ? "history" : "none",
+    };
   });
   const mechanicRaceRows = mechanicAssignments.results;
   const enrichedMechanics = mechanics.results.map((mechanic: Record<string, unknown>) => {
@@ -114,6 +144,22 @@ export async function GET() {
       raceCount: matches.length,
     };
   });
+  const vehicleRaceRows: Array<{ vehicleId: string; raceName: string; raceStatus: string; startDate: string; endDate: string; countryCode: string; raceTemplateId: string | null; logoKey: string | null; logoUpdatedAt: number | null }> = vehicleAssignments.results;
+  const enrichedVehicles = (vehicles.results as Array<Record<string, unknown>>).map((vehicle) => {
+    const matches = vehicleRaceRows.filter((assignment) => assignment.vehicleId === String(vehicle.id));
+    const current = matches.filter((assignment) => assignment.raceStatus !== "completed" && assignment.endDate >= today).sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const latest = current ?? matches.sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+    return {
+      ...vehicle,
+      photoUrl: vehiclePhotoUrl(vehicle.id, vehicle.photoKey, vehicle.photoUpdatedAt),
+      lastRace: latest?.raceName ?? "",
+      lastRaceLogoUrl: latest ? raceLogoUrl(latest.raceTemplateId, latest.logoKey, latest.logoUpdatedAt) : "",
+      lastRaceCountryCode: latest?.countryCode ?? "",
+      lastRaceStartDate: latest?.startDate ?? "",
+      lastRaceEndDate: latest?.endDate ?? "",
+      assignmentStatus: current ? "assigned" : latest ? "history" : "none",
+    };
+  });
   const normalizedDrivers = drivers.results.map((driver: Record<string, unknown>) => ({ ...driver, isActive: Boolean(driver.isActive) }));
   const normalizedTeams = (teams.results as Array<Record<string, unknown>>).map((team) => ({
     ...team,
@@ -130,7 +176,7 @@ export async function GET() {
     createdAt: template.createdAt,
     updatedAt: template.updatedAt,
   }));
-  return Response.json({ raceTypes: normalizedRaceTypes, teams: normalizedTeams, drivers: normalizedDrivers, mechanics: enrichedMechanics, vehicles: vehicles.results, carburetors: enrichedCarburetors });
+  return Response.json({ raceTypes: normalizedRaceTypes, teams: normalizedTeams, drivers: normalizedDrivers, mechanics: enrichedMechanics, vehicles: enrichedVehicles, carburetors: enrichedCarburetors });
 }
 
 export async function POST(request: Request) {
@@ -260,7 +306,7 @@ function createStatement(type: CatalogType, id: string, payload: CatalogPayload,
   if (type === "team") return d1.prepare("INSERT INTO teams (id, name, country_code, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), actor, now, now);
   if (type === "driver") return d1.prepare("INSERT INTO drivers (id, name, team_id, default_category, race_number, nationality, is_active, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), actor, now, now);
   if (type === "mechanic") return d1.prepare("INSERT INTO mechanics (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), actor, now, now);
-  if (type === "vehicle") return d1.prepare("INSERT INTO vehicles (id, name, license_plate, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.licensePlate, 20).toUpperCase(), text(payload.notes, 1000), actor, now, now);
+  if (type === "vehicle") return d1.prepare("INSERT INTO vehicles (id, name, license_plate, notes, current_km, service_interval_km, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.licensePlate, 20).toUpperCase(), text(payload.notes, 1000), wholeNumberOrNull(payload.currentKm), wholeNumberOrNull(payload.serviceIntervalKm), actor, now, now);
   return d1.prepare("INSERT INTO carburetors (id, code, carburetor_type_id, category, family, brand, model, status, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.code, 20).toUpperCase(), text(payload.carburetorTypeId, 80), text(payload.category, 20), text(payload.family).toUpperCase(), text(payload.brand, 80), text(payload.model, 80), text(payload.status) || "ready", text(payload.notes, 1000), actor, now, now);
 }
 
@@ -270,7 +316,7 @@ function updateStatement(type: CatalogType, id: string, payload: CatalogPayload,
   if (type === "team") return d1.prepare("UPDATE teams SET name = ?, country_code = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), now, id);
   if (type === "driver") return d1.prepare("UPDATE drivers SET name = ?, team_id = ?, default_category = ?, race_number = ?, nationality = ?, is_active = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), now, id);
   if (type === "mechanic") return d1.prepare("UPDATE mechanics SET name = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), now, id);
-  if (type === "vehicle") return d1.prepare("UPDATE vehicles SET name = ?, license_plate = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.licensePlate, 20).toUpperCase(), text(payload.notes, 1000), now, id);
+  if (type === "vehicle") return d1.prepare("UPDATE vehicles SET name = ?, license_plate = ?, notes = ?, current_km = ?, service_interval_km = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.licensePlate, 20).toUpperCase(), text(payload.notes, 1000), wholeNumberOrNull(payload.currentKm), wholeNumberOrNull(payload.serviceIntervalKm), now, id);
   return d1.prepare("UPDATE carburetors SET code = ?, carburetor_type_id = ?, category = ?, family = ?, brand = ?, model = ?, status = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.code, 20).toUpperCase(), text(payload.carburetorTypeId, 80), text(payload.category, 20), text(payload.family).toUpperCase(), text(payload.brand, 80), text(payload.model, 80), text(payload.status) || "ready", text(payload.notes, 1000), now, id);
 }
 

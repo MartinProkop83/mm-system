@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CatalogPage } from "./catalog-pages";
+import { CatalogPage, vehicleServiceStatus, type VehicleRecord } from "./catalog-pages";
 import { RacePage } from "./race-pages";
 import { SalesPage } from "./sales-page";
 import { countryFlag } from "./countries";
@@ -153,6 +153,7 @@ type DashboardRace = {
 type DashboardCatalog = {
   drivers: Array<{ id: string; isActive: boolean }>;
   carburetors: Array<{ id: string; soldAt?: number | null; status: string }>;
+  vehicles: Array<{ id: string; currentKm?: number | null; serviceIntervalKm?: number | null; lastServiceKm?: number | null }>;
 };
 
 const serviceParts = [
@@ -432,11 +433,14 @@ export default function Home() {
   const noticeTimer = useRef<number | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
   const [engineRows, setEngineRows] = useState<EngineRecord[]>([]);
+  const [vehicleRows, setVehicleRows] = useState<VehicleRecord[]>([]);
   const [enginesLoading, setEnginesLoading] = useState(true);
   const [enginesError, setEnginesError] = useState(false);
   const [engineFormOpen, setEngineFormOpen] = useState(false);
+  const [quickServiceOpen, setQuickServiceOpen] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<EngineRecord | null>(null);
   const [detailEngineId, setDetailEngineId] = useState<string | null>(null);
+  const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
   const [currentHour, setCurrentHour] = useState<number | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -461,6 +465,10 @@ export default function Home() {
   const enginesNeedingService = useMemo(
     () => engineRows.filter((engine) => !engine.soldAt && engine.status !== "retired" && (engine.status === "service_soon" || engine.status === "service")),
     [engineRows],
+  );
+  const vehiclesNeedingService = useMemo(
+    () => vehicleRows.filter((vehicle) => vehicleServiceStatus(vehicle) === "due" || vehicleServiceStatus(vehicle) === "soon"),
+    [vehicleRows],
   );
 
   useEffect(() => {
@@ -505,16 +513,19 @@ export default function Home() {
 
     async function loadAppData() {
       try {
-        const [sessionResponse, enginesResponse] = await Promise.all([
+        const [sessionResponse, enginesResponse, catalogResponse] = await Promise.all([
           fetch("/api/session", { cache: "no-store" }),
           fetch("/api/engines", { cache: "no-store" }),
+          fetch("/api/catalog", { cache: "no-store" }),
         ]);
-        if (!sessionResponse.ok || !enginesResponse.ok) throw new Error("load failed");
+        if (!sessionResponse.ok || !enginesResponse.ok || !catalogResponse.ok) throw new Error("load failed");
         const sessionData = (await sessionResponse.json()) as { user: AppSession };
         const enginesData = (await enginesResponse.json()) as { engines: EngineRecord[] };
+        const catalogData = (await catalogResponse.json()) as { vehicles: VehicleRecord[] };
         if (!active) return;
         setSession(sessionData.user);
         setEngineRows(enginesData.engines);
+        setVehicleRows(catalogData.vehicles);
         setEnginesError(false);
       } catch {
         if (active) setEnginesError(true);
@@ -695,18 +706,27 @@ export default function Home() {
             </div>
             <div className="util-bell-wrap">
               <button className="util-bell" type="button" onClick={() => setNotifOpen((open) => !open)} aria-expanded={notifOpen}>
-                🔔{enginesNeedingService.length > 0 && <span className="notif-count">{enginesNeedingService.length}</span>}
+                🔔{(enginesNeedingService.length + vehiclesNeedingService.length) > 0 && <span className="notif-count">{enginesNeedingService.length + vehiclesNeedingService.length}</span>}
               </button>
               {notifOpen && (
                 <div className="notif-panel">
                   <header><strong>{locale === "cs" ? "Upozornění" : "Notifications"}</strong></header>
-                  {enginesNeedingService.length === 0 && <div className="notif-empty">{locale === "cs" ? "Žádná upozornění" : "Nothing to flag"}</div>}
+                  {enginesNeedingService.length === 0 && vehiclesNeedingService.length === 0 && <div className="notif-empty">{locale === "cs" ? "Žádná upozornění" : "Nothing to flag"}</div>}
                   {enginesNeedingService.slice(0, 6).map((engine) => (
                     <button key={engine.id} type="button" className="notif-row" onClick={() => { setView("engines"); setDetailEngineId(engine.id); setNotifOpen(false); }}>
                       <i />
                       <div>
                         <strong>{locale === "cs" ? `Motor ${engine.code} potřebuje servis` : `Engine ${engine.code} needs service`}</strong>
                         <small>{engine.family}</small>
+                      </div>
+                    </button>
+                  ))}
+                  {vehiclesNeedingService.slice(0, 6).map((vehicle) => (
+                    <button key={vehicle.id} type="button" className="notif-row" onClick={() => { setView("vehicles"); setNotifiedVehicleId(vehicle.id); setNotifOpen(false); }}>
+                      <i />
+                      <div>
+                        <strong>{locale === "cs" ? `Auto ${vehicle.name} potřebuje servis` : `Vehicle ${vehicle.name} needs service`}</strong>
+                        <small>{vehicle.licensePlate || (locale === "cs" ? "Bez SPZ" : "No plate")}</small>
                       </div>
                     </button>
                   ))}
@@ -723,9 +743,10 @@ export default function Home() {
             <p>{view === "dashboard" ? t.subtitle : view === "engines" && detailEngine ? `TM Racing · ${detailEngine.family}` : locale === "cs" ? "Centrální správa Macháč Motors" : "Macháč Motors central management"}</p>
           </div>
           <div className="topbar-actions">
-            <button className="topbar-cta" type="button" onClick={() => showNotice(locale === "cs" ? "Rychlé akce připravíme v další etapě." : "Quick actions are coming in the next stage.")}>＋ {t.quick}</button>
+            <button className="topbar-cta" type="button" onClick={() => setQuickServiceOpen(true)}>＋ {t.quick}</button>
           </div>
         </header>
+        {quickServiceOpen && <QuickServiceForm locale={locale} onClose={() => setQuickServiceOpen(false)} onSaved={() => { setQuickServiceOpen(false); showNotice(locale === "cs" ? "Servis byl zapsán." : "Service logged."); }} />}
 
         {view === "dashboard" && <Dashboard
           locale={locale}
@@ -770,7 +791,7 @@ export default function Home() {
         {view === "carburetors" && <CatalogPage kind="carburetor" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "mechanics" && <CatalogPage kind="mechanic" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "clothing" && <ClothingPage locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "vehicles" && <CatalogPage kind="vehicle" locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "vehicles" && <CatalogPage kind="vehicle" locale={locale} role={session?.role ?? "mechanic"} initialVehicleId={notifiedVehicleId} onInitialVehicleIdConsumed={() => setNotifiedVehicleId(null)} />}
         {view === "accommodation" && <LogisticsPage kind="accommodation" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "flights" && <LogisticsPage kind="flight" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "rentals" && <LogisticsPage kind="rental" locale={locale} role={session?.role ?? "mechanic"} />}
@@ -823,6 +844,71 @@ export default function Home() {
   );
 }
 
+function QuickServiceForm({ locale, onClose, onSaved }: { locale: Locale; onClose: () => void; onSaved: () => void }) {
+  const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
+  const [mechanics, setMechanics] = useState<Array<{ id: string; name: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [vehicleId, setVehicleId] = useState("");
+  const [serviceDate, setServiceDate] = useState(todayInputValue);
+  const [km, setKm] = useState("");
+  const [note, setNote] = useState("");
+  const [mechanicId, setMechanicId] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/catalog", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((result: { vehicles?: VehicleRecord[]; mechanics?: Array<{ id: string; name: string }> }) => {
+        if (!active) return;
+        const list = result.vehicles ?? [];
+        setVehicles(list);
+        setVehicleId(list[0]?.id ?? "");
+        setMechanics(result.mechanics ?? []);
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!vehicleId) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/vehicle-service-entries", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ vehicleId, serviceDate, km, workDone: note, mechanicId }),
+      });
+      const result = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
+      onSaved();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Save failed");
+      setSaving(false);
+    }
+  }
+
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="modal" role="dialog" aria-modal="true">
+      <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{locale === "cs" ? "Zápis servisu auta" : "Log vehicle service"}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
+      {loading ? <div className="empty-state"><span className="spinner" /></div> : !vehicles.length ? <p className="form-error">{locale === "cs" ? "Nejdřív přidej auto v katalogu." : "Add a vehicle to the catalog first."}</p> : <form onSubmit={submit}>
+        <div className="form-grid">
+          <label className="full-field"><span>{locale === "cs" ? "Auto" : "Vehicle"} *</span><select value={vehicleId} required onChange={(event) => setVehicleId(event.target.value)}>{vehicles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.licensePlate ? ` · ${item.licensePlate}` : ""}</option>)}</select></label>
+          <label><span>{locale === "cs" ? "Datum servisu" : "Service date"} *</span><input type="date" value={serviceDate} required onChange={(event) => setServiceDate(event.target.value)} /></label>
+          <label><span>{locale === "cs" ? "Nájezd při servisu (km)" : "Mileage at service (km)"}</span><input type="number" min={0} step={1} value={km} onChange={(event) => setKm(event.target.value)} /></label>
+          <label className="full-field"><span>{locale === "cs" ? "Mechanik" : "Mechanic"}</span><select value={mechanicId} onChange={(event) => setMechanicId(event.target.value)}><option value="">{locale === "cs" ? "Nevybráno" : "Not selected"}</option>{mechanics.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label className="full-field"><span>{locale === "cs" ? "Co bylo provedeno" : "What was done"}</span><textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} placeholder={locale === "cs" ? "Výměna oleje, brzdové destičky…" : "Oil change, brake pads…"} /></label>
+        </div>
+        {error && <p className="form-error">{error}</p>}
+        <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Uložit servis" : "Save service")}</button></div>
+      </form>}
+    </section>
+  </div>;
+}
+
 function profileInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return `${parts[0]?.[0] ?? "U"}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`.toUpperCase();
@@ -831,7 +917,7 @@ function profileInitials(name: string) {
 function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { locale: Locale; engines: EngineRecord[]; showNotice: (message: string) => void; onOpenView: (view: View) => void; onOpenRace: (raceId: string) => void }) {
   const t = copy[locale];
   const [dashboardRaces, setDashboardRaces] = useState<DashboardRace[]>([]);
-  const [catalog, setCatalog] = useState<DashboardCatalog>({ drivers: [], carburetors: [] });
+  const [catalog, setCatalog] = useState<DashboardCatalog>({ drivers: [], carburetors: [], vehicles: [] });
   const [dashboardTasks, setDashboardTasks] = useState<WorkItem[]>([]);
   const [dashboardActivity, setDashboardActivity] = useState<ActivityRecord[]>([]);
   const [inventoryCount, setInventoryCount] = useState(0);
@@ -883,6 +969,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
   const raceRoundNumber = new Map(seasonOrder.map((race, index) => [race.id, index + 1]));
   const ownedEngines = engines.filter((engine) => !engine.soldAt && engine.status !== "retired");
   const ownedCarburetors = catalog.carburetors.filter((carburetor) => !carburetor.soldAt && carburetor.status !== "retired");
+  const vehiclesNeedingService = catalog.vehicles.filter((vehicle) => vehicleServiceStatus(vehicle) === "due" || vehicleServiceStatus(vehicle) === "soon");
   const engineStats = {
     ready: ownedEngines.filter((engine) => engine.status === "ready").length,
     due: ownedEngines.filter((engine) => engine.status === "service_soon" || engine.status === "service").length,
@@ -971,6 +1058,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
           <h3>{t.actionCenter}</h3>
           <button type="button" className="alert-row" onClick={() => onOpenView("engines")}><span className="alert-dot critical" /><span>{locale === "cs" ? `${serviceCount} motorů potřebuje servis` : `${serviceCount} engines need service`}</span><b>›</b></button>
           <button type="button" className="alert-row" onClick={() => onOpenView("carburetors")}><span className="alert-dot warning" /><span>{locale === "cs" ? `${ownedCarburetors.filter((item) => item.status === "service").length} karburátorů potřebuje servis` : `${ownedCarburetors.filter((item) => item.status === "service").length} carburetors need service`}</span><b>›</b></button>
+          {vehiclesNeedingService.length > 0 && <button type="button" className="alert-row" onClick={() => onOpenView("vehicles")}><span className={`alert-dot ${vehiclesNeedingService.some((vehicle) => vehicleServiceStatus(vehicle) === "due") ? "critical" : "warning"}`} /><span>{vehiclesNeedingServiceLabel(vehiclesNeedingService.length, locale)}</span><b>›</b></button>}
           <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className={`alert-dot ${overdueTasks.length ? "critical" : "info"}`} /><span>{overdueTasks.length ? (locale === "cs" ? `${overdueTasks.length} ${taskCountWord(overdueTasks.length)} po termínu` : `${overdueTasks.length} overdue tasks`) : (locale === "cs" ? openTaskLabel(activeTasks.length) : `${activeTasks.length} open tasks`)}</span><b>›</b></button>
           {nextTask && <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className="alert-dot info" /><span>{nextTask.title}</span><b>›</b></button>}
         </section>
@@ -1121,6 +1209,8 @@ function Engines({
 }) {
   const t = copy[locale];
   const [filter, setFilter] = useState<EngineFilter>("ALL");
+  const [page, setPage] = useState(1);
+  const pageSize = 15;
   const activeEngines = useMemo(() => engines.filter((engine) => !engine.soldAt), [engines]);
   const counts = useMemo(() => ({
     ALL: activeEngines.length,
@@ -1135,6 +1225,10 @@ function Engines({
     if (filter === "OKN") return engine.family === "OKN" || engine.family === "OKN-J";
     return engine.family === filter;
   }), [activeEngines, filter]);
+  useEffect(() => { setPage(1); }, [filter]);
+  const totalPages = Math.max(1, Math.ceil(visibleEngines.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const pageEngines = visibleEngines.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   const categories: Array<{ id: EngineFilter; label: string; note?: string; tone: string }> = [
     { id: "ALL", label: t.allEngines, tone: "total" },
     { id: "MINI", label: "MINI", tone: "mini" },
@@ -1146,26 +1240,16 @@ function Engines({
   return (
     <div className="engines-page">
       {!loading && !error && (
-        <section className="engine-category-grid" aria-label={locale === "cs" ? "Počty motorů podle kategorií" : "Engine counts by category"}>
-          {categories.map((category) => (
-            <button
-              key={category.id}
-              className={`engine-category-card ${category.tone} ${filter === category.id ? "selected" : ""}`}
-              type="button"
-              onClick={() => setFilter(category.id)}
-              aria-pressed={filter === category.id}
-            >
-              <span><strong>{category.label}</strong>{category.note && <small>{category.note}</small>}</span>
-              <b>{counts[category.id]}</b>
+        <div className="carb-unit-filters" aria-label={locale === "cs" ? "Počty motorů podle kategorií" : "Engine counts by category"}>
+          <div className="carb-unit-category-tiles">{categories.map((category) => (
+            <button key={category.id} type="button" className={`carb-unit-tile tone-${category.tone}${filter === category.id ? " active" : ""}`} onClick={() => setFilter(category.id)} aria-pressed={filter === category.id}>
+              {category.label}<small>{counts[category.id]}</small>
             </button>
-          ))}
-        </section>
-      )}
-      <section className="panel data-panel">
-        <div className="data-panel-header">
-          <div className="panel-heading"><span>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</span><b className="status-pill success">{visibleEngines.length} / {activeEngines.length}</b></div>
-          {canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}
+          ))}</div>
         </div>
+      )}
+      <section className="dash-panel data-panel latest-carb-panel">
+        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div>{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</header>
         {loading && <div className="empty-state"><span className="spinner" /><p>{t.loading}</p></div>}
         {!loading && error && <div className="empty-state error-state"><b>!</b><p>{t.databaseError}</p></div>}
         {!loading && !error && activeEngines.length === 0 && (
@@ -1177,32 +1261,37 @@ function Engines({
           </div>
         )}
         {!loading && !error && activeEngines.length > 0 && visibleEngines.length === 0 && (
-          <div className="filter-empty"><p>{locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."}</p></div>
+          <p className="category-empty">{locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."}</p>
         )}
-        {!loading && !error && visibleEngines.length > 0 && (
+        {!loading && !error && pageEngines.length > 0 && (
           <div className="table-wrap">
-            <table className="engine-table">
-              <thead><tr><th>{t.code}</th><th>{t.engineFamily}</th><th>{t.ignition}</th><th>{t.hoursTracking}</th><th>{locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"}</th><th>{t.status}</th>{canManage && <th className="action-column">{t.actions}</th>}</tr></thead>
-              <tbody>{visibleEngines.map((engine) => {
+            <table className="results zebra">
+              <thead><tr><th>{t.code}</th><th>{t.engineFamily}</th><th>{t.ignition}</th><th>{t.hoursTracking}</th><th>{locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"}</th><th>{t.status}</th>{canManage && <th className="no-print action-column">{t.actions}</th>}</tr></thead>
+              <tbody>{pageEngines.map((engine) => {
                 const usesHours = !["MINI", "OKJ"].includes(engine.family);
                 const ready = engine.status === "ready" && !engine.soldAt;
                 const variant = engine.family === "KZ" ? engine.kzGeneration : engine.family === "MINI" ? engine.currentConfiguration : null;
                 const familyTone = engine.family === "OKN-J" ? "OKN" : engine.family;
                 return (
-                  <tr key={engine.id} className={`engine-row family-${familyTone.toLowerCase()}`} style={engine.labelColor ? { "--engine-label-color": engine.labelColor } as React.CSSProperties : undefined} onClick={() => onOpen(engine)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(engine); }}>
-                    <td><button className="engine-code-button" type="button" onClick={() => onOpen(engine)}><span className="engine-code-title">{engine.labelColor && <i className="engine-label-swatch" style={{ backgroundColor: engine.labelColor }} />}<strong>{engine.code}</strong></span><small className="cell-note">{engine.upgradeCode ? `${t.upgrade}: ${engine.upgradeCode}` : "—"}</small></button></td>
-                    <td><strong>{engine.family}</strong>{variant && <small className="cell-note">{variant}</small>}</td>
+                  <tr key={engine.id} className={`clickable-row family-${familyTone.toLowerCase()}`} style={engine.labelColor ? { "--engine-label-color": engine.labelColor } as React.CSSProperties : undefined} onClick={() => onOpen(engine)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(engine); }}>
+                    <td><span className="engine-code-title">{engine.labelColor && <i className="engine-label-swatch" style={{ backgroundColor: engine.labelColor }} />}<strong>{engine.code}</strong></span><small className="cell-note">{engine.upgradeCode ? `${t.upgrade}: ${engine.upgradeCode}` : "—"}</small></td>
+                    <td><span className={`carb-category-badge tone-${familyTone.toLowerCase()}`}>{engine.family}</span>{variant && <small className="cell-note">{variant}</small>}</td>
                     <td>{ignitionLabel(engine.ignition, locale)}</td>
                     <td>{usesHours ? formatHours(engine.totalMinutes) : t.byRaces}</td>
                     <td>{engine.assignedDriver ? <span className="carb-assignment-cell"><strong>{engine.assignedDriver}</strong><small>{engine.assignedRace || "—"}</small>{engine.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"}</td>
                     <td><span className={engine.soldAt ? "status-pill neutral" : ready ? "status-pill success" : "status-pill warning-pill"}>{engine.soldAt ? (locale === "cs" ? "Prodáno" : "Sold") : ready ? t.ready : t.due}</span></td>
-                    {canManage && <td className="action-column"><button className="table-action" type="button" onClick={(event) => { event.stopPropagation(); onEdit(engine); }}>{t.edit}{role === "superadmin" ? " ···" : ""}</button></td>}
+                    {canManage && <td className="no-print action-column" onClick={(event) => event.stopPropagation()}><button className="table-action" type="button" onClick={() => onEdit(engine)}>{t.edit}{role === "superadmin" ? " ···" : ""}</button></td>}
                   </tr>
                 );
               })}</tbody>
             </table>
           </div>
         )}
+        {totalPages > 1 && <div className="carb-unit-pagination">
+          <button type="button" disabled={currentPage <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>‹ {locale === "cs" ? "Předchozí" : "Previous"}</button>
+          <span>{locale === "cs" ? `Strana ${currentPage} z ${totalPages}` : `Page ${currentPage} of ${totalPages}`}</span>
+          <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{locale === "cs" ? "Další" : "Next"} ›</button>
+        </div>}
       </section>
     </div>
   );
@@ -1326,10 +1415,11 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
   return (
     <div className={`engine-detail family-${familyTone}`} style={engine.labelColor ? { "--engine-accent": engine.labelColor } as React.CSSProperties : undefined}>
       <button className="back-button" type="button" onClick={onBack}>← {t.backToEngines}</button>
-      <section className="panel engine-detail-hero">
-        <div className="engine-identity">
+      <section className="dash-panel engine-detail-hero">
+        <div className="race-hero-title">
           <span className="engine-detail-mark">{engine.family}</span>
           <div>
+            <span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span>
             <div className="engine-title-line">{engine.labelColor && <i className="engine-label-swatch large" style={{ backgroundColor: engine.labelColor }} />}<h2>{engine.code}</h2><span className={`status-pill ${engine.status === "ready" ? "success" : "warning-pill"}`}>{engineStatusLabel(engine.status, locale)}</span></div>
             <p>TM Racing · {engine.family}{variant ? ` · ${variant}` : ""} · {ignitionLabel(engine.ignition, locale)}</p>
           </div>
@@ -1343,7 +1433,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
 
       {tab === "overview" && (
         <div className="engine-detail-grid">
-          <section className="panel detail-card detail-info-card">
+          <section className="dash-panel detail-card detail-info-card">
             <div className="panel-heading"><span>{t.engineInfo}</span></div>
             <div className="detail-field-grid">
               <DetailField label={t.code} value={engine.code} />
@@ -1355,21 +1445,21 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
             </div>
           </section>
 
-          <section className="panel detail-card usage-card">
+          <section className="dash-panel detail-card usage-card">
             <div className="panel-heading"><span>{t.currentUsage}</span></div>
             <div className="usage-number"><strong>{usesHours ? formatHours(engine.rodMinutes) : "—"}</strong><span>{usesHours ? (locale === "cs" ? "Ojnice / klika" : "Rod / crank") : t.byRaces}</span></div>
             <div className="usage-meter"><i style={{ width: `${Math.min(100, Math.round((engine.rodMinutes / 720) * 100))}%` }} /></div>
             <p>{usesHours ? `${locale === "cs" ? "Píst" : "Piston"}: ${formatHours(engine.pistonMinutes)} · ${locale === "cs" ? "Poslední Oppama" : "Last Oppama"}: ${formatHours(engine.lastOppamaMinutes)}` : (locale === "cs" ? "U tohoto typu sledujeme závody a kalendářní servis." : "This type is tracked by races and calendar service.")}</p>
           </section>
 
-          <section className="panel detail-card quick-card">
+          <section className="dash-panel detail-card quick-card">
             <div className="panel-heading"><span>{t.quickActions}</span></div>
             {canManage && <button type="button" onClick={() => setTechnicalOpen(true)}><span>⌁</span><span>{t.editTechnical}</span><b>›</b></button>}
             <button type="button" onClick={() => setServiceOpen(true)}><span>◇</span><span>{t.addServiceEntry}</span><b>›</b></button>
             {usesHours && <button type="button" onClick={() => setUsageOpen(true)}><span>◷</span><span>{t.logHours}</span><b>›</b></button>}
           </section>
 
-          <section className={`panel detail-card engine-current-assignment ${currentAssignment ? "assigned" : ""}`}>
+          <section className={`dash-panel detail-card engine-current-assignment ${currentAssignment ? "assigned" : ""}`}>
             <div className="panel-heading"><span>{locale === "cs" ? "Aktuální přiřazení" : "Current assignment"}</span>{currentAssignment && <b className="status-pill success">{locale === "cs" ? "Přiřazeno" : "Assigned"}</b>}</div>
             {currentAssignment ? (
               <div className="engine-assignment-summary">
@@ -1382,12 +1472,12 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
             )}
           </section>
 
-          <section className="panel detail-card notes-card">
+          <section className="dash-panel detail-card notes-card">
             <div className="panel-heading"><span>{t.notes}</span></div>
             <p>{engine.notes || (locale === "cs" ? "K motoru zatím není uložená poznámka." : "No note has been saved for this engine yet.")}</p>
           </section>
 
-          <section className="panel detail-card technical-preview">
+          <section className="dash-panel detail-card technical-preview">
             <div className="panel-heading"><span>{t.technicalTab}</span>{canManage && <button type="button" onClick={() => setTechnicalOpen(true)}>{t.edit}</button>}</div>
             <div className="detail-field-grid compact">
               <DetailField label={locale === "cs" ? "Píst" : "Piston"} value={engine.pistonSpec || noValue} />
@@ -1402,7 +1492,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       )}
 
       {tab === "technical" && (
-        <section className="panel tab-panel">
+        <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">ENGINE CARD</span><h2>{t.technicalTab}</h2><p>{locale === "cs" ? "Digitální přepis údajů z fyzické karty motoru." : "Digital copy of the physical engine card."}</p></div>{canManage && <button className="primary-button" type="button" onClick={() => setTechnicalOpen(true)}>✎ {t.editTechnical}</button>}</div>
           <div className="technical-section-grid">
             <div className="technical-group"><h3>{locale === "cs" ? "Motor a píst" : "Engine and piston"}</h3><DetailField label={t.upgrade} value={engine.upgradeCode || noValue} /><DetailField label={locale === "cs" ? "Píst / rozměr / úhel" : "Piston / size / angle"} value={engine.pistonSpec || noValue} /><DetailField label={t.ignition} value={ignitionLabel(engine.ignition, locale)} /></div>
@@ -1413,7 +1503,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       )}
 
       {tab === "service" && (
-        <section className="panel tab-panel">
+        <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">SERVICE CARD</span><h2>{t.serviceCard}</h2><p>{locale === "cs" ? "Servisní záznamy, vyměněné díly a automatické resetování počítadel." : "Service entries, replaced parts and automatic counter resets."}</p></div><button className="primary-button" type="button" onClick={() => setServiceOpen(true)}>＋ {t.addServiceEntry}</button></div>
           <div className="service-checklist">
             {serviceParts.map((part) => {
@@ -1428,7 +1518,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       )}
 
       {tab === "hours" && (
-        <section className="panel tab-panel">
+        <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">OPPAMA</span><h2>{t.usageTab}</h2><p>{usesHours ? (locale === "cs" ? "Zápis po skončení závodu ve formátu HH:MM." : "Logged after each race in HH:MM format.") : (locale === "cs" ? "MINI a OKJ neevidují motohodiny." : "MINI and OKJ do not track running hours.")}</p></div>{usesHours && <div className="tab-actions">{isSuperadmin && <button className="secondary-compact" type="button" onClick={() => setBaselineOpen(true)}>⌁ {locale === "cs" ? "Vstupní stav" : "Starting state"}</button>}<button className="primary-button" type="button" onClick={() => setUsageOpen(true)}>＋ {t.logHours}</button></div>}</div>
           <div className="hours-summary"><div><span>{locale === "cs" ? "Poslední Oppama" : "Last Oppama"}</span><strong>{usesHours ? formatHours(engine.lastOppamaMinutes) : "—"}</strong></div><div><span>{locale === "cs" ? "Píst od výměny" : "Piston since replacement"}</span><strong>{usesHours ? formatHours(engine.pistonMinutes) : "—"}</strong><small>{engine.currentPistonSize ? `${locale === "cs" ? "Rozměr" : "Size"}: ${engine.currentPistonSize}` : ""}</small></div><div><span>{locale === "cs" ? "Ojnice / klika" : "Rod / crank"}</span><strong>{usesHours ? formatHours(engine.rodMinutes) : "—"}</strong></div></div>
           {recordProblem()}
@@ -1438,16 +1528,16 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       )}
 
       {tab === "history" && (
-        <section className="panel tab-panel">
+        <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">RACE HISTORY</span><h2>{t.historyTab}</h2><p>{locale === "cs" ? "Závody, piloti a spárované karburátory zůstávají trvale v kartě motoru." : "Races, drivers and paired carburetors remain permanently in the engine card."}</p></div></div>
-          {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez závodu" : "No races yet"}</strong><p>{locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."}</p></div>}
+          {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table zebra"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez závodu" : "No races yet"}</strong><p>{locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."}</p></div>}
           <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">AUDIT</span><h3>{locale === "cs" ? "Změny karty" : "Card changes"}</h3></div></div>
           <div className="history-list"><div><i /><span><strong>{locale === "cs" ? "Motor založen v systému" : "Engine created in the system"}</strong><small>{formatTimestamp(engine.createdAt, locale)}</small></span></div>{engine.updatedAt !== engine.createdAt && <div><i /><span><strong>{locale === "cs" ? "Poslední změna údajů" : "Latest data update"}</strong><small>{formatTimestamp(engine.updatedAt, locale)}</small></span></div>}</div>
         </section>
       )}
 
       {tab === "documents" && (
-        <section className="panel tab-panel">
+        <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">FILES</span><h2>{t.documentsTab}</h2><p>{locale === "cs" ? "Karta motoru, fotografie, protokoly a další dokumenty." : "Engine card, photos, reports and other documents."}</p></div></div>
           <div className="empty-inline"><strong>{locale === "cs" ? "Zatím žádné dokumenty" : "No documents yet"}</strong><p>{locale === "cs" ? "Nahrávání fotografií a PDF zapojíme později přes bezpečné úložiště." : "Photo and PDF uploads will be connected to secure storage later."}</p></div>
         </section>
@@ -1641,7 +1731,7 @@ function ServiceHistoryTable({ records, locale, canCorrect, onEdit, onDelete }: 
   return (
     <div className="records-table-wrap">
       <div className="records-title"><h3>{locale === "cs" ? "Historie servisu" : "Service history"}</h3>{canCorrect && <small>{locale === "cs" ? "Opravy jsou dostupné pouze superadminovi." : "Corrections are limited to superadmin."}</small>}</div>
-      <div className="table-wrap"><table className="records-table"><thead><tr><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Vyměněno" : "Replaced"}</th><th>{locale === "cs" ? "Stav před servisem" : "Before service"}</th><th>{locale === "cs" ? "Zapsal" : "Recorded by"}</th>{canCorrect && <th>{locale === "cs" ? "Oprava" : "Correction"}</th>}</tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{formatDisplayDate(record.serviceDate, locale)}</strong></td><td>{serviceTypeLabel(record.serviceType, locale)}</td><td>{record.replacedParts.length ? record.replacedParts.map((part) => partLabel(part, locale)).join(", ") : (locale === "cs" ? "Pouze kontrola" : "Inspection only")}{record.pistonSize ? <small className="cell-note">{locale === "cs" ? "Píst" : "Piston"}: {record.pistonSize}</small> : null}</td><td><small>{locale === "cs" ? "Píst" : "Piston"}: {formatHours(record.pistonMinutesBefore)}</small><small className="cell-note">{locale === "cs" ? "Ojnice" : "Rod"}: {formatHours(record.rodMinutesBefore)}</small></td><td>{record.createdBy}</td>{canCorrect && <td><div className="record-actions"><button type="button" onClick={() => onEdit(record)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => onDelete(record.id)}>{locale === "cs" ? "Smazat" : "Delete"}</button></div></td>}</tr>)}</tbody></table></div>
+      <div className="table-wrap"><table className="records-table zebra"><thead><tr><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Vyměněno" : "Replaced"}</th><th>{locale === "cs" ? "Stav před servisem" : "Before service"}</th><th>{locale === "cs" ? "Zapsal" : "Recorded by"}</th>{canCorrect && <th>{locale === "cs" ? "Oprava" : "Correction"}</th>}</tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{formatDisplayDate(record.serviceDate, locale)}</strong></td><td>{serviceTypeLabel(record.serviceType, locale)}</td><td>{record.replacedParts.length ? record.replacedParts.map((part) => partLabel(part, locale)).join(", ") : (locale === "cs" ? "Pouze kontrola" : "Inspection only")}{record.pistonSize ? <small className="cell-note">{locale === "cs" ? "Píst" : "Piston"}: {record.pistonSize}</small> : null}</td><td><small>{locale === "cs" ? "Píst" : "Piston"}: {formatHours(record.pistonMinutesBefore)}</small><small className="cell-note">{locale === "cs" ? "Ojnice" : "Rod"}: {formatHours(record.rodMinutesBefore)}</small></td><td>{record.createdBy}</td>{canCorrect && <td><div className="record-actions"><button type="button" onClick={() => onEdit(record)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => onDelete(record.id)}>{locale === "cs" ? "Smazat" : "Delete"}</button></div></td>}</tr>)}</tbody></table></div>
     </div>
   );
 }
@@ -1650,7 +1740,7 @@ function UsageHistoryTable({ records, locale, canCorrect, onEdit, onDelete }: { 
   return (
     <div className="records-table-wrap">
       <div className="records-title"><h3>{locale === "cs" ? "Historie Oppama" : "Oppama history"}</h3>{canCorrect && <small>{locale === "cs" ? "Opravy jsou dostupné pouze superadminovi." : "Corrections are limited to superadmin."}</small>}</div>
-      <div className="table-wrap"><table className="records-table"><thead><tr><th>{locale === "cs" ? "Datum" : "Date"}</th><th>Oppama</th><th>{locale === "cs" ? "Závod / akce" : "Race / event"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Poznámka" : "Notes"}</th>{canCorrect && <th>{locale === "cs" ? "Oprava" : "Correction"}</th>}</tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{formatDisplayDate(record.entryDate, locale)}</strong></td><td><strong>{formatHours(record.oppamaMinutes)}</strong></td><td>{record.raceName || "—"}</td><td>{record.driverName || "—"}</td><td>{record.notes || "—"}</td>{canCorrect && <td><div className="record-actions"><button type="button" onClick={() => onEdit(record)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => onDelete(record.id)}>{locale === "cs" ? "Smazat" : "Delete"}</button></div></td>}</tr>)}</tbody></table></div>
+      <div className="table-wrap"><table className="records-table zebra"><thead><tr><th>{locale === "cs" ? "Datum" : "Date"}</th><th>Oppama</th><th>{locale === "cs" ? "Závod / akce" : "Race / event"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Poznámka" : "Notes"}</th>{canCorrect && <th>{locale === "cs" ? "Oprava" : "Correction"}</th>}</tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{formatDisplayDate(record.entryDate, locale)}</strong></td><td><strong>{formatHours(record.oppamaMinutes)}</strong></td><td>{record.raceName || "—"}</td><td>{record.driverName || "—"}</td><td>{record.notes || "—"}</td>{canCorrect && <td><div className="record-actions"><button type="button" onClick={() => onEdit(record)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => onDelete(record.id)}>{locale === "cs" ? "Smazat" : "Delete"}</button></div></td>}</tr>)}</tbody></table></div>
     </div>
   );
 }
@@ -1833,7 +1923,7 @@ function activityDescription(item: ActivityRecord, locale: Locale) {
     remove_from_race: "Odebrání ze závodu", void: "Stornování", delete_logo: "Odstranění loga", delete_image: "Odstranění obrázku",
     upload_logo: "Nahrání loga", upload_image: "Nahrání obrázku", set_engine_baseline: "Nastavení výchozího stavu",
     log_usage: "Zápis motohodin", correct_usage: "Oprava motohodin", correct_service: "Oprava servisu",
-    update_technical: "Úprava technických údajů",
+    update_technical: "Úprava technických údajů", delete_service: "Odstranění servisu",
   };
   const entitiesCs: Record<string, string> = {
     task: "úkolu", race: "závodu", race_entry: "pilota v závodě", race_mechanic: "mechanika",
@@ -1849,7 +1939,7 @@ function activityDescription(item: ActivityRecord, locale: Locale) {
     assign: "Assigned", confirm: "Confirmed", unconfirm: "Unconfirmed", remove_from_race: "Removed from race", void: "Voided",
     upload_logo: "Uploaded logo for", upload_image: "Uploaded image for", delete_logo: "Removed logo from", delete_image: "Removed image from",
     set_engine_baseline: "Set baseline for", log_usage: "Logged usage for", correct_usage: "Corrected usage for",
-    correct_service: "Corrected service for", update_technical: "Updated technical data for",
+    correct_service: "Corrected service for", update_technical: "Updated technical data for", delete_service: "Removed service from",
   };
   const entitiesEn: Record<string, string> = {
     task: "task", race: "race", race_entry: "race driver", race_mechanic: "mechanic", race_vehicle: "vehicle",
@@ -1904,6 +1994,13 @@ function taskCountWord(count: number) {
   if (count === 1) return "úkol";
   if (count >= 2 && count <= 4) return "úkoly";
   return "úkolů";
+}
+
+function vehiclesNeedingServiceLabel(count: number, locale: Locale) {
+  if (locale === "en") return `${count} vehicle${count === 1 ? "" : "s"} need service`;
+  if (count === 1) return "1 auto potřebuje servis";
+  if (count >= 2 && count <= 4) return `${count} auta potřebují servis`;
+  return `${count} aut potřebuje servis`;
 }
 
 function openTaskLabel(count: number) {

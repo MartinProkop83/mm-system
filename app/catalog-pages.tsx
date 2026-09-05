@@ -6,6 +6,7 @@ import { countryFlag } from "./countries";
 import { CarburetorDetail } from "./carburetor-detail";
 import { MechanicDetail } from "./mechanic-detail";
 import { CompetitionHistoryDetail } from "./competition-history-detail";
+import { VehicleDetail } from "./vehicle-detail";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { raceCalendarColorDefinition } from "./race-calendar-colors";
 import { CalendarColorSelect } from "./calendar-color-select";
@@ -19,8 +20,8 @@ export type TeamRecord = { id: string; name: string; countryCode: string; notes:
 export type RaceTypeRecord = { id: string; name: string; notes: string; seriesOptions: string[]; calendarColor: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
 export type DriverRecord = { id: string; name: string; teamId: string | null; teamName: string; defaultCategory: string; raceNumber: string; nationality: string; isActive: boolean; notes: string; createdAt: number; updatedAt: number };
 export type MechanicRecord = { id: string; name: string; nextRace?: string; nextTrack?: string; nextCountryCode?: string; nextStartDate?: string; nextEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; raceCount?: number; createdAt: number; updatedAt: number };
-export type VehicleRecord = { id: string; name: string; licensePlate: string; notes: string; createdAt: number; updatedAt: number };
-export type CarburetorRecord = { id: string; code: string; carburetorTypeId?: string | null; category?: string; family: string; brand: string; model: string; status: string; notes: string; soldAt?: number | null; lastDriver?: string; lastRace?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
+export type VehicleRecord = { id: string; name: string; licensePlate: string; notes: string; photoUrl?: string; currentKm?: number | null; serviceIntervalKm?: number | null; lastServiceKm?: number | null; lastServiceNote?: string; lastServiceDate?: string; lastRace?: string; lastRaceLogoUrl?: string; lastRaceCountryCode?: string; lastRaceStartDate?: string; lastRaceEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
+export type CarburetorRecord = { id: string; code: string; carburetorTypeId?: string | null; category?: string; family: string; brand: string; model: string; status: string; notes: string; soldAt?: number | null; lastDriver?: string; lastRace?: string; lastRaceLogoUrl?: string; lastRaceCountryCode?: string; lastRaceStartDate?: string; lastRaceEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
 export type CarburetorTypeRecord = { id: string; brand: string; model: string; categories: string[]; notes: string; photoUrl: string; createdAt: number; updatedAt: number };
 
 export type CatalogData = {
@@ -49,7 +50,7 @@ const labels = {
   },
 } as const;
 
-export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale: Locale; role: Role }) {
+export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVehicleIdConsumed }: { kind: CatalogKind; locale: Locale; role: Role; initialVehicleId?: string | null; onInitialVehicleIdConsumed?: () => void }) {
   const l = labels[locale];
   const [data, setData] = useState<CatalogData>({ raceTypes: [], teams: [], drivers: [], mechanics: [], vehicles: [], carburetors: [] });
   const [loading, setLoading] = useState(true);
@@ -60,6 +61,7 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(null);
   const [selectedDriverId, setSelectedDriverId] = useState<string | null>(null);
   const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
+  const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [driverFilter, setDriverFilter] = useState<DriverFilter>("active");
   const [carbCategoryFilter, setCarbCategoryFilter] = useState<CarbUnitFilter>("all");
   const [carbStatusFilter, setCarbStatusFilter] = useState<CarbStatusFilter>("all");
@@ -88,10 +90,19 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
 
   useEffect(() => { void load(); }, []);
 
+  useEffect(() => {
+    if (initialVehicleId) {
+      setSelectedVehicleId(initialVehicleId);
+      onInitialVehicleIdConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialVehicleId]);
+
   const selectedCarburetor = kind === "carburetor" ? data.carburetors.find((item) => item.id === selectedCarburetorId) ?? null : null;
   const selectedMechanic = kind === "mechanic" ? data.mechanics.find((item) => item.id === selectedMechanicId) ?? null : null;
   const selectedDriver = kind === "driver" ? data.drivers.find((item) => item.id === selectedDriverId) ?? null : null;
   const selectedTeam = kind === "team" ? data.teams.find((item) => item.id === selectedTeamId) ?? null : null;
+  const selectedVehicle = kind === "vehicle" ? data.vehicles.find((item) => item.id === selectedVehicleId) ?? null : null;
 
   async function remove(item: CatalogItem) {
     if (role !== "superadmin") return;
@@ -109,10 +120,11 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
   if (selectedMechanic) return <><MechanicDetail mechanicId={selectedMechanic.id} locale={locale} role={role} onBack={() => setSelectedMechanicId(null)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} />{formOpen && <CatalogForm kind="mechanic" locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}</>;
   if (selectedDriver) return <><CompetitionHistoryDetail key={`${selectedDriver.id}-${selectedDriver.updatedAt}`} entityType="driver" entityId={selectedDriver.id} locale={locale} role={role} onBack={() => setSelectedDriverId(null)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} />{formOpen && <CatalogForm kind="driver" locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}</>;
   if (selectedTeam) return <><CompetitionHistoryDetail key={`${selectedTeam.id}-${selectedTeam.updatedAt}`} entityType="team" entityId={selectedTeam.id} locale={locale} role={role} onBack={() => setSelectedTeamId(null)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} />{formOpen && <CatalogForm kind="team" locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}</>;
+  if (selectedVehicle) return <><VehicleDetail vehicleId={selectedVehicle.id} locale={locale} role={role} onBack={() => setSelectedVehicleId(null)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} />{formOpen && <CatalogForm kind="vehicle" locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}</>;
 
   return (
     <div className="catalog-page">
-      <section className="panel catalog-summary">
+      <section className="dash-panel catalog-summary">
         <div><span className="eyebrow">MM DIRECTORY</span><h2>{l[kind][0]}</h2><p>{l.central}</p></div>
         <div className="catalog-summary-actions"><strong>{allItems.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {l.new} {l[kind][1].toLowerCase()}</button>}</div>
       </section>
@@ -120,11 +132,11 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
       {kind === "carburetor" && <CarburetorTypesSection locale={locale} role={role} items={data.carburetorTypes ?? []} carburetors={data.carburetors} onChanged={load} />}
       {kind === "carburetor" && <CarburetorFilterTiles locale={locale} items={allItems as CarburetorRecord[]} category={carbCategoryFilter} status={carbStatusFilter} onCategoryChange={setCarbCategoryFilter} onStatusChange={setCarbStatusFilter} />}
       {kind === "carburetor" && <CarburetorResultsPanel locale={locale} role={role} items={allItems as CarburetorRecord[]} types={data.carburetorTypes ?? []} category={carbCategoryFilter} status={carbStatusFilter} onOpen={(item) => setSelectedCarburetorId(item.id)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
-      {kind !== "carburetor" && <section className="panel data-panel catalog-table-panel">
+      {kind !== "carburetor" && <section className="dash-panel data-panel catalog-table-panel">
         {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
         {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
         {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{l.empty}</h2><p>{l.history}</p></div>}
-        {!loading && !error && items.length > 0 && <CatalogTable kind={kind} locale={locale} items={items} role={role} onOpen={(item) => { if (kind === "mechanic") setSelectedMechanicId((item as MechanicRecord).id); if (kind === "driver") setSelectedDriverId((item as DriverRecord).id); if (kind === "team") setSelectedTeamId((item as TeamRecord).id); }} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
+        {!loading && !error && items.length > 0 && <CatalogTable kind={kind} locale={locale} items={items} role={role} onOpen={(item) => { if (kind === "mechanic") setSelectedMechanicId((item as MechanicRecord).id); if (kind === "driver") setSelectedDriverId((item as DriverRecord).id); if (kind === "team") setSelectedTeamId((item as TeamRecord).id); if (kind === "vehicle") setSelectedVehicleId((item as VehicleRecord).id); }} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
       </section>}
       {formOpen && <CatalogForm kind={kind} locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}
     </div>
@@ -133,7 +145,7 @@ export function CatalogPage({ kind, locale, role }: { kind: CatalogKind; locale:
 
 function CatalogTable({ kind, locale, items, role, onOpen, onEdit, onDelete }: { kind: CatalogKind; locale: Locale; items: CatalogItem[]; role: Role; onOpen: (item: CatalogItem) => void; onEdit: (item: CatalogItem) => void; onDelete: (item: CatalogItem) => void }) {
   const l = labels[locale];
-  return <div className="table-wrap"><table className="engine-table catalog-table"><thead><tr>{headers(kind, locale).map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{l.actions}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id} className={`${["carburetor", "mechanic", "driver", "team"].includes(kind) ? "clickable-row" : ""}${kind === "driver" && !(item as DriverRecord).isActive ? " inactive-record" : ""}`} onClick={() => onOpen(item)}>{cells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td onClick={(event) => event.stopPropagation()}><div className="record-actions">{(kind === "driver" || kind === "team") && <button className="card-action" type="button" onClick={() => onOpen(item)}>{locale === "cs" ? "Karta" : "Card"}</button>}<button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="results zebra catalog-table"><thead><tr>{headers(kind, locale).map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{l.actions}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id} className={`${["carburetor", "mechanic", "driver", "team", "vehicle"].includes(kind) ? "clickable-row" : ""}${kind === "driver" && !(item as DriverRecord).isActive ? " inactive-record" : ""}`} onClick={() => onOpen(item)}>{cells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td onClick={(event) => event.stopPropagation()}><div className="record-actions">{(kind === "driver" || kind === "team") && <button className="card-action" type="button" onClick={() => onOpen(item)}>{locale === "cs" ? "Karta" : "Card"}</button>}<button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}</tr>)}</tbody></table></div>;
 }
 
 function DriverCategoryTiles({ locale, items, selected, onSelect }: { locale: Locale; items: DriverRecord[]; selected: DriverFilter; onSelect: (filter: DriverFilter) => void }) {
@@ -182,8 +194,8 @@ function CatalogForm({ kind, locale, item, teams, carburetorTypes, onClose, onSa
       const response = await fetch("/api/catalog", { method: editing ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: kind, id: item?.id }) });
       const result = (await response.json()) as { id?: string; error?: string };
       if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
-      const logoEndpoint = kind === "raceType" ? "/api/race-template-logo" : kind === "team" ? "/api/team-logo" : null;
-      const logoIdField = kind === "raceType" ? "templateId" : "teamId";
+      const logoEndpoint = kind === "raceType" ? "/api/race-template-logo" : kind === "team" ? "/api/team-logo" : kind === "vehicle" ? "/api/vehicle-photo" : null;
+      const logoIdField = kind === "raceType" ? "templateId" : kind === "vehicle" ? "vehicleId" : "teamId";
       if (logoEndpoint && logo instanceof File && logo.size > 0) {
         const upload = new FormData();
         upload.set(logoIdField, result.id);
@@ -226,7 +238,7 @@ function CatalogFields({ kind, locale, item, teams, carburetorTypes }: { kind: C
   }
   if (kind === "vehicle") {
     const vehicle = item as VehicleRecord | null;
-    return <><label><span>{locale === "cs" ? "Název auta" : "Car name"} *</span><input name="name" defaultValue={vehicle?.name ?? ""} placeholder="MM Transporter" required autoFocus maxLength={120} /></label><label><span>SPZ</span><input name="licensePlate" defaultValue={vehicle?.licensePlate ?? ""} maxLength={20} /></label><Notes value={vehicle?.notes} label={l.notes} /></>;
+    return <VehicleFields vehicle={vehicle} locale={locale} notesLabel={l.notes} />;
   }
   return <CarburetorFields carb={item as CarburetorRecord | null} types={carburetorTypes} locale={locale} />;
 }
@@ -259,6 +271,23 @@ function TeamFields({ team, locale, notesLabel }: { team: TeamRecord | null; loc
       <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Nový obrázek nahradí původní logo." : "PNG, JPG or WebP, up to 5 MB. A new image replaces the current logo."}</small>
     </label>
     <Notes value={team?.notes} label={notesLabel} />
+  </>;
+}
+
+function VehicleFields({ vehicle, locale, notesLabel }: { vehicle: VehicleRecord | null; locale: Locale; notesLabel: string }) {
+  const [removeLogo, setRemoveLogo] = useState(false);
+  return <>
+    <label><span>{locale === "cs" ? "Název auta" : "Car name"} *</span><input name="name" defaultValue={vehicle?.name ?? ""} placeholder="MM Transporter" required autoFocus maxLength={120} /></label>
+    <label><span>SPZ</span><input name="licensePlate" defaultValue={vehicle?.licensePlate ?? ""} maxLength={20} /></label>
+    <label><span>{locale === "cs" ? "Aktuální stav (km)" : "Current mileage (km)"}</span><input name="currentKm" type="number" min={0} step={1} defaultValue={vehicle?.currentKm ?? ""} /></label>
+    <label><span>{locale === "cs" ? "Servisní interval (km)" : "Service interval (km)"}</span><input name="serviceIntervalKm" type="number" min={0} step={1} defaultValue={vehicle?.serviceIntervalKm ?? ""} placeholder="15000" /><small className="field-help">{locale === "cs" ? "Poslední servis se zapisuje přes tlačítko Přidat servis na kartě auta." : "Log the last service via the Add service button on the vehicle card."}</small></label>
+    <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Fotka auta" : "Vehicle photo"}</span>
+      {vehicle?.photoUrl && !removeLogo && <div className="race-logo-preview"><RaceLogoBadge logoUrl={vehicle.photoUrl} name={vehicle.name} size="large" /><div><strong>{locale === "cs" ? "Aktuální fotka" : "Current photo"}</strong><button type="button" onClick={() => setRemoveLogo(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
+      {removeLogo && <input type="hidden" name="removeLogo" value="1" />}
+      <input name="logo" type="file" accept="image/png,image/jpeg,image/webp" />
+      <small>{locale === "cs" ? "PNG, JPG nebo WebP, maximálně 5 MB. Nepovinné — pomůže auto rychle poznat." : "PNG, JPG or WebP, up to 5 MB. Optional — helps recognize the car at a glance."}</small>
+    </label>
+    <Notes value={vehicle?.notes} label={notesLabel} />
   </>;
 }
 
@@ -406,7 +435,7 @@ function CarburetorResultsPanel({ locale, role, items, types, category, status, 
   return <section className="dash-panel data-panel latest-carb-panel">
     <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM CARBURETOR CARD</span><h2>{locale === "cs" ? "Seznam karburátorů" : "Carburetor list"}</h2></div></header>
     {pageItems.length === 0 ? <p className="category-empty">{locale === "cs" ? "Žádný karburátor neodpovídá filtru." : "No carburetor matches the filter."}</p> : <div className="table-wrap"><table className="results zebra latest-carb-table">
-      <thead><tr><th className="num-col">#</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th><th>{locale === "cs" ? "Přidáno" : "Added"}</th>{role !== "mechanic" && <th className="no-print">{l.actions}</th>}</tr></thead>
+      <thead><tr><th className="num-col">#</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Poslední závod / pilot" : "Last race / driver"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th><th>{locale === "cs" ? "Přidáno" : "Added"}</th>{role !== "mechanic" && <th className="no-print">{l.actions}</th>}</tr></thead>
       <tbody>{pageItems.map((item, index) => {
         const type = types.find((candidate) => candidate.id === item.carburetorTypeId);
         const familyLower = carbUnitFamily(item.family).toLowerCase();
@@ -415,6 +444,7 @@ function CarburetorResultsPanel({ locale, role, items, types, category, status, 
           <td><div className="latest-carb-identity"><RaceLogoBadge logoUrl={type?.photoUrl} name={`${item.brand} ${item.model}`} fallback="⌁" size="small" /><strong>{item.code}</strong></div></td>
           <td>{[item.brand, item.model].filter(Boolean).join(" · ") || "—"}</td>
           <td><span className={`carb-category-badge tone-${familyLower}`}>{item.category || item.family}</span></td>
+          <td>{item.lastDriver ? <div className="carb-assignment-cell-with-logo"><RaceLogoBadge logoUrl={item.lastRaceLogoUrl} name={item.lastRace || ""} fallback={item.lastRaceCountryCode ? countryFlag(item.lastRaceCountryCode) : "⌁"} size="small" /><span className="carb-assignment-cell"><strong>{item.lastDriver}</strong><small>{[item.lastRaceCountryCode ? `${countryFlag(item.lastRaceCountryCode)} ${item.lastRace}` : item.lastRace, mechanicDateRange(item.lastRaceStartDate, item.lastRaceEndDate, locale)].filter(Boolean).join(" · ") || "—"}</small>{item.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span></div> : "—"}</td>
           <td>{item.soldAt ? <span className="status-pill neutral">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${item.status === "ready" ? "success" : "warning-pill"}`}>{statusLabel(item.status, locale)}</span>}</td>
           <td>{formatAddedDate(item.createdAt, locale)}</td>
           {role !== "mechanic" && <td className="no-print" onClick={(event) => event.stopPropagation()}><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}
@@ -459,7 +489,7 @@ function headers(kind: CatalogKind, locale: Locale) {
   if (kind === "team") return ["Logo", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Země" : "Country", locale === "cs" ? "Poznámka" : "Notes"];
   if (kind === "driver") return [locale === "cs" ? "Pilot" : "Driver", locale === "cs" ? "Tým" : "Team", locale === "cs" ? "Kategorie" : "Category", "#", locale === "cs" ? "Národnost" : "Nationality", locale === "cs" ? "Stav" : "Status"];
   if (kind === "mechanic") return [locale === "cs" ? "Mechanik" : "Mechanic", locale === "cs" ? "Nejbližší závod / evidence" : "Next race / history"];
-  if (kind === "vehicle") return [locale === "cs" ? "Auto" : "Car", "SPZ", locale === "cs" ? "Poznámka" : "Notes"];
+  if (kind === "vehicle") return ["Foto", locale === "cs" ? "Auto" : "Car", "SPZ", locale === "cs" ? "Nájezd" : "Mileage", locale === "cs" ? "Stav" : "Status", locale === "cs" ? "Poslední závod" : "Last race", locale === "cs" ? "Poznámka" : "Notes"];
   return [locale === "cs" ? "Kód" : "Code", locale === "cs" ? "Kategorie" : "Category", locale === "cs" ? "Značka / model" : "Brand / model", locale === "cs" ? "Stav" : "Status", locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"];
 }
 
@@ -468,7 +498,7 @@ function cells(kind: CatalogKind, item: CatalogItem, locale: Locale): React.Reac
   if (kind === "team") { const value = item as TeamRecord; return [<RaceLogoBadge key="logo" logoUrl={value.logoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.countryCode ? `${countryFlag(value.countryCode)} ${value.countryCode}` : "—", value.notes || "—"]; }
   if (kind === "driver") { const value = item as DriverRecord; return [<strong key="name">{value.name}</strong>, value.teamName || "—", value.defaultCategory || "—", value.raceNumber || "—", value.nationality ? `${countryFlag(value.nationality)} ${value.nationality}` : "—", <span className={`status-pill ${value.isActive ? "success" : "neutral"}`} key="status">{value.isActive ? (locale === "cs" ? "Aktivní" : "Active") : (locale === "cs" ? "Neaktivní" : "Inactive")}</span>]; }
   if (kind === "mechanic") { const value = item as MechanicRecord; return [<strong key="name">{value.name}</strong>, value.nextRace ? <span className="mechanic-race-cell" key="race"><strong>{value.nextCountryCode ? countryFlag(value.nextCountryCode) : ""} {value.nextRace}</strong><small>{[value.nextTrack, mechanicDateRange(value.nextStartDate, value.nextEndDate, locale)].filter(Boolean).join(" · ")}</small>{value.assignmentStatus === "assigned" ? <em>{locale === "cs" ? "Přiřazen" : "Assigned"}</em> : <em className="history">{locale === "cs" ? `Naposledy · ${value.raceCount ?? 0}×` : `Last · ${value.raceCount ?? 0}×`}</em>}</span> : <span className="mechanic-empty-cell" key="empty">{locale === "cs" ? "Bez plánovaného závodu" : "No upcoming race"}</span>]; }
-  if (kind === "vehicle") { const value = item as VehicleRecord; return [<strong key="name">{value.name}</strong>, value.licensePlate || "—", value.notes || "—"]; }
+  if (kind === "vehicle") { const value = item as VehicleRecord; return [<RaceLogoBadge key="logo" logoUrl={value.photoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.licensePlate || "—", value.currentKm != null ? `${value.currentKm.toLocaleString(locale === "cs" ? "cs-CZ" : "en-GB")} km` : "—", vehicleStatusPill(value, locale), vehicleLastRaceCell(value, locale), value.notes || "—"]; }
   const value = item as CarburetorRecord;
   return [<strong key="code">{value.code}</strong>, value.category || value.family, [value.brand, value.model].filter(Boolean).join(" · ") || "—", value.soldAt ? <span className="status-pill neutral" key="status">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${value.status === "ready" ? "success" : "warning-pill"}`} key="status">{value.status === "ready" ? (locale === "cs" ? "Připraveno" : "Ready") : value.status}</span>, value.lastDriver ? <span className="carb-assignment-cell" key="driver"><strong>{value.lastDriver}</strong><small>{value.lastRace || "—"}</small>{value.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"];
 }
@@ -478,6 +508,31 @@ function mechanicDateRange(start: string | undefined, end: string | undefined, l
   const formatter = new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { day: "numeric", month: "short", year: "numeric" });
   const parse = (value: string) => { const [year, month, day] = value.split("-").map(Number); return new Date(year, month - 1, day); };
   return start === end ? formatter.format(parse(start)) : `${formatter.format(parse(start))} – ${formatter.format(parse(end))}`;
+}
+
+export const VEHICLE_SERVICE_WARNING_KM = 1000;
+
+export function vehicleServiceStatus(vehicle: Pick<VehicleRecord, "currentKm" | "serviceIntervalKm" | "lastServiceKm">): "ok" | "soon" | "due" | "unknown" {
+  const { currentKm, serviceIntervalKm } = vehicle;
+  if (currentKm == null || !serviceIntervalKm) return "unknown";
+  const lastServiceKm = vehicle.lastServiceKm ?? 0;
+  const remaining = serviceIntervalKm - (currentKm - lastServiceKm);
+  if (remaining <= 0) return "due";
+  if (remaining <= VEHICLE_SERVICE_WARNING_KM) return "soon";
+  return "ok";
+}
+
+function vehicleStatusPill(value: VehicleRecord, locale: Locale) {
+  const status = vehicleServiceStatus(value);
+  if (status === "unknown") return <span className="status-pill neutral" key="status">{locale === "cs" ? "Bez sledování" : "Not tracked"}</span>;
+  if (status === "due") return <span className="status-pill danger" key="status">{locale === "cs" ? "Servis potřeba" : "Service due"}</span>;
+  if (status === "soon") return <span className="status-pill warning-pill" key="status">{locale === "cs" ? "Brzy servis" : "Service soon"}</span>;
+  return <span className="status-pill success" key="status">{locale === "cs" ? "Připraveno" : "Ready"}</span>;
+}
+
+function vehicleLastRaceCell(value: VehicleRecord, locale: Locale) {
+  if (!value.lastRace) return "—";
+  return <div className="carb-assignment-cell-with-logo"><RaceLogoBadge logoUrl={value.lastRaceLogoUrl} name={value.lastRace} fallback={value.lastRaceCountryCode ? countryFlag(value.lastRaceCountryCode) : "⌁"} size="small" /><span className="carb-assignment-cell"><strong>{value.lastRaceCountryCode ? `${countryFlag(value.lastRaceCountryCode)} ${value.lastRace}` : value.lastRace}</strong><small>{mechanicDateRange(value.lastRaceStartDate, value.lastRaceEndDate, locale) || "—"}</small>{value.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span></div>;
 }
 
 function friendlyCatalogError(error: string, locale: Locale) {
@@ -495,6 +550,10 @@ function friendlyCatalogError(error: string, locale: Locale) {
     "Logo is larger than 5 MB": "Logo je větší než povolených 5 MB.",
     "Logo upload failed": "Logo se nepodařilo nahrát.",
     "Logo delete failed": "Logo se nepodařilo odstranit.",
+    "Select a photo file": "Vyber soubor s fotkou.",
+    "Photo must be PNG, JPG or WebP": "Fotka musí být ve formátu PNG, JPG nebo WebP.",
+    "Photo is larger than 5 MB": "Fotka je větší než povolených 5 MB.",
+    "Vehicle not found": "Auto už nebylo nalezeno.",
   };
   return map[error] ?? error;
 }
