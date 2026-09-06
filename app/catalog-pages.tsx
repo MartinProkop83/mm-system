@@ -67,7 +67,7 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
   const [carbStatusFilter, setCarbStatusFilter] = useState<CarbStatusFilter>("all");
   const allItems = useMemo(() => {
     const records = data[pluralKey(kind)] as CatalogItem[];
-    return kind === "carburetor" ? records.filter((item) => !(item as CarburetorRecord).soldAt) : records;
+    return kind === "carburetor" ? records.filter((item) => !isSold((item as CarburetorRecord).soldAt)) : records;
   }, [data, kind]);
   const items = useMemo(() => kind === "driver" ? data.drivers.filter((driver) => driverMatchesFilter(driver, driverFilter)) : allItems, [allItems, data.drivers, driverFilter, kind]);
   const canManage = role !== "mechanic";
@@ -128,6 +128,7 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
         <div><span className="eyebrow">MM DIRECTORY</span><h2>{l[kind][0]}</h2><p>{l.central}</p></div>
         <div className="catalog-summary-actions"><strong>{allItems.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {l.new} {l[kind][1].toLowerCase()}</button>}</div>
       </section>
+      {kind === "driver" && <DriverCategoryBoard locale={locale} items={data.drivers} onChanged={load} />}
       {kind === "driver" && <DriverCategoryTiles locale={locale} items={data.drivers} selected={driverFilter} onSelect={setDriverFilter} />}
       {kind === "carburetor" && <CarburetorTypesSection locale={locale} role={role} items={data.carburetorTypes ?? []} carburetors={data.carburetors} onChanged={load} />}
       {kind === "carburetor" && <CarburetorFilterTiles locale={locale} items={allItems as CarburetorRecord[]} category={carbCategoryFilter} status={carbStatusFilter} onCategoryChange={setCarbCategoryFilter} onStatusChange={setCarbStatusFilter} />}
@@ -148,6 +149,65 @@ function CatalogTable({ kind, locale, items, role, onOpen, onEdit, onDelete }: {
   return <div className="table-wrap"><table className="results zebra catalog-table"><thead><tr>{headers(kind, locale).map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{l.actions}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id} className={`${["carburetor", "mechanic", "driver", "team", "vehicle"].includes(kind) ? "clickable-row" : ""}${kind === "driver" && !(item as DriverRecord).isActive ? " inactive-record" : ""}`} onClick={() => onOpen(item)}>{cells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td onClick={(event) => event.stopPropagation()}><div className="record-actions">{(kind === "driver" || kind === "team") && <button className="card-action" type="button" onClick={() => onOpen(item)}>{locale === "cs" ? "Karta" : "Card"}</button>}<button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}</tr>)}</tbody></table></div>;
 }
 
+const NO_CATEGORY = "__none__";
+
+function DriverCategoryBoard({ locale, items, onChanged }: { locale: Locale; items: DriverRecord[]; onChanged: () => Promise<void> }) {
+  const [draggedId, setDraggedId] = useState<string | null>(null);
+  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const active = items.filter((driver) => driver.isActive);
+  const columns = [...categoryOrder, ...(active.some((driver) => !driver.defaultCategory) ? [NO_CATEGORY] : [])]
+    .filter((category) => active.some((driver) => (driver.defaultCategory || NO_CATEGORY) === category));
+
+  if (columns.length === 0) return null;
+
+  async function moveDriver(driver: DriverRecord, category: string) {
+    if ((driver.defaultCategory || NO_CATEGORY) === category) return;
+    setSaving(true);
+    try {
+      const response = await fetch("/api/catalog", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "driver", id: driver.id, name: driver.name, teamId: driver.teamId, defaultCategory: category === NO_CATEGORY ? "" : category, raceNumber: driver.raceNumber, nationality: driver.nationality, isActive: driver.isActive, notes: driver.notes }),
+      });
+      if (response.ok) await onChanged();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <section className="dash-panel driver-category-board">
+    <header><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM DRIVER CATEGORIES</span><h2>{locale === "cs" ? "Piloti podle kategorie" : "Drivers by category"}</h2><p>{locale === "cs" ? "Přetažením pilota mezi kategoriemi změníš jeho výchozí kategorii." : "Drag a driver between categories to change their default category."}</p></header>
+    <div className="driver-category-board-grid">{columns.map((category) => {
+      const drivers = active.filter((driver) => (driver.defaultCategory || NO_CATEGORY) === category);
+      return <div
+        className={`driver-category-column${dragOverColumn === category ? " drag-over" : ""}`}
+        key={category}
+        onDragOver={(event) => { event.preventDefault(); setDragOverColumn(category); }}
+        onDragLeave={() => setDragOverColumn((current) => (current === category ? null : current))}
+        onDrop={(event) => {
+          event.preventDefault();
+          setDragOverColumn(null);
+          const driver = active.find((item) => item.id === draggedId);
+          setDraggedId(null);
+          if (driver) void moveDriver(driver, category);
+        }}
+      >
+        <div className="driver-category-column-title"><strong>{category === NO_CATEGORY ? (locale === "cs" ? "Bez kategorie" : "No category") : category}</strong><span>{drivers.length}</span></div>
+        <div className="driver-category-chips">{drivers.map((driver) => <button
+          type="button"
+          className={`driver-chip${draggedId === driver.id ? " dragging" : ""}`}
+          key={driver.id}
+          draggable
+          disabled={saving}
+          onDragStart={() => setDraggedId(driver.id)}
+          onDragEnd={() => { setDraggedId(null); setDragOverColumn(null); }}
+        >{driver.nationality && <span>{countryFlag(driver.nationality)}</span>}{driver.name}</button>)}</div>
+      </div>;
+    })}</div>
+  </section>;
+}
+
 function DriverCategoryTiles({ locale, items, selected, onSelect }: { locale: Locale; items: DriverRecord[]; selected: DriverFilter; onSelect: (filter: DriverFilter) => void }) {
   const definitions: Array<{ id: DriverFilter; title: string; subtitle: string; tone: string }> = [
     { id: "active", title: locale === "cs" ? "Aktivní piloti" : "Active drivers", subtitle: locale === "cs" ? "Všechny kategorie" : "All categories", tone: "all" },
@@ -166,6 +226,10 @@ function driverMatchesFilter(driver: DriverRecord, filter: DriverFilter) {
   if (!driver.isActive) return false;
   if (filter === "active") return true;
   return driverCategoryFamily(driver.defaultCategory) === filter.toUpperCase();
+}
+
+function isSold(soldAt: number | null | undefined) {
+  return typeof soldAt === "number" && soldAt <= Date.now();
 }
 
 function driverCategoryFamily(category: string) {
@@ -341,7 +405,7 @@ function CarburetorTypesSection({ locale, role, items, carburetors, onChanged }:
   }
 
   return <section className="panel carb-type-library"><header><div><span className="eyebrow">MASTER DATA</span><h3>{locale === "cs" ? "Katalog typů karburátorů" : "Carburetor type catalog"}</h3><p>{locale === "cs" ? "Předdefinované značky, modely a kompatibilní závodní kategorie." : "Preset brands, models and compatible race categories."}</p></div>{canManage && <button className="secondary-compact" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {locale === "cs" ? "Přidat typ" : "Add type"}</button>}</header>{items.length === 0 ? <div className="carb-type-empty"><strong>{locale === "cs" ? "Zatím není vytvořený žádný typ" : "No types yet"}</strong><span>{locale === "cs" ? "Začni značkou, modelem a vyber jednu nebo více kategorií." : "Start with a brand, model and one or more categories."}</span></div> : <div className="carb-type-grid">{items.map((item) => {
-    const unitCount = carburetors.filter((carb) => carb.carburetorTypeId === item.id && !carb.soldAt).length;
+    const unitCount = carburetors.filter((carb) => carb.carburetorTypeId === item.id && !isSold(carb.soldAt)).length;
     return <article className={`carb-type-card tone-${normalizeCarbFamily(item.categories[0] ?? "").toLowerCase()}`} key={item.id}>
       <RaceLogoBadge logoUrl={item.photoUrl} name={`${item.brand} ${item.model}`} fallback="⌁" size="large" />
       <div className="carb-type-card-main">
@@ -464,7 +528,7 @@ function CarburetorResultsPanel({ locale, role, items, types, category, status, 
           <td>{[item.brand, item.model].filter(Boolean).join(" · ") || "—"}</td>
           <td><span className={`carb-category-badge tone-${familyLower}`}>{item.category || item.family}</span></td>
           <td>{item.lastDriver ? <div className="carb-assignment-cell-with-logo"><RaceLogoBadge logoUrl={item.lastRaceLogoUrl} name={item.lastRace || ""} fallback={item.lastRaceCountryCode ? countryFlag(item.lastRaceCountryCode) : "⌁"} size="small" /><span className="carb-assignment-cell"><strong>{item.lastDriver}</strong><small>{[item.lastRaceCountryCode ? `${countryFlag(item.lastRaceCountryCode)} ${item.lastRace}` : item.lastRace, mechanicDateRange(item.lastRaceStartDate, item.lastRaceEndDate, locale)].filter(Boolean).join(" · ") || "—"}</small>{item.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span></div> : "—"}</td>
-          <td>{item.soldAt ? <span className="status-pill neutral">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${item.status === "ready" ? "success" : "warning-pill"}`}>{statusLabel(item.status, locale)}</span>}</td>
+          <td>{isSold(item.soldAt) ? <span className="status-pill neutral">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${item.status === "ready" ? "success" : "warning-pill"}`}>{statusLabel(item.status, locale)}</span>}</td>
           <td>{formatAddedDate(item.createdAt, locale)}</td>
           {role !== "mechanic" && <td className="no-print" onClick={(event) => event.stopPropagation()}><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}
         </tr>;
@@ -519,7 +583,7 @@ function cells(kind: CatalogKind, item: CatalogItem, locale: Locale): React.Reac
   if (kind === "mechanic") { const value = item as MechanicRecord; return [<strong key="name">{value.name}</strong>, value.nextRace ? <span className="mechanic-race-cell" key="race"><strong>{value.nextCountryCode ? countryFlag(value.nextCountryCode) : ""} {value.nextRace}</strong><small>{[value.nextTrack, mechanicDateRange(value.nextStartDate, value.nextEndDate, locale)].filter(Boolean).join(" · ")}</small>{value.assignmentStatus === "assigned" ? <em>{locale === "cs" ? "Přiřazen" : "Assigned"}</em> : <em className="history">{locale === "cs" ? `Naposledy · ${value.raceCount ?? 0}×` : `Last · ${value.raceCount ?? 0}×`}</em>}</span> : <span className="mechanic-empty-cell" key="empty">{locale === "cs" ? "Bez plánovaného závodu" : "No upcoming race"}</span>]; }
   if (kind === "vehicle") { const value = item as VehicleRecord; return [<RaceLogoBadge key="logo" logoUrl={value.photoUrl} name={value.name} size="small" />, <strong key="name">{value.name}</strong>, value.licensePlate || "—", value.currentKm != null ? `${value.currentKm.toLocaleString(locale === "cs" ? "cs-CZ" : "en-GB")} km` : "—", vehicleStatusPill(value, locale), vehicleLastRaceCell(value, locale), value.notes || "—"]; }
   const value = item as CarburetorRecord;
-  return [<strong key="code">{value.code}</strong>, value.category || value.family, [value.brand, value.model].filter(Boolean).join(" · ") || "—", value.soldAt ? <span className="status-pill neutral" key="status">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${value.status === "ready" ? "success" : "warning-pill"}`} key="status">{value.status === "ready" ? (locale === "cs" ? "Připraveno" : "Ready") : value.status}</span>, value.lastDriver ? <span className="carb-assignment-cell" key="driver"><strong>{value.lastDriver}</strong><small>{value.lastRace || "—"}</small>{value.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"];
+  return [<strong key="code">{value.code}</strong>, value.category || value.family, [value.brand, value.model].filter(Boolean).join(" · ") || "—", isSold(value.soldAt) ? <span className="status-pill neutral" key="status">{locale === "cs" ? "Prodáno" : "Sold"}</span> : <span className={`status-pill ${value.status === "ready" ? "success" : "warning-pill"}`} key="status">{value.status === "ready" ? (locale === "cs" ? "Připraveno" : "Ready") : value.status}</span>, value.lastDriver ? <span className="carb-assignment-cell" key="driver"><strong>{value.lastDriver}</strong><small>{value.lastRace || "—"}</small>{value.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"];
 }
 
 function mechanicDateRange(start: string | undefined, end: string | undefined, locale: Locale) {

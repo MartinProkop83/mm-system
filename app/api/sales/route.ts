@@ -204,6 +204,7 @@ async function saveSale(payload: SalePayload, user: AppUser, editing: boolean) {
   }
 
   const totalCents = normalizedItems.reduce((sum, item) => sum + item.lineTotalCents, 0); const now = Date.now();
+  const soldAt = new Date(`${saleDate}T00:00:00`).getTime();
   let saleNumber = editing ? String(existingSale?.sale_number ?? "") : await nextSaleNumber(saleDate);
 
   function buildStatements() {
@@ -222,8 +223,8 @@ async function saveSale(payload: SalePayload, user: AppUser, editing: boolean) {
     }
     for (const item of normalizedItems) {
       statements.push(d1.prepare("INSERT INTO sale_items (id, sale_id, item_type, line_kind, resource_id, code_snapshot, description, description_en_snapshot, quantity, unit_price_cents, line_total_cents) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(crypto.randomUUID(), id, item.itemType === "service" ? "other" : item.itemType, item.itemType === "service" ? "service" : "", item.resourceId, item.code, item.description, item.descriptionEn, item.quantity, item.unitPriceCents, item.lineTotalCents));
-      if (item.itemType === "engine") statements.push(d1.prepare("UPDATE engines SET sold_at = ?, updated_at = ? WHERE id = ?").bind(now, now, item.resourceId));
-      else if (item.itemType === "carburetor") statements.push(d1.prepare("UPDATE carburetors SET sold_at = ?, updated_at = ? WHERE id = ?").bind(now, now, item.resourceId));
+      if (item.itemType === "engine") statements.push(d1.prepare("UPDATE engines SET sold_at = ?, updated_at = ? WHERE id = ?").bind(soldAt, now, item.resourceId));
+      else if (item.itemType === "carburetor") statements.push(d1.prepare("UPDATE carburetors SET sold_at = ?, updated_at = ? WHERE id = ?").bind(soldAt, now, item.resourceId));
       else if (item.itemType === "part") statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity - ?, updated_at = ? WHERE id = ?").bind(item.quantity, now, item.resourceId));
     }
     statements.push(d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, 'sale', ?, ?, ?)").bind(crypto.randomUUID(), user.email, editing ? "update" : "create", id, JSON.stringify({ saleNumber, saleDate, customerName: buyer.name, currency, totalCents }), now));

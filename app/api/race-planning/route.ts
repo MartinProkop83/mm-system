@@ -3,7 +3,7 @@ import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser, type AppUser } from "../../server-auth";
 
 const categories = new Set(["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"]);
-type PlanningKind = "entry" | "mechanic" | "vehicle" | "extra" | "confirmation";
+type PlanningKind = "entry" | "mechanic" | "vehicle" | "extra" | "confirmation" | "reorder" | "confirmAll";
 
 type RaceRow = {
   id: string;
@@ -29,6 +29,7 @@ type PlanningPayload = {
   resourceId?: string;
   notes?: string;
   isConfirmed?: boolean | number | string;
+  order?: string[];
 };
 
 function clean(value: unknown, max = 1000) {
@@ -63,7 +64,7 @@ export async function GET(request: Request) {
   if (!race) return Response.json({ error: "Race not found" }, { status: 404 });
   const d1 = getD1();
   const [entries, mechanics, vehicles, extras, equipmentAssignments] = await Promise.all([
-    d1.prepare(`SELECT id, category, driver_id AS driverId, driver_name_snapshot AS driverName, team_id AS teamId, team_name_snapshot AS teamName, engine_1_id AS engine1Id, engine_1_code AS engine1Code, engine_1_configuration AS engine1Configuration, engine_2_id AS engine2Id, engine_2_code AS engine2Code, engine_2_configuration AS engine2Configuration, engine_3_id AS engine3Id, engine_3_code AS engine3Code, engine_3_configuration AS engine3Configuration, carburetor_1_id AS carburetor1Id, carburetor_1_code AS carburetor1Code, carburetor_2_id AS carburetor2Id, carburetor_2_code AS carburetor2Code, carburetor_3_id AS carburetor3Id, carburetor_3_code AS carburetor3Code, is_confirmed AS isConfirmed, notes FROM race_entries WHERE race_id = ? ORDER BY category, driver_name_snapshot`).bind(raceId).all(),
+    d1.prepare(`SELECT id, category, driver_id AS driverId, driver_name_snapshot AS driverName, team_id AS teamId, team_name_snapshot AS teamName, engine_1_id AS engine1Id, engine_1_code AS engine1Code, engine_1_configuration AS engine1Configuration, engine_2_id AS engine2Id, engine_2_code AS engine2Code, engine_2_configuration AS engine2Configuration, engine_3_id AS engine3Id, engine_3_code AS engine3Code, engine_3_configuration AS engine3Configuration, carburetor_1_id AS carburetor1Id, carburetor_1_code AS carburetor1Code, carburetor_2_id AS carburetor2Id, carburetor_2_code AS carburetor2Code, carburetor_3_id AS carburetor3Id, carburetor_3_code AS carburetor3Code, is_confirmed AS isConfirmed, notes FROM race_entries WHERE race_id = ? ORDER BY sort_order, driver_name_snapshot`).bind(raceId).all(),
     d1.prepare("SELECT id, mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName, vehicle_id AS vehicleId FROM race_mechanics WHERE race_id = ? ORDER BY mechanic_name_snapshot").bind(raceId).all(),
     d1.prepare("SELECT id, vehicle_id AS vehicleId, vehicle_name_snapshot AS vehicleName, license_plate_snapshot AS licensePlate FROM race_vehicles WHERE race_id = ? ORDER BY vehicle_name_snapshot").bind(raceId).all(),
     d1.prepare("SELECT id, category, resource_type AS resourceType, resource_id AS resourceId, resource_code_snapshot AS resourceCode, notes FROM race_extras WHERE race_id = ? ORDER BY category, resource_type, resource_code_snapshot").bind(raceId).all(),
@@ -126,7 +127,8 @@ export async function PUT(request: Request) {
   if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
-  if (!["entry", "confirmation", "mechanic"].includes(payload.kind ?? "") || !payload.id) return Response.json({ error: "Entry id is required" }, { status: 400 });
+  const idlessKinds = new Set(["reorder", "confirmAll"]);
+  if (!["entry", "confirmation", "mechanic", "reorder", "confirmAll"].includes(payload.kind ?? "") || (!idlessKinds.has(payload.kind ?? "") && !payload.id)) return Response.json({ error: "Entry id is required" }, { status: 400 });
   await ensureRuntimeSchema();
   const race = await getRace(clean(payload.raceId));
   if (!race) return Response.json({ error: "Race not found" }, { status: 404 });
@@ -134,6 +136,8 @@ export async function PUT(request: Request) {
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
   if (payload.kind === "confirmation") return updateConfirmation(payload, race, user);
   if (payload.kind === "mechanic") return updateMechanicVehicle(payload, race, user);
+  if (payload.kind === "reorder") return updateReorder(payload, race);
+  if (payload.kind === "confirmAll") return confirmAllEntries(race, user);
   return saveEntry(payload, race, user, true);
 }
 
@@ -147,7 +151,7 @@ export async function DELETE(request: Request) {
   const writeError = await assertWritable(race, user);
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
   if (!payload.id || !payload.kind) return Response.json({ error: "Planning item is required" }, { status: 400 });
-  const table = ({ entry: "race_entries", mechanic: "race_mechanics", vehicle: "race_vehicles", extra: "race_extras" } as const)[payload.kind as Exclude<PlanningKind, "confirmation">];
+  const table = ({ entry: "race_entries", mechanic: "race_mechanics", vehicle: "race_vehicles", extra: "race_extras" } as const)[payload.kind as Exclude<PlanningKind, "confirmation" | "reorder" | "confirmAll">];
   if (!table) return Response.json({ error: "Invalid planning type" }, { status: 400 });
   const d1 = getD1();
   const existing = await d1.prepare(`SELECT * FROM ${table} WHERE id = ? AND race_id = ?`).bind(payload.id, race.id).first<Record<string, unknown>>();
@@ -184,7 +188,7 @@ async function saveEntry(payload: PlanningPayload, race: RaceRow, user: AppUser,
   if (driverConflict) return Response.json({ error: driverConflict }, { status: 409 });
   const engines = new Map<string, { id: string; code: string; currentConfiguration: string }>();
   for (const engineId of engineIds) {
-    const engine = await d1.prepare("SELECT id, code, family, current_configuration AS currentConfiguration FROM engines WHERE id = ? AND archived_at IS NULL AND sold_at IS NULL").bind(engineId).first<{ id: string; code: string; family: string; currentConfiguration: string }>();
+    const engine = await d1.prepare("SELECT id, code, family, current_configuration AS currentConfiguration FROM engines WHERE id = ? AND archived_at IS NULL AND (sold_at IS NULL OR sold_at > ?)").bind(engineId, Date.now()).first<{ id: string; code: string; family: string; currentConfiguration: string }>();
     if (!engine) return Response.json({ error: "Engine not found" }, { status: 404 });
     if (!engineMatchesCategory(engine.family, category)) return Response.json({ error: `${engine.code} is not compatible with ${category}` }, { status: 409 });
     const conflict = await findEquipmentConflict("engine", engine.id, race, existingId);
@@ -193,7 +197,7 @@ async function saveEntry(payload: PlanningPayload, race: RaceRow, user: AppUser,
   }
   const carburetors = new Map<string, { id: string; code: string }>();
   for (const carburetorId of carburetorIds) {
-    const carburetor = await d1.prepare("SELECT id, code, family FROM carburetors WHERE id = ? AND archived_at IS NULL AND sold_at IS NULL AND status != 'retired'").bind(carburetorId).first<{ id: string; code: string; family: string }>();
+    const carburetor = await d1.prepare("SELECT id, code, family FROM carburetors WHERE id = ? AND archived_at IS NULL AND (sold_at IS NULL OR sold_at > ?) AND status != 'retired'").bind(carburetorId, Date.now()).first<{ id: string; code: string; family: string }>();
     if (!carburetor) return Response.json({ error: "Carburetor not found" }, { status: 404 });
     if (!carburetorMatchesCategory(carburetor.family, category)) return Response.json({ error: `${carburetor.code} is not compatible with ${category}` }, { status: 409 });
     const conflict = await findEquipmentConflict("carburetor", carburetor.id, race, existingId);
@@ -203,6 +207,7 @@ async function saveEntry(payload: PlanningPayload, race: RaceRow, user: AppUser,
 
   const id = existingId || crypto.randomUUID();
   const now = Date.now();
+  const nextSortOrder = editing ? 0 : Number((await d1.prepare("SELECT COALESCE(MAX(sort_order), -1) + 1 AS value FROM race_entries WHERE race_id = ?").bind(race.id).first<{ value: number }>())?.value ?? 0);
   const notes = clean(payload.notes);
   const isConfirmed = payload.isConfirmed === undefined && existingEntry ? Boolean(existingEntry.isConfirmed) : parseBoolean(payload.isConfirmed);
   const values = {
@@ -215,12 +220,38 @@ async function saveEntry(payload: PlanningPayload, race: RaceRow, user: AppUser,
   };
   const statement = editing
     ? d1.prepare(`UPDATE race_entries SET category = ?, driver_id = ?, driver_name_snapshot = ?, team_id = ?, team_name_snapshot = ?, engine_1_id = ?, engine_1_code = ?, engine_1_configuration = ?, engine_2_id = ?, engine_2_code = ?, engine_2_configuration = ?, engine_3_id = ?, engine_3_code = ?, engine_3_configuration = ?, carburetor_1_id = ?, carburetor_1_code = ?, carburetor_2_id = ?, carburetor_2_code = ?, carburetor_3_id = ?, carburetor_3_code = ?, is_confirmed = ?, notes = ?, updated_at = ? WHERE id = ? AND race_id = ?`).bind(category, driver.id, driver.name, driver.teamId, driver.teamName, values.engine1?.id ?? null, values.engine1?.code ?? "", values.engine1?.currentConfiguration ?? "", values.engine2?.id ?? null, values.engine2?.code ?? "", values.engine2?.currentConfiguration ?? "", values.engine3?.id ?? null, values.engine3?.code ?? "", values.engine3?.currentConfiguration ?? "", values.carb1?.id ?? null, values.carb1?.code ?? "", values.carb2?.id ?? null, values.carb2?.code ?? "", values.carb3?.id ?? null, values.carb3?.code ?? "", isConfirmed ? 1 : 0, notes, now, id, race.id)
-    : d1.prepare(`INSERT INTO race_entries (id, race_id, category, driver_id, driver_name_snapshot, team_id, team_name_snapshot, engine_1_id, engine_1_code, engine_1_configuration, engine_2_id, engine_2_code, engine_2_configuration, engine_3_id, engine_3_code, engine_3_configuration, carburetor_1_id, carburetor_1_code, carburetor_2_id, carburetor_2_code, carburetor_3_id, carburetor_3_code, is_confirmed, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, race.id, category, driver.id, driver.name, driver.teamId, driver.teamName, values.engine1?.id ?? null, values.engine1?.code ?? "", values.engine1?.currentConfiguration ?? "", values.engine2?.id ?? null, values.engine2?.code ?? "", values.engine2?.currentConfiguration ?? "", values.engine3?.id ?? null, values.engine3?.code ?? "", values.engine3?.currentConfiguration ?? "", values.carb1?.id ?? null, values.carb1?.code ?? "", values.carb2?.id ?? null, values.carb2?.code ?? "", values.carb3?.id ?? null, values.carb3?.code ?? "", isConfirmed ? 1 : 0, notes, user.email, now, now);
+    : d1.prepare(`INSERT INTO race_entries (id, race_id, category, driver_id, driver_name_snapshot, team_id, team_name_snapshot, engine_1_id, engine_1_code, engine_1_configuration, engine_2_id, engine_2_code, engine_2_configuration, engine_3_id, engine_3_code, engine_3_configuration, carburetor_1_id, carburetor_1_code, carburetor_2_id, carburetor_2_code, carburetor_3_id, carburetor_3_code, is_confirmed, sort_order, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, race.id, category, driver.id, driver.name, driver.teamId, driver.teamName, values.engine1?.id ?? null, values.engine1?.code ?? "", values.engine1?.currentConfiguration ?? "", values.engine2?.id ?? null, values.engine2?.code ?? "", values.engine2?.currentConfiguration ?? "", values.engine3?.id ?? null, values.engine3?.code ?? "", values.engine3?.currentConfiguration ?? "", values.carb1?.id ?? null, values.carb1?.code ?? "", values.carb2?.id ?? null, values.carb2?.code ?? "", values.carb3?.id ?? null, values.carb3?.code ?? "", isConfirmed ? 1 : 0, nextSortOrder, notes, user.email, now, now);
   await d1.batch([
     statement,
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, 'race_entry', ?, ?, ?)").bind(crypto.randomUUID(), user.email, editing ? "update" : "create", id, JSON.stringify({ raceId: race.id, raceName: race.name, category, driverId, driverName: driver.name, engineIds, carburetorIds }), now),
   ]);
   return Response.json({ id }, { status: editing ? 200 : 201 });
+}
+
+async function updateReorder(payload: PlanningPayload, race: RaceRow) {
+  const order = Array.isArray(payload.order) ? payload.order.map((id) => clean(id, 80)).filter(Boolean) : [];
+  if (order.length === 0) return Response.json({ error: "Order is required" }, { status: 400 });
+  const d1 = getD1();
+  const existing = await d1.prepare("SELECT id FROM race_entries WHERE race_id = ?").bind(race.id).all<{ id: string }>();
+  const existingRows: Array<{ id: string }> = existing.results;
+  const existingIds = new Set(existingRows.map((row) => row.id));
+  if (order.length !== existingIds.size || !order.every((id) => existingIds.has(id))) return Response.json({ error: "Order must include every entry exactly once" }, { status: 400 });
+  const now = Date.now();
+  await d1.batch(order.map((id, index) => d1.prepare("UPDATE race_entries SET sort_order = ?, updated_at = ? WHERE id = ? AND race_id = ?").bind(index, now, id, race.id)));
+  return Response.json({ order });
+}
+
+async function confirmAllEntries(race: RaceRow, user: AppUser) {
+  const d1 = getD1();
+  const now = Date.now();
+  const unconfirmed = await d1.prepare("SELECT id FROM race_entries WHERE race_id = ? AND is_confirmed = 0").bind(race.id).all<{ id: string }>();
+  const unconfirmedRows: Array<{ id: string }> = unconfirmed.results;
+  if (unconfirmedRows.length === 0) return Response.json({ confirmed: 0 });
+  await d1.batch([
+    d1.prepare("UPDATE race_entries SET is_confirmed = 1, updated_at = ? WHERE race_id = ? AND is_confirmed = 0").bind(now, race.id),
+    d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'confirm_all', 'race_entry', ?, ?, ?)").bind(crypto.randomUUID(), user.email, race.id, JSON.stringify({ raceId: race.id, raceName: race.name, count: unconfirmedRows.length }), now),
+  ]);
+  return Response.json({ confirmed: unconfirmedRows.length });
 }
 
 async function updateConfirmation(payload: PlanningPayload, race: RaceRow, user: AppUser) {
@@ -313,7 +344,7 @@ async function addExtra(payload: PlanningPayload, race: RaceRow, user: AppUser) 
   const categoryExists = await d1.prepare("SELECT id FROM race_categories WHERE race_id = ? AND category = ?").bind(race.id, category).first();
   if (!categoryExists) return Response.json({ error: "Category is not enabled for this race" }, { status: 400 });
   const table = resourceType === "engine" ? "engines" : "carburetors";
-  const resource = await d1.prepare(`SELECT id, code, family FROM ${table} WHERE id = ? AND archived_at IS NULL AND sold_at IS NULL`).bind(resourceId).first<{ id: string; code: string; family: string }>();
+  const resource = await d1.prepare(`SELECT id, code, family FROM ${table} WHERE id = ? AND archived_at IS NULL AND (sold_at IS NULL OR sold_at > ?)`).bind(resourceId, Date.now()).first<{ id: string; code: string; family: string }>();
   if (!resource) return Response.json({ error: `${resourceType} not found` }, { status: 404 });
   const matches = resourceType === "engine" ? engineMatchesCategory(resource.family, category) : carburetorMatchesCategory(resource.family, category);
   if (!matches) return Response.json({ error: `${resource.code} is not compatible with ${category}` }, { status: 409 });

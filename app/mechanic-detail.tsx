@@ -30,6 +30,7 @@ type RaceAssignment = {
   organizer: string;
   raceStatus: "planned" | "active" | "completed";
   vehicles: string;
+  vehiclesAreSpecific: boolean;
   travel: MechanicTravel;
 };
 
@@ -97,7 +98,7 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
 
     <section className={`dash-panel mechanic-next-race ${current ? "assigned" : ""}`}>
       <div><span className="eyebrow">{locale === "cs" ? "NEJBLIŽŠÍ ZÁVOD" : "NEXT RACE"}</span>{current ? <div className="race-history-identity featured"><RaceLogoBadge logoUrl={current.logoUrl} name={current.raceName} fallback={countryFlag(current.countryCode)} /><span><h3>{current.raceName}</h3><p>{countryFlag(current.countryCode)} {current.track}{current.address ? ` · ${current.address}` : ""}</p></span></div> : <h3>{locale === "cs" ? "Žádný plánovaný závod" : "No upcoming race"}</h3>}</div>
-      {current && <div className="mechanic-next-facts"><span><small>{locale === "cs" ? "Závod" : "Race"}</small><strong>{dateRange(current.startDate, current.endDate, locale)}</strong></span><span><small>{locale === "cs" ? "Cesta" : "Travel"}</small><strong>{dateRange(current.departureDate, current.returnDate, locale)}</strong></span><span><small>{locale === "cs" ? "Auto" : "Car"}</small><strong>{formatVehicles(current.vehicles)}</strong></span><RaceStatus value={current.raceStatus} locale={locale} /></div>}
+      {current && <div className="mechanic-next-facts"><span><small>{locale === "cs" ? "Závod" : "Race"}</small><strong>{dateRange(current.startDate, current.endDate, locale)}</strong></span><span><small>{locale === "cs" ? "Cesta" : "Travel"}</small><strong>{dateRange(current.departureDate, current.returnDate, locale)}</strong></span><span><small>{locale === "cs" ? "Auto" : "Car"}</small><strong>{formatVehicles(current.vehicles)}{current.vehicles && !current.vehiclesAreSpecific && <small className="cell-note">{locale === "cs" ? "celá posádka" : "whole crew"}</small>}</strong></span><RaceStatus value={current.raceStatus} locale={locale} /></div>}
       {current && <MechanicRaceTravel assignment={current} locale={locale} compact />}
     </section>
 
@@ -120,7 +121,7 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
 }
 
 function MechanicHistoryRows({ item, locale }: { item: RaceAssignment; locale: Locale }) {
-  return <><tr><td><div className="race-history-identity"><RaceLogoBadge logoUrl={item.logoUrl} name={item.raceName} fallback={countryFlag(item.countryCode)} size="small" /><span><strong>{item.raceName}</strong><small>{item.organizer || "—"}</small></span></div></td><td><strong>{item.track}</strong><small>{item.address || item.countryCode}</small></td><td>{dateRange(item.startDate, item.endDate, locale)}</td><td>{dateRange(item.departureDate, item.returnDate, locale)}<small>{inclusiveDays(item.departureDate, item.returnDate)} {locale === "cs" ? "dní" : "days"}</small></td><td>{formatVehicles(item.vehicles)}</td><td><RaceStatus value={item.raceStatus} locale={locale} /></td></tr><tr className="mechanic-travel-table-row"><td colSpan={6}><MechanicRaceTravel assignment={item} locale={locale} /></td></tr></>;
+  return <><tr><td><div className="race-history-identity"><RaceLogoBadge logoUrl={item.logoUrl} name={item.raceName} fallback={countryFlag(item.countryCode)} size="small" /><span><strong>{item.raceName}</strong><small>{item.organizer || "—"}</small></span></div></td><td><strong>{item.track}</strong><small>{item.address || item.countryCode}</small></td><td>{dateRange(item.startDate, item.endDate, locale)}</td><td>{dateRange(item.departureDate, item.returnDate, locale)}<small>{inclusiveDays(item.departureDate, item.returnDate)} {locale === "cs" ? "dní" : "days"}</small></td><td>{formatVehicles(item.vehicles)}{item.vehicles && !item.vehiclesAreSpecific && <small className="cell-note">{locale === "cs" ? "celá posádka" : "whole crew"}</small>}</td><td><RaceStatus value={item.raceStatus} locale={locale} /></td></tr><tr className="mechanic-travel-table-row"><td colSpan={6}><MechanicRaceTravel assignment={item} locale={locale} /></td></tr></>;
 }
 
 function MechanicRaceTravel({ assignment, locale, compact = false }: { assignment: RaceAssignment; locale: Locale; compact?: boolean }) {

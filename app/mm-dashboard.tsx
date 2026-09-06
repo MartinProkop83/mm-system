@@ -442,6 +442,7 @@ export default function Home() {
   const [detailEngineId, setDetailEngineId] = useState<string | null>(null);
   const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
+  const [raceDetailOpen, setRaceDetailOpen] = useState(false);
   const [currentHour, setCurrentHour] = useState<number | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [devUsers, setDevUsers] = useState<DevUser[]>([]);
@@ -463,7 +464,7 @@ export default function Home() {
     return nav.filter((item) => item.id !== "settings" || session?.role === "superadmin").filter((item) => t[item.id].toLowerCase().includes(query)).slice(0, 8);
   }, [searchQuery, session?.role, t]);
   const enginesNeedingService = useMemo(
-    () => engineRows.filter((engine) => !engine.soldAt && engine.status !== "retired" && (engine.status === "service_soon" || engine.status === "service")),
+    () => engineRows.filter((engine) => !isSold(engine.soldAt) && engine.status !== "retired" && (engine.status === "service_soon" || engine.status === "service")),
     [engineRows],
   );
   const vehiclesNeedingService = useMemo(
@@ -736,7 +737,7 @@ export default function Home() {
           </div>
         </div>
 
-        <header className="topbar">
+        {!(view === "races" && raceDetailOpen) && <header className="topbar">
           <div>
             {view === "dashboard" && <div className="eyebrow"><span className="streak"><i /><i /><i /></span>{locale === "cs" ? `Sezóna ${new Date().getFullYear()}` : `Season ${new Date().getFullYear()}`}</div>}
             <h1>{view === "dashboard" ? timeGreeting(locale, session?.fullName ?? "Martin Prokop", currentHour ?? 8) : view === "engines" && detailEngine ? `${locale === "cs" ? "Motor" : "Engine"} ${detailEngine.code}` : title}</h1>
@@ -745,7 +746,7 @@ export default function Home() {
           <div className="topbar-actions">
             <button className="topbar-cta" type="button" onClick={() => setQuickServiceOpen(true)}>＋ {t.quick}</button>
           </div>
-        </header>
+        </header>}
         {quickServiceOpen && <QuickServiceForm locale={locale} onClose={() => setQuickServiceOpen(false)} onSaved={() => { setQuickServiceOpen(false); showNotice(locale === "cs" ? "Servis byl zapsán." : "Service logged."); }} />}
 
         {view === "dashboard" && <Dashboard
@@ -781,7 +782,7 @@ export default function Home() {
             showNotice={showNotice}
           />
         )}
-        {view === "races" && <RacePage locale={locale} role={session?.role ?? "mechanic"} openRaceId={requestedRaceId} />}
+        {view === "races" && <RacePage locale={locale} role={session?.role ?? "mechanic"} openRaceId={requestedRaceId} onDetailOpenChange={setRaceDetailOpen} />}
         {view === "calendar" && <CalendarPage locale={locale} onOpenRace={(raceId) => { setRequestedRaceId(raceId); setView("races"); setDetailEngineId(null); }} />}
         {view === "raceTypes" && <CatalogPage kind="raceType" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "circuits" && <CircuitsPage locale={locale} role={session?.role ?? "mechanic"} />}
@@ -909,6 +910,10 @@ function QuickServiceForm({ locale, onClose, onSaved }: { locale: Locale; onClos
   </div>;
 }
 
+function isSold(soldAt: number | null | undefined) {
+  return typeof soldAt === "number" && soldAt <= Date.now();
+}
+
 function profileInitials(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   return `${parts[0]?.[0] ?? "U"}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`.toUpperCase();
@@ -967,8 +972,8 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
   const raceGroup = nextRace ? upcoming.filter((race) => race.startDate <= nextRace.endDate && race.endDate >= nextRace.startDate) : [];
   const seasonOrder = [...dashboardRaces].sort((a, b) => a.startDate.localeCompare(b.startDate));
   const raceRoundNumber = new Map(seasonOrder.map((race, index) => [race.id, index + 1]));
-  const ownedEngines = engines.filter((engine) => !engine.soldAt && engine.status !== "retired");
-  const ownedCarburetors = catalog.carburetors.filter((carburetor) => !carburetor.soldAt && carburetor.status !== "retired");
+  const ownedEngines = engines.filter((engine) => !isSold(engine.soldAt) && engine.status !== "retired");
+  const ownedCarburetors = catalog.carburetors.filter((carburetor) => !isSold(carburetor.soldAt) && carburetor.status !== "retired");
   const vehiclesNeedingService = catalog.vehicles.filter((vehicle) => vehicleServiceStatus(vehicle) === "due" || vehicleServiceStatus(vehicle) === "soon");
   const engineStats = {
     ready: ownedEngines.filter((engine) => engine.status === "ready").length,
@@ -1023,7 +1028,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         ) : (
           <div className="race-grid">
             {raceGroup.map((race) => {
-              const raceIssues = engines.filter((engine) => !engine.soldAt && engine.status !== "retired" && engine.assignedRace === race.name && (engine.status === "service_soon" || engine.status === "service"));
+              const raceIssues = engines.filter((engine) => !isSold(engine.soldAt) && engine.status !== "retired" && engine.assignedRace === race.name && (engine.status === "service_soon" || engine.status === "service"));
               return (
                 <div className="race-mini" key={race.id}>
                   <span className="race-watermark" style={{ color: raceWatermarkColor(race.id) }} aria-hidden="true">{raceWatermarkCode(race.name)}</span>
@@ -1211,7 +1216,7 @@ function Engines({
   const [filter, setFilter] = useState<EngineFilter>("ALL");
   const [page, setPage] = useState(1);
   const pageSize = 15;
-  const activeEngines = useMemo(() => engines.filter((engine) => !engine.soldAt), [engines]);
+  const activeEngines = useMemo(() => engines.filter((engine) => !isSold(engine.soldAt)), [engines]);
   const counts = useMemo(() => ({
     ALL: activeEngines.length,
     MINI: activeEngines.filter((engine) => engine.family === "MINI").length,
@@ -1269,7 +1274,7 @@ function Engines({
               <thead><tr><th>{t.code}</th><th>{t.engineFamily}</th><th>{t.ignition}</th><th>{t.hoursTracking}</th><th>{locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"}</th><th>{t.status}</th>{canManage && <th className="no-print action-column">{t.actions}</th>}</tr></thead>
               <tbody>{pageEngines.map((engine) => {
                 const usesHours = !["MINI", "OKJ"].includes(engine.family);
-                const ready = engine.status === "ready" && !engine.soldAt;
+                const ready = engine.status === "ready" && !isSold(engine.soldAt);
                 const variant = engine.family === "KZ" ? engine.kzGeneration : engine.family === "MINI" ? engine.currentConfiguration : null;
                 const familyTone = engine.family === "OKN-J" ? "OKN" : engine.family;
                 return (
@@ -1279,7 +1284,7 @@ function Engines({
                     <td>{ignitionLabel(engine.ignition, locale)}</td>
                     <td>{usesHours ? formatHours(engine.totalMinutes) : t.byRaces}</td>
                     <td>{engine.assignedDriver ? <span className="carb-assignment-cell"><strong>{engine.assignedDriver}</strong><small>{engine.assignedRace || "—"}</small>{engine.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"}</td>
-                    <td><span className={engine.soldAt ? "status-pill neutral" : ready ? "status-pill success" : "status-pill warning-pill"}>{engine.soldAt ? (locale === "cs" ? "Prodáno" : "Sold") : ready ? t.ready : t.due}</span></td>
+                    <td><span className={isSold(engine.soldAt) ? "status-pill neutral" : ready ? "status-pill success" : "status-pill warning-pill"}>{isSold(engine.soldAt) ? (locale === "cs" ? "Prodáno" : "Sold") : ready ? t.ready : t.due}</span></td>
                     {canManage && <td className="no-print action-column" onClick={(event) => event.stopPropagation()}><button className="table-action" type="button" onClick={() => onEdit(engine)}>{t.edit}{role === "superadmin" ? " ···" : ""}</button></td>}
                   </tr>
                 );

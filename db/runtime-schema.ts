@@ -351,6 +351,7 @@ async function createRuntimeSchema() {
         carburetor_3_id TEXT,
         carburetor_3_code TEXT NOT NULL DEFAULT '',
         is_confirmed INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
         notes TEXT NOT NULL DEFAULT '',
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -417,6 +418,28 @@ async function createRuntimeSchema() {
         payment_method TEXT NOT NULL DEFAULT 'cash' CHECK (payment_method IN ('cash', 'card', 'bank_transfer', 'invoice', 'other')),
         is_delivered INTEGER NOT NULL DEFAULT 0,
         is_paid INTEGER NOT NULL DEFAULT 0,
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS race_team_visits (
+        id TEXT PRIMARY KEY NOT NULL,
+        race_id TEXT NOT NULL,
+        team_id TEXT,
+        team_name TEXT NOT NULL,
+        driver_id TEXT,
+        driver_name TEXT NOT NULL DEFAULT '',
+        item_type TEXT NOT NULL DEFAULT 'part' CHECK (item_type IN ('part', 'service', 'stock', 'oil', 'other')),
+        resource_id TEXT,
+        description TEXT NOT NULL DEFAULT '',
+        visit_date TEXT NOT NULL DEFAULT '',
+        mechanic_id TEXT,
+        mechanic_name TEXT NOT NULL DEFAULT '',
+        currency TEXT NOT NULL DEFAULT 'CZK' CHECK (currency IN ('CZK', 'EUR')),
+        amount_cents INTEGER,
         notes TEXT NOT NULL DEFAULT '',
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -669,6 +692,7 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS race_vehicles_unique_idx ON race_vehicles (race_id, vehicle_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_extras_race_idx ON race_extras (race_id, category)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_deliveries_race_idx ON race_deliveries (race_id, created_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS race_team_visits_race_idx ON race_team_visits (race_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_accommodations_race_idx ON race_accommodations (race_id, check_in_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_flights_race_idx ON race_flights (race_id, departure_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_car_rentals_race_idx ON race_car_rentals (race_id, pickup_at)"),
@@ -755,8 +779,16 @@ async function createRuntimeSchema() {
     ["engine_1_configuration", "ALTER TABLE race_entries ADD COLUMN engine_1_configuration TEXT NOT NULL DEFAULT ''"],
     ["engine_2_configuration", "ALTER TABLE race_entries ADD COLUMN engine_2_configuration TEXT NOT NULL DEFAULT ''"],
     ["engine_3_configuration", "ALTER TABLE race_entries ADD COLUMN engine_3_configuration TEXT NOT NULL DEFAULT ''"],
+    ["sort_order", "ALTER TABLE race_entries ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"],
   ].filter(([name]) => !existingRaceEntryColumns.has(name));
   if (raceEntryAdditions.length > 0) await d1.batch(raceEntryAdditions.map(([, statement]) => d1.prepare(statement)));
+  if (!existingRaceEntryColumns.has("sort_order")) {
+    const entryOrderRows = await d1.prepare("SELECT id FROM race_entries ORDER BY race_id, category, driver_name_snapshot").all<{ id: string }>();
+    const entryOrder: Array<{ id: string }> = entryOrderRows.results;
+    if (entryOrder.length > 0) {
+      await d1.batch(entryOrder.map((row, index) => d1.prepare("UPDATE race_entries SET sort_order = ? WHERE id = ?").bind(index, row.id)));
+    }
+  }
   await d1.prepare(`
     UPDATE race_entries SET
       engine_1_configuration = COALESCE((SELECT current_configuration FROM engines WHERE engines.id = race_entries.engine_1_id), engine_1_configuration),
@@ -946,6 +978,19 @@ async function createRuntimeSchema() {
   }
   await d1.prepare("UPDATE mechanic_clothing_assignments SET assigned_at = created_at WHERE assigned_at = 0").run();
 
+  const visitColumns = await d1.prepare("PRAGMA table_info(race_team_visits)").all<{ name: string }>();
+  const existingVisitColumns = new Set(visitColumns.results.map((column: { name: string }) => column.name));
+  if (!existingVisitColumns.has("visit_date")) {
+    await d1.prepare("ALTER TABLE race_team_visits ADD COLUMN visit_date TEXT NOT NULL DEFAULT ''").run();
+    await d1.prepare("UPDATE race_team_visits SET visit_date = date(created_at / 1000, 'unixepoch') WHERE visit_date = ''").run();
+  }
+  const visitMechanicAdditions = [
+    ["mechanic_id", "ALTER TABLE race_team_visits ADD COLUMN mechanic_id TEXT"],
+    ["mechanic_name", "ALTER TABLE race_team_visits ADD COLUMN mechanic_name TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existingVisitColumns.has(name));
+  if (visitMechanicAdditions.length > 0) await d1.batch(visitMechanicAdditions.map(([, statement]) => d1.prepare(statement)));
+  await ensureRaceTeamVisitsOilType(d1);
+
   const vehiclesNeedingServiceBackfill = await d1.prepare(`
     SELECT v.id, v.last_service_km AS lastServiceKm, v.last_service_note AS lastServiceNote, v.last_service_date AS lastServiceDate, v.updated_at AS updatedAt, v.created_by AS createdBy
     FROM vehicles v
@@ -959,6 +1004,51 @@ async function createRuntimeSchema() {
         .bind(crypto.randomUUID(), vehicle.id, serviceDate, vehicle.lastServiceKm, vehicle.lastServiceNote || "", vehicle.createdBy, vehicle.updatedAt);
     }));
   }
+}
+
+async function ensureRaceTeamVisitsOilType(d1: ReturnType<typeof getD1>) {
+  const table = await d1.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'race_team_visits'").first<{ sql: string }>();
+  if (!table || table.sql.includes("'oil'")) return;
+  await d1.batch([
+    d1.prepare("DROP TABLE IF EXISTS race_team_visits_oil_migration"),
+    d1.prepare(`
+      CREATE TABLE race_team_visits_oil_migration (
+        id TEXT PRIMARY KEY NOT NULL,
+        race_id TEXT NOT NULL,
+        team_id TEXT,
+        team_name TEXT NOT NULL,
+        driver_id TEXT,
+        driver_name TEXT NOT NULL DEFAULT '',
+        item_type TEXT NOT NULL DEFAULT 'part' CHECK (item_type IN ('part', 'service', 'stock', 'oil', 'other')),
+        resource_id TEXT,
+        description TEXT NOT NULL DEFAULT '',
+        visit_date TEXT NOT NULL DEFAULT '',
+        mechanic_id TEXT,
+        mechanic_name TEXT NOT NULL DEFAULT '',
+        currency TEXT NOT NULL DEFAULT 'CZK' CHECK (currency IN ('CZK', 'EUR')),
+        amount_cents INTEGER,
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      INSERT INTO race_team_visits_oil_migration (
+        id, race_id, team_id, team_name, driver_id, driver_name, item_type, resource_id,
+        description, visit_date, mechanic_id, mechanic_name, currency, amount_cents, notes,
+        created_by, created_at, updated_at
+      )
+      SELECT
+        id, race_id, team_id, team_name, driver_id, driver_name, item_type, resource_id,
+        description, visit_date, mechanic_id, mechanic_name, currency, amount_cents, notes,
+        created_by, created_at, updated_at
+      FROM race_team_visits
+    `),
+    d1.prepare("DROP TABLE race_team_visits"),
+    d1.prepare("ALTER TABLE race_team_visits_oil_migration RENAME TO race_team_visits"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS race_team_visits_race_idx ON race_team_visits (race_id, created_at)"),
+  ]);
 }
 
 async function ensureEngineCodeCategoryIndex(d1: ReturnType<typeof getD1>) {

@@ -17,11 +17,24 @@ export async function GET(request: Request) {
   try {
     const response = await fetch(url, { headers: { accept: "application/json" } }); if (!response.ok) throw new Error("weather failed");
     const data = await response.json() as { current?:Record<string,number|string>; current_units?:Record<string,string>; hourly?:Hourly };
-    const dates: Array<Record<string,number|string>> = [];
+    const raceHours = [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23];
+    const dates: Array<Record<string,unknown>> = [];
     const grouped = new Map<string, number[]>(); (data.hourly?.time ?? []).forEach((time,index) => { const date=time.slice(0,10); if (date >= startDate && date <= endDate) grouped.set(date,[...(grouped.get(date)??[]),index]); });
     for (const [date,indexes] of grouped) {
       const values=(key:keyof Hourly)=>indexes.map((index)=>Number(data.hourly?.[key]?.[index]??0));
-      dates.push({ date,temperatureMin:Math.min(...values("temperature_2m")),temperatureMax:Math.max(...values("temperature_2m")),rainProbability:Math.max(...values("precipitation_probability")),rainTotal:values("rain").reduce((a,b)=>a+b,0),windMax:Math.max(...values("wind_speed_10m")),gustMax:Math.max(...values("wind_gusts_10m")),humidityMax:Math.max(...values("relative_humidity_2m")),weatherCode:Math.max(...values("weather_code")) });
+      const hourOf = (index: number) => Number((data.hourly?.time?.[index] ?? "").slice(11,13));
+      const hourly = raceHours.map((hour) => {
+        const index = indexes.find((item) => hourOf(item) === hour);
+        if (index === undefined) return null;
+        return {
+          hour,
+          temperature: Number(data.hourly?.temperature_2m?.[index] ?? 0),
+          rainProbability: Number(data.hourly?.precipitation_probability?.[index] ?? 0),
+          wind: Number(data.hourly?.wind_speed_10m?.[index] ?? 0),
+          weatherCode: Number(data.hourly?.weather_code?.[index] ?? 0),
+        };
+      }).filter((item): item is NonNullable<typeof item> => item !== null);
+      dates.push({ date,temperatureMin:Math.min(...values("temperature_2m")),temperatureMax:Math.max(...values("temperature_2m")),rainProbability:Math.max(...values("precipitation_probability")),rainTotal:values("rain").reduce((a,b)=>a+b,0),windMax:Math.max(...values("wind_speed_10m")),gustMax:Math.max(...values("wind_gusts_10m")),humidityMax:Math.max(...values("relative_humidity_2m")),weatherCode:Math.max(...values("weather_code")),hourly });
     }
     return Response.json({ available:true,current:data.current??null,units:data.current_units??{},forecast:dates },{headers:{"cache-control":"private, max-age=600"}});
   } catch { return Response.json({ available:false,reason:"weather_unavailable" },{status:502}); }

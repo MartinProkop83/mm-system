@@ -63,6 +63,19 @@ type RaceFinanceSaleItem = {
   lineTotalCents: number;
 };
 
+type RaceFinanceVisit = {
+  id: string;
+  teamName: string;
+  driverName: string;
+  itemType: string;
+  description: string;
+  visitDate: string;
+  mechanicName: string;
+  currency: Currency;
+  amountCents: number | null;
+  notes: string;
+};
+
 type RaceFinanceSale = {
   id: string;
   saleNumber: string;
@@ -78,10 +91,12 @@ type RaceFinanceSale = {
   items: RaceFinanceSaleItem[];
 };
 
-export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Locale }) {
+export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { race: RaceInfo; locale: Locale; onOpenSales?: () => void; onOpenVisits?: () => void }) {
   const [entries, setEntries] = useState<FinanceEntry[]>([]);
   const [salesTotals, setSalesTotals] = useState<RaceSalesTotal[]>([]);
   const [raceSales, setRaceSales] = useState<RaceFinanceSale[]>([]);
+  const [travelCosts, setTravelCosts] = useState<Array<{ currency: Currency; cents: number }>>([]);
+  const [visits, setVisits] = useState<RaceFinanceVisit[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -119,7 +134,42 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
     }
   }
 
-  useEffect(() => { void load(); }, [race.id]);
+  async function loadTravelCosts() {
+    try {
+      const response = await fetch(`/api/logistics?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { accommodations?: Array<{ currency: Currency; totalCents: number; status: string }>; flights?: Array<{ currency: Currency; totalCents: number; status: string }>; rentals?: Array<{ currency: Currency; totalCents: number; status: string }> };
+      const records = [...(result.accommodations ?? []), ...(result.flights ?? []), ...(result.rentals ?? [])].filter((item) => item.status !== "cancelled");
+      const totals = new Map<Currency, number>();
+      for (const record of records) totals.set(record.currency, (totals.get(record.currency) ?? 0) + Number(record.totalCents));
+      setTravelCosts([...totals].map(([currency, cents]) => ({ currency, cents })));
+    } catch {
+      setTravelCosts([]);
+    }
+  }
+
+  async function loadVisits() {
+    try {
+      const response = await fetch(`/api/race-team-visits?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { visits?: RaceFinanceVisit[] };
+      setVisits((result.visits ?? []).map((visit) => ({ ...visit, amountCents: visit.amountCents === null ? null : Number(visit.amountCents) })));
+    } catch {
+      setVisits([]);
+    }
+  }
+
+  useEffect(() => { void load(); void loadTravelCosts(); void loadVisits(); }, [race.id]);
+
+  const visitTotals = useMemo(() => {
+    const totals = new Map<Currency, { cents: number; count: number }>();
+    for (const visit of visits) {
+      if (visit.amountCents === null) continue;
+      const current = totals.get(visit.currency) ?? { cents: 0, count: 0 };
+      totals.set(visit.currency, { cents: current.cents + visit.amountCents, count: current.count + 1 });
+    }
+    return [...totals].map(([currency, value]) => ({ currency, ...value }));
+  }, [visits]);
 
   function update(entryId: string, change: Partial<FinanceEntry>) {
     setEntries((current) => current.map((entry) => {
@@ -186,15 +236,19 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
     const base = currencyEntries.reduce((sum, entry) => sum + entry.basePriceCents, 0);
     const raceFees = currencyEntries.reduce((sum, entry) => sum + entry.finalPriceCents, 0);
     const salesTotal = sales?.totalCents ?? 0;
-    const grandTotal = raceFees + salesTotal;
+    const visits = visitTotals.find((item) => item.currency === currency);
+    const visitsTotal = visits?.cents ?? 0;
+    const trackedTotal = raceFees + salesTotal;
+    const grandTotal = trackedTotal + visitsTotal;
     const paidRaceFees = currencyEntries.filter((entry) => entry.isPaid).reduce((sum, entry) => sum + entry.finalPriceCents, 0);
     const paid = paidRaceFees + (sales?.paidCents ?? 0);
-    return { currency, count: currencyEntries.length, saleCount: sales?.saleCount ?? 0, base, discount: base - raceFees, raceFees, salesTotal, grandTotal, paid, unpaid: grandTotal - paid };
-  }).filter((summary) => summary.count > 0 || summary.saleCount > 0), [entries, salesTotals]);
+    const costs = travelCosts.find((item) => item.currency === currency)?.cents ?? 0;
+    return { currency, count: currencyEntries.length, saleCount: sales?.saleCount ?? 0, visitCount: visits?.count ?? 0, base, discount: base - raceFees, raceFees, salesTotal, visitsTotal, grandTotal, paid, unpaid: trackedTotal - paid, costs, net: grandTotal - costs };
+  }).filter((summary) => summary.count > 0 || summary.saleCount > 0 || summary.visitCount > 0 || summary.costs > 0), [entries, salesTotals, travelCosts, visitTotals]);
 
-  return <section className="panel race-finance-panel">
+  return <section className="dash-panel race-finance-panel">
     <header className="race-finance-heading">
-      <div className="race-finance-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow">MM FINANCE</span><h2>{locale === "cs" ? "Finance závodu" : "Race finance"}</h2><p>{race.name} · {formatDateRange(race.startDate, race.endDate, locale)} · {countryFlag(race.countryCode)} {race.track}</p></div></div>
+      <div className="race-finance-title"><RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM FINANCE</span><h2>{locale === "cs" ? "Finance závodu" : "Race finance"}</h2><p>{race.name} · {formatDateRange(race.startDate, race.endDate, locale)} · {countryFlag(race.countryCode)} {race.track}</p></div></div>
       <img className="race-finance-logo" src="/machac-motors-logo.jpg" alt="Macháč Motors" />
       <button className="secondary-compact no-print" type="button" onClick={printFinance}>⌁ {locale === "cs" ? "Vytisknout finance" : "Print finance"}</button>
     </header>
@@ -208,9 +262,12 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
         <div><span>{locale === "cs" ? "Slevy" : "Discounts"}</span><b>− {formatMoney(summary.discount, summary.currency, locale)}</b></div>
         <div><span>{locale === "cs" ? "Piloti po slevě" : "Drivers after discount"}</span><b>{formatMoney(summary.raceFees, summary.currency, locale)}</b></div>
         <div className="finance-summary-sales"><span>{locale === "cs" ? "Prodej" : "Sales"}</span><b>{formatMoney(summary.salesTotal, summary.currency, locale)}</b></div>
+        <div className="finance-summary-visits"><span>{locale === "cs" ? "Jiné týmy" : "Other teams"}</span><b>{formatMoney(summary.visitsTotal, summary.currency, locale)}</b></div>
         <div className="finance-summary-total"><span>{locale === "cs" ? "Celkem závod" : "Race total"}</span><b>{formatMoney(summary.grandTotal, summary.currency, locale)}</b></div>
         <div className="finance-summary-paid"><span>{locale === "cs" ? "Zaplaceno" : "Paid"}</span><b>{formatMoney(summary.paid, summary.currency, locale)}</b></div>
         <div className="finance-summary-unpaid"><span>{locale === "cs" ? "Zbývá" : "Outstanding"}</span><b>{formatMoney(summary.unpaid, summary.currency, locale)}</b></div>
+        <div className="finance-summary-costs"><span>{locale === "cs" ? "Náklady (cesta)" : "Costs (travel)"}</span><b>− {formatMoney(summary.costs, summary.currency, locale)}</b></div>
+        <div className="finance-summary-net"><span>{locale === "cs" ? "Čistý zisk" : "Net profit"}</span><b>{formatMoney(summary.net, summary.currency, locale)}</b></div>
       </article>)}
       {!loading && summaries.length === 0 && <p>{locale === "cs" ? "Zatím nejsou zadané žádné ceny." : "No prices entered yet."}</p>}
     </div>
@@ -234,7 +291,7 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
     </div>}
     {!loading && !loadError && <section className="race-finance-sales">
       <header>
-        <div><span className="eyebrow">MM SALES</span><h3>{locale === "cs" ? "Prodej dílů a servis" : "Parts and service sales"}</h3><p>{locale === "cs" ? "Kdo co koupil, kolik zaplatil a zda bylo zboží předáno." : "Who bought what, how much they paid and whether it was delivered."}</p></div>
+        <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM SALES</span><h3>{locale === "cs" ? "Prodej dílů a servis" : "Parts and service sales"}</h3><p>{locale === "cs" ? "Kdo co koupil, kolik zaplatil a zda bylo zboží předáno." : "Who bought what, how much they paid and whether it was delivered."}</p></div>
         <span>{raceSales.length} {locale === "cs" ? "objednávek" : "orders"}</span>
       </header>
       {raceSales.length > 0 ? <div className="race-finance-sales-table-wrap">
@@ -250,7 +307,25 @@ export function RaceFinancePanel({ race, locale }: { race: RaceInfo; locale: Loc
             <td data-label={locale === "cs" ? "Poznámka" : "Note"}>{sale.notes || "—"}</td>
           </tr>)}</tbody>
         </table>
-      </div> : <p className="finance-sales-empty">{locale === "cs" ? "K tomuto závodu zatím není přiřazen žádný prodej ani servis." : "No sales or services are linked to this race yet."}</p>}
+      </div> : <div className="finance-sales-empty"><p>{locale === "cs" ? "K tomuto závodu zatím není přiřazen žádný prodej ani servis." : "No sales or services are linked to this race yet."}</p>{onOpenSales && <button className="secondary-compact no-print" type="button" onClick={onOpenSales}>{locale === "cs" ? "Prodej a servis →" : "Sales and service →"}</button>}</div>}
+    </section>}
+    {!loading && !loadError && <section className="race-finance-sales race-finance-visits">
+      <header>
+        <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h3>{locale === "cs" ? "Jiné týmy" : "Other teams"}</h3><p>{locale === "cs" ? "Prodej a servis pro týmy, které si k nám přišly pro díl, servis nebo něco ze skladu." : "Sales and service for teams that stopped by our pit for a part, service, or stock item."}</p></div>
+        <span>{visits.length} {locale === "cs" ? "záznamů" : "records"}</span>
+      </header>
+      {visits.length > 0 ? <div className="race-finance-sales-table-wrap">
+        <table className="race-finance-sales-table">
+          <thead><tr><th>{locale === "cs" ? "Tým" : "Team"}</th><th>{locale === "cs" ? "Položka" : "Item"}</th><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{locale === "cs" ? "Zapsal" : "Logged by"}</th><th>{locale === "cs" ? "Cena" : "Price"}</th></tr></thead>
+          <tbody>{visits.map((visit) => <tr key={visit.id}>
+            <td data-label={locale === "cs" ? "Tým" : "Team"}><strong>{visit.teamName}</strong>{visit.driverName && <small>{locale === "cs" ? "Pilot" : "Driver"}: {visit.driverName}</small>}</td>
+            <td data-label={locale === "cs" ? "Položka" : "Item"}><span className={`finance-sale-kind kind-${visit.itemType}`}>{visitItemTypeLabel(visit.itemType, locale)}</span><span className="finance-sale-item-name"><b>{visit.description}</b>{visit.notes && <small>{visit.notes}</small>}</span></td>
+            <td data-label={locale === "cs" ? "Datum" : "Date"}>{formatSaleDate(visit.visitDate, locale)}</td>
+            <td data-label={locale === "cs" ? "Zapsal" : "Logged by"}>{visit.mechanicName || "—"}</td>
+            <td data-label={locale === "cs" ? "Cena" : "Price"}><strong className="finance-sale-total">{visit.amountCents !== null ? formatMoney(visit.amountCents, visit.currency, locale) : "—"}</strong></td>
+          </tr>)}</tbody>
+        </table>
+      </div> : <div className="finance-sales-empty"><p>{locale === "cs" ? "K tomuto závodu zatím nejsou zadané žádné návštěvy jiných týmů." : "No visits from other teams are recorded for this race yet."}</p>{onOpenVisits && <button className="secondary-compact no-print" type="button" onClick={onOpenVisits}>{locale === "cs" ? "Jiné týmy →" : "Other teams →"}</button>}</div>}
     </section>}
     <footer className="race-finance-print-footer"><span>Macháč Motors · MM System</span><span>{locale === "cs" ? "Ceny bez DPH" : "Prices exclude VAT"}</span></footer>
   </section>;
@@ -328,6 +403,11 @@ function saleItemTypeLabel(type: string, locale: Locale) {
     service: ["Servis", "Service"],
     other: ["Ostatní", "Other"],
   };
+  return (labels[type] ?? labels.other)[locale === "cs" ? 0 : 1];
+}
+
+function visitItemTypeLabel(type: string, locale: Locale) {
+  const labels: Record<string, [string, string]> = { part: ["Díl", "Part"], service: ["Servis", "Service"], stock: ["Sklad", "Stock"], oil: ["Olej", "Oil"], other: ["Ostatní", "Other"] };
   return (labels[type] ?? labels.other)[locale === "cs" ? 0 : 1];
 }
 

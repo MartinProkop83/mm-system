@@ -38,13 +38,16 @@ type RaceFollowupNotes = {
 
 const emptyFollowupNotes: RaceFollowupNotes = { nextRace: "", consumed: "", missing: "", otherNotes: "" };
 
-export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; locale: Locale; role: Role }) {
+type PreviousRaceInfo = { id: string; name: string; startDate: string; endDate: string };
+
+export function RaceDeliveriesPanel({ race, locale, role, activeSection, previousRace = null }: { race: RaceInfo; locale: Locale; role: Role; activeSection: "deliveries" | "notes"; previousRace?: PreviousRaceInfo | null }) {
   const [deliveries, setDeliveries] = useState<RaceDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<RaceDelivery | null | undefined>(undefined);
   const [followupNotes, setFollowupNotes] = useState<RaceFollowupNotes>(emptyFollowupNotes);
   const [notesSaving, setNotesSaving] = useState(false);
   const [notesSaved, setNotesSaved] = useState(false);
+  const [previousNotes, setPreviousNotes] = useState<RaceFollowupNotes | null>(null);
   const canManage = role !== "mechanic" && (race.status !== "completed" || role === "superadmin");
   const canEditNotes = race.status !== "completed" || role === "superadmin";
 
@@ -67,7 +70,15 @@ export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; lo
     setFollowupNotes(result.notes ?? emptyFollowupNotes);
   }
 
+  async function loadPreviousNotes(previousRaceId: string) {
+    const response = await fetch(`/api/race-followup-notes?raceId=${encodeURIComponent(previousRaceId)}`, { cache: "no-store" });
+    if (!response.ok) return;
+    const result = await response.json() as { notes?: RaceFollowupNotes };
+    setPreviousNotes(result.notes ?? null);
+  }
+
   useEffect(() => { void load(); void loadFollowupNotes(); }, [race.id]);
+  useEffect(() => { if (previousRace) void loadPreviousNotes(previousRace.id); else setPreviousNotes(null); }, [previousRace?.id]);
 
   async function saveFollowupNotes() {
     setNotesSaving(true);
@@ -109,13 +120,18 @@ export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; lo
   const totals = (["CZK", "EUR"] as const).map((currency) => ({ currency, cents: deliveries.filter((item) => item.currency === currency).reduce((sum, item) => sum + item.amountCents, 0) })).filter((item) => item.cents > 0);
 
   return <>
+    {previousRace && previousNotes?.nextRace.trim() && <section className={`dash-panel race-previous-notes no-print ${activeSection === "deliveries" ? "screen-hidden" : ""}`}>
+      <span className="eyebrow">{locale === "cs" ? "Z MINULÉHO ZÁVODU" : "FROM THE PREVIOUS RACE"}</span>
+      <h3>{previousRace.name} · {formatRaceDates(previousRace.startDate, previousRace.endDate, locale)}</h3>
+      <p>{previousNotes.nextRace}</p>
+    </section>}
     <section className="dash-panel race-deliveries-print-page">
-      <header className="race-deliveries-heading">
+      <header className={`race-deliveries-heading ${activeSection === "notes" ? "screen-hidden" : ""}`}>
         <div className="delivery-print-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{locale === "cs" ? "Předávky a platby" : "Deliveries and payments"}</h2><p>{race.name} · {formatRaceDates(race.startDate, race.endDate, locale)} · {race.track}</p></div></div>
         <div className="race-deliveries-summary"><span>{deliveries.length} {locale === "cs" ? "položek" : "items"}</span>{totals.map((item) => <strong key={item.currency}>{formatMoney(item.cents, item.currency, locale)}</strong>)}{undeliveredCount > 0 && <em>{undeliveredCount} {locale === "cs" ? "nepředáno" : "not delivered"}</em>}{unpaidCount > 0 && <em>{unpaidCount} {locale === "cs" ? "nezaplaceno" : "unpaid"}</em>}</div>
         {canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing(null)}>＋ {locale === "cs" ? "Přidat položku" : "Add item"}</button>}
       </header>
-      <div className="race-deliveries-table-wrap">
+      <div className={`race-deliveries-table-wrap ${activeSection === "notes" ? "screen-hidden" : ""}`}>
         <table className="race-deliveries-table">
           <thead><tr><th>{locale === "cs" ? "Zákazník" : "Customer"}</th><th>{locale === "cs" ? "Co vezeme" : "Item"}</th><th>{locale === "cs" ? "Množství" : "Qty"}</th><th>{locale === "cs" ? "Cena" : "Amount"}</th><th>{locale === "cs" ? "Platba" : "Payment"}</th><th>{locale === "cs" ? "Předáno" : "Delivered"}</th><th>{locale === "cs" ? "Zaplaceno" : "Paid"}</th><th>{locale === "cs" ? "Poznámka" : "Note"}</th>{canManage && <th className="no-print">{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead>
           <tbody>
@@ -126,31 +142,39 @@ export function RaceDeliveriesPanel({ race, locale, role }: { race: RaceInfo; lo
           </tbody>
         </table>
       </div>
-      <section className="race-followup-notes">
-        <header><div><strong>{locale === "cs" ? "Poznatky ze závodu" : "Race follow-up notes"}</strong><p>{locale === "cs" ? "Zapiš vše, na co přijdeme během závodu." : "Capture everything discovered during the race."}</p></div>{canEditNotes && <button className="secondary-compact no-print" type="button" onClick={() => { void saveFollowupNotes(); }} disabled={notesSaving}>{notesSaving ? (locale === "cs" ? "Ukládám…" : "Saving…") : notesSaved ? (locale === "cs" ? "✓ Uloženo" : "✓ Saved") : (locale === "cs" ? "Uložit poznámky" : "Save notes")}</button>}</header>
+      <section className={`race-followup-notes ${activeSection === "deliveries" ? "screen-hidden" : ""}`}>
+        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><strong>{locale === "cs" ? "Poznatky ze závodu" : "Race follow-up notes"}</strong><p>{locale === "cs" ? "Zapiš vše, na co přijdeme během závodu." : "Capture everything discovered during the race."}</p></div>{canEditNotes && <button className="secondary-compact no-print" type="button" onClick={() => { void saveFollowupNotes(); }} disabled={notesSaving}>{notesSaving ? (locale === "cs" ? "Ukládám…" : "Saving…") : notesSaved ? (locale === "cs" ? "✓ Uloženo" : "✓ Saved") : (locale === "cs" ? "Uložit poznámky" : "Save notes")}</button>}</header>
         <div className="race-followup-grid">
-          <FollowupField locale={locale} label={locale === "cs" ? "Vzít na další závod" : "Take to next race"} value={followupNotes.nextRace} field="nextRace" canEdit={canEditNotes} onChange={(field, value) => setFollowupNotes((current) => ({ ...current, [field]: value }))} />
+          <FollowupField locale={locale} label={locale === "cs" ? "Vzít na další závod" : "Take to next race"} value={followupNotes.nextRace} field="nextRace" canEdit={canEditNotes} checkable onChange={(field, value) => setFollowupNotes((current) => ({ ...current, [field]: value }))} />
           <FollowupField locale={locale} label={locale === "cs" ? "Došlo / spotřebováno" : "Ran out / consumed"} value={followupNotes.consumed} field="consumed" canEdit={canEditNotes} onChange={(field, value) => setFollowupNotes((current) => ({ ...current, [field]: value }))} />
           <FollowupField locale={locale} label={locale === "cs" ? "Chybí" : "Missing"} value={followupNotes.missing} field="missing" canEdit={canEditNotes} onChange={(field, value) => setFollowupNotes((current) => ({ ...current, [field]: value }))} />
           <FollowupField locale={locale} label={locale === "cs" ? "Ostatní poznámky" : "Other notes"} value={followupNotes.otherNotes} field="otherNotes" canEdit={canEditNotes} onChange={(field, value) => setFollowupNotes((current) => ({ ...current, [field]: value }))} />
         </div>
       </section>
-      <div className="delivery-notes-sheet"><strong>{locale === "cs" ? "Další volné poznámky" : "Additional free notes"}</strong><div>{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div></div>
+      <div className={`delivery-notes-sheet ${activeSection === "deliveries" ? "screen-hidden" : ""}`}><strong>{locale === "cs" ? "Další volné poznámky" : "Additional free notes"}</strong><div>{Array.from({ length: 4 }, (_, index) => <span key={index} />)}</div></div>
     </section>
     {editing !== undefined && <DeliveryForm raceId={race.id} delivery={editing} locale={locale} onClose={() => setEditing(undefined)} onSaved={async () => { setEditing(undefined); await load(); }} />}
   </>;
 }
 
-function FollowupField({ locale, label, value, field, canEdit, onChange }: { locale: Locale; label: string; value: string; field: keyof RaceFollowupNotes; canEdit: boolean; onChange: (field: keyof RaceFollowupNotes, value: string) => void }) {
+const DONE_PREFIX = "✓ ";
+
+function FollowupField({ locale, label, value, field, canEdit, checkable = false, onChange }: { locale: Locale; label: string; value: string; field: keyof RaceFollowupNotes; canEdit: boolean; checkable?: boolean; onChange: (field: keyof RaceFollowupNotes, value: string) => void }) {
   const lines = value.split("\n");
   const rows = lines.length > 0 ? lines : [""];
   const filledLines = lines.map((line) => line.trim()).filter(Boolean);
+  const isDone = (row: string) => checkable && row.startsWith(DONE_PREFIX);
+  const rowText = (row: string) => (checkable && row.startsWith(DONE_PREFIX) ? row.slice(DONE_PREFIX.length) : row);
 
   function setRows(next: string[]) {
     onChange(field, next.join("\n"));
   }
   function updateRow(index: number, next: string) {
-    setRows(rows.map((row, rowIndex) => (rowIndex === index ? next : row)));
+    const prefix = isDone(rows[index]) ? DONE_PREFIX : "";
+    setRows(rows.map((row, rowIndex) => (rowIndex === index ? prefix + next : row)));
+  }
+  function toggleRowDone(index: number) {
+    setRows(rows.map((row, rowIndex) => rowIndex !== index ? row : (isDone(row) ? rowText(row) : DONE_PREFIX + row)));
   }
   function removeRow(index: number) {
     setRows(rows.filter((_, rowIndex) => rowIndex !== index));
@@ -159,13 +183,14 @@ function FollowupField({ locale, label, value, field, canEdit, onChange }: { loc
   return <div className="race-followup-field">
     <span>{label}</span>
     {canEdit ? <div className="race-followup-rows no-print">
-      {rows.map((row, index) => <div className="race-followup-row" key={index}>
-        <input value={row} onChange={(event) => updateRow(index, event.target.value)} />
+      {rows.map((row, index) => <div className={`race-followup-row ${isDone(row) ? "done" : ""}`} key={index}>
+        {checkable && <input type="checkbox" checked={isDone(row)} onChange={() => toggleRowDone(index)} aria-label={locale === "cs" ? "Hotovo" : "Done"} />}
+        <input value={rowText(row)} onChange={(event) => updateRow(index, event.target.value)} />
         {rows.length > 1 && <button type="button" aria-label={locale === "cs" ? "Odebrat řádek" : "Remove row"} onClick={() => removeRow(index)}>×</button>}
       </div>)}
       <button type="button" className="race-followup-add" onClick={() => setRows([...rows, ""])}>＋ {locale === "cs" ? "Přidat řádek" : "Add row"}</button>
-    </div> : <div className="race-followup-readonly no-print">{filledLines.length ? filledLines.map((line, index) => <p key={index}>{line}</p>) : <p>—</p>}</div>}
-    <div className="followup-print-value">{filledLines.join(", ") || " "}</div>
+    </div> : <div className="race-followup-readonly no-print">{filledLines.length ? filledLines.map((line, index) => <p key={index} className={isDone(line) ? "done" : ""}>{rowText(line)}</p>) : <p>—</p>}</div>}
+    <div className="followup-print-value">{filledLines.map(rowText).join(", ") || " "}</div>
   </div>;
 }
 

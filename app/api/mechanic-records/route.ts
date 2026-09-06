@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
-  const [mechanic, assignments, clothing, accommodations, flights, rentals] = await Promise.all([
+  const [mechanic, assignments, pairedVehicleRows, allRaceVehicleRows, clothing, accommodations, flights, rentals] = await Promise.all([
     d1.prepare(`
       SELECT id, name, created_at AS createdAt, updated_at AS updatedAt
       FROM mechanics
@@ -29,16 +29,25 @@ export async function GET(request: Request) {
              r.end_date AS endDate, r.departure_date AS departureDate,
              r.return_date AS returnDate, r.organizer, r.status AS raceStatus,
              r.race_template_id AS raceTemplateId, rt.logo_key AS logoKey,
-             rt.logo_updated_at AS logoUpdatedAt,
-             COALESCE(GROUP_CONCAT(DISTINCT rv.vehicle_name_snapshot), '') AS vehicles
+             rt.logo_updated_at AS logoUpdatedAt
       FROM race_mechanics rm
       JOIN races r ON r.id = rm.race_id
       LEFT JOIN race_templates rt ON rt.id = r.race_template_id
-      LEFT JOIN race_vehicles rv ON rv.race_id = r.id
       WHERE rm.mechanic_id = ? AND r.status != 'archived'
-      GROUP BY rm.id, r.id
       ORDER BY r.start_date DESC, r.name
     `).bind(id).all<Record<string, unknown>>(),
+    d1.prepare(`
+      SELECT rm.race_id AS raceId, rv.vehicle_name_snapshot AS vehicleName
+      FROM race_mechanics rm
+      JOIN race_vehicles rv ON rv.race_id = rm.race_id AND rv.vehicle_id = rm.vehicle_id
+      WHERE rm.mechanic_id = ? AND rm.vehicle_id IS NOT NULL
+    `).bind(id).all<{ raceId: string; vehicleName: string }>(),
+    d1.prepare(`
+      SELECT rm.race_id AS raceId, rv.vehicle_name_snapshot AS vehicleName
+      FROM race_mechanics rm
+      JOIN race_vehicles rv ON rv.race_id = rm.race_id
+      WHERE rm.mechanic_id = ?
+    `).bind(id).all<{ raceId: string; vehicleName: string }>(),
     d1.prepare(`
       SELECT a.id, a.clothing_item_id AS clothingItemId, i.name AS itemName,
              a.size, a.quantity, a.assigned_at AS assignedAt, a.notes, a.updated_at AS updatedAt,
@@ -97,17 +106,36 @@ export async function GET(request: Request) {
   const accommodationRows = accommodations.results as Array<Record<string, unknown>>;
   const flightRows: Array<Record<string, unknown> & { passengers: ReturnType<typeof parsePassengers> }> = (flights.results as Array<Record<string, unknown>>).map((flight) => ({ ...flight, passengers: parsePassengers(flight.passengersJson) })).filter((flight) => flight.passengers.length === 0 || flight.passengers.some((passenger) => passenger.id === mechanicPassengerId));
   const rentalRows = rentals.results as Array<Record<string, unknown>>;
+  const pairedByRace = new Map<string, string[]>();
+  for (const row of pairedVehicleRows.results) {
+    const list = pairedByRace.get(row.raceId) ?? [];
+    list.push(row.vehicleName);
+    pairedByRace.set(row.raceId, list);
+  }
+  const allByRace = new Map<string, string[]>();
+  for (const row of allRaceVehicleRows.results) {
+    const list = allByRace.get(row.raceId) ?? [];
+    list.push(row.vehicleName);
+    allByRace.set(row.raceId, list);
+  }
   return Response.json({
     mechanic,
-    assignments: (assignments.results as Array<Record<string, unknown>>).map((assignment) => ({
-      ...assignment,
-      logoUrl: raceLogoUrl(assignment.raceTemplateId, assignment.logoKey, assignment.logoUpdatedAt),
-      travel: {
-        accommodations: accommodationRows.filter((item) => item.raceId === assignment.raceId),
-        flights: flightRows.filter((item) => item.raceId === assignment.raceId),
-        rentals: rentalRows.filter((item) => item.raceId === assignment.raceId),
-      },
-    })),
+    assignments: (assignments.results as Array<Record<string, unknown>>).map((assignment) => {
+      const raceId = String(assignment.raceId);
+      const paired = pairedByRace.get(raceId) ?? [];
+      const isSpecific = paired.length > 0;
+      return {
+        ...assignment,
+        logoUrl: raceLogoUrl(assignment.raceTemplateId, assignment.logoKey, assignment.logoUpdatedAt),
+        vehicles: (isSpecific ? paired : (allByRace.get(raceId) ?? [])).join(", "),
+        vehiclesAreSpecific: isSpecific,
+        travel: {
+          accommodations: accommodationRows.filter((item) => item.raceId === assignment.raceId),
+          flights: flightRows.filter((item) => item.raceId === assignment.raceId),
+          rentals: rentalRows.filter((item) => item.raceId === assignment.raceId),
+        },
+      };
+    }),
     clothing: clothing.results.map((item: Record<string, unknown>) => ({
       ...item,
       imageUrl: clothingImageUrl(item.clothingItemId, item.imageKey, item.imageUpdatedAt),
