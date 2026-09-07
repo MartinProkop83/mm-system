@@ -12,6 +12,7 @@ type SalePayload = {
   customerId?: string | null;
   teamId?: string | null;
   customerName?: string;
+  isWalkup?: boolean;
   newCustomer?: NewCustomerPayload | null;
   documentNumber?: string;
   currency?: "CZK" | "EUR";
@@ -260,6 +261,10 @@ async function resolveBuyer(payload: SalePayload, actorEmail: string) {
   if (customerId) {
     const customer = await d1.prepare("SELECT id, name FROM customers WHERE id = ? AND archived_at IS NULL").bind(customerId).first<{ id: string; name: string }>();
     return customer ? { customerId: customer.id, teamId: null, name: customer.name, newCustomer: null } : Response.json({ error: "Customer not found" }, { status: 404 });
+  }
+  if (payload.isWalkup) {
+    const name = clean(payload.customerName, 160) || "Walk-up sale";
+    return { customerId: null, teamId: null, name, newCustomer: null };
   }
   const raw = payload.newCustomer ?? { name: payload.customerName };
   const name = clean(raw?.name ?? payload.customerName, 160); const email = clean(raw?.email, 160).toLowerCase();

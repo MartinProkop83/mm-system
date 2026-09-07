@@ -10,15 +10,16 @@ import { VehicleDetail } from "./vehicle-detail";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { raceCalendarColorDefinition } from "./race-calendar-colors";
 import { CalendarColorSelect } from "./calendar-color-select";
+import type { CustomerRecord } from "./commerce-pages";
 
 export type CatalogKind = "raceType" | "team" | "driver" | "mechanic" | "vehicle" | "carburetor";
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
 type DriverFilter = "active" | "mini" | "okj" | "okn" | "ok" | "kz" | "inactive";
 
-export type TeamRecord = { id: string; name: string; countryCode: string; notes: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
+export type TeamRecord = { id: string; name: string; countryCode: string; notes: string; logoUrl: string; logoUpdatedAt?: number | null; customerId?: string | null; createdAt: number; updatedAt: number };
 export type RaceTypeRecord = { id: string; name: string; notes: string; seriesOptions: string[]; calendarColor: string; logoUrl: string; logoUpdatedAt?: number | null; createdAt: number; updatedAt: number };
-export type DriverRecord = { id: string; name: string; teamId: string | null; teamName: string; defaultCategory: string; raceNumber: string; nationality: string; isActive: boolean; notes: string; photoUrl?: string; createdAt: number; updatedAt: number };
+export type DriverRecord = { id: string; name: string; teamId: string | null; teamName: string; defaultCategory: string; raceNumber: string; nationality: string; isActive: boolean; notes: string; photoUrl?: string; billingMode?: "self" | "team" | "customer"; customerId?: string | null; createdAt: number; updatedAt: number };
 export type MechanicRecord = { id: string; name: string; nextRace?: string; nextTrack?: string; nextCountryCode?: string; nextStartDate?: string; nextEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; raceCount?: number; createdAt: number; updatedAt: number };
 export type VehicleRecord = { id: string; name: string; licensePlate: string; notes: string; photoUrl?: string; currentKm?: number | null; serviceIntervalKm?: number | null; lastServiceKm?: number | null; lastServiceNote?: string; lastServiceDate?: string; lastRace?: string; lastRaceLogoUrl?: string; lastRaceCountryCode?: string; lastRaceStartDate?: string; lastRaceEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
 export type CarburetorRecord = { id: string; code: string; carburetorTypeId?: string | null; category?: string; family: string; brand: string; model: string; status: string; notes: string; soldAt?: number | null; lastDriver?: string; lastRace?: string; lastRaceLogoUrl?: string; lastRaceCountryCode?: string; lastRaceStartDate?: string; lastRaceEndDate?: string; assignmentStatus?: "assigned" | "history" | "none"; createdAt: number; updatedAt: number };
@@ -50,7 +51,7 @@ const labels = {
   },
 } as const;
 
-export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVehicleIdConsumed }: { kind: CatalogKind; locale: Locale; role: Role; initialVehicleId?: string | null; onInitialVehicleIdConsumed?: () => void }) {
+export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVehicleIdConsumed, onDetailOpenChange }: { kind: CatalogKind; locale: Locale; role: Role; initialVehicleId?: string | null; onInitialVehicleIdConsumed?: () => void; onDetailOpenChange?: (open: boolean) => void }) {
   const l = labels[locale];
   const [data, setData] = useState<CatalogData>({ raceTypes: [], teams: [], drivers: [], mechanics: [], vehicles: [], carburetors: [] });
   const [loading, setLoading] = useState(true);
@@ -103,6 +104,8 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
   const selectedDriver = kind === "driver" ? data.drivers.find((item) => item.id === selectedDriverId) ?? null : null;
   const selectedTeam = kind === "team" ? data.teams.find((item) => item.id === selectedTeamId) ?? null : null;
   const selectedVehicle = kind === "vehicle" ? data.vehicles.find((item) => item.id === selectedVehicleId) ?? null : null;
+  const detailOpen = Boolean(selectedCarburetor || selectedMechanic || selectedDriver || selectedTeam || selectedVehicle);
+  useEffect(() => { onDetailOpenChange?.(detailOpen); }, [detailOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function remove(item: CatalogItem) {
     if (role !== "superadmin") return;
@@ -110,7 +113,8 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
     if (!window.confirm(locale === "cs" ? `Opravdu odstranit ${itemName}? Historické závody zůstanou zachované.` : `Remove ${itemName}? Historical races will remain preserved.`)) return;
     const response = await fetch("/api/catalog", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: kind, id: item.id }) });
     if (!response.ok) {
-      window.alert(locale === "cs" ? "Záznam se nepodařilo odstranit." : "Could not remove the record.");
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      window.alert(friendlyCatalogError(result.error || "Could not remove the record", locale));
       return;
     }
     await load();
@@ -128,7 +132,6 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
         <div><span className="eyebrow">MM DIRECTORY</span><h2>{l[kind][0]}</h2><p>{l.central}</p></div>
         <div className="catalog-summary-actions"><strong>{allItems.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {l.new} {l[kind][1].toLowerCase()}</button>}</div>
       </section>
-      {kind === "driver" && <DriverCategoryBoard locale={locale} items={data.drivers} onChanged={load} />}
       {kind === "driver" && <DriverCategoryTiles locale={locale} items={data.drivers} selected={driverFilter} onSelect={setDriverFilter} />}
       {kind === "carburetor" && <CarburetorTypesSection locale={locale} role={role} items={data.carburetorTypes ?? []} carburetors={data.carburetors} onChanged={load} />}
       {kind === "carburetor" && <CarburetorFilterTiles locale={locale} items={allItems as CarburetorRecord[]} category={carbCategoryFilter} status={carbStatusFilter} onCategoryChange={setCarbCategoryFilter} onStatusChange={setCarbStatusFilter} />}
@@ -147,65 +150,6 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
 function CatalogTable({ kind, locale, items, role, onOpen, onEdit, onDelete }: { kind: CatalogKind; locale: Locale; items: CatalogItem[]; role: Role; onOpen: (item: CatalogItem) => void; onEdit: (item: CatalogItem) => void; onDelete: (item: CatalogItem) => void }) {
   const l = labels[locale];
   return <div className="table-wrap"><table className="results zebra catalog-table"><thead><tr>{headers(kind, locale).map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{l.actions}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id} className={`${["carburetor", "mechanic", "driver", "team", "vehicle"].includes(kind) ? "clickable-row" : ""}${kind === "driver" && !(item as DriverRecord).isActive ? " inactive-record" : ""}`} onClick={() => onOpen(item)}>{cells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td onClick={(event) => event.stopPropagation()}><div className="record-actions">{(kind === "driver" || kind === "team") && <button className="card-action" type="button" onClick={() => onOpen(item)}>{locale === "cs" ? "Karta" : "Card"}</button>}<button type="button" onClick={() => onEdit(item)}>{l.edit}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{l.delete}</button>}</div></td>}</tr>)}</tbody></table></div>;
-}
-
-const NO_CATEGORY = "__none__";
-
-function DriverCategoryBoard({ locale, items, onChanged }: { locale: Locale; items: DriverRecord[]; onChanged: () => Promise<void> }) {
-  const [draggedId, setDraggedId] = useState<string | null>(null);
-  const [dragOverColumn, setDragOverColumn] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const active = items.filter((driver) => driver.isActive);
-  const columns = [...categoryOrder, ...(active.some((driver) => !driver.defaultCategory) ? [NO_CATEGORY] : [])]
-    .filter((category) => active.some((driver) => (driver.defaultCategory || NO_CATEGORY) === category));
-
-  if (columns.length === 0) return null;
-
-  async function moveDriver(driver: DriverRecord, category: string) {
-    if ((driver.defaultCategory || NO_CATEGORY) === category) return;
-    setSaving(true);
-    try {
-      const response = await fetch("/api/catalog", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ type: "driver", id: driver.id, name: driver.name, teamId: driver.teamId, defaultCategory: category === NO_CATEGORY ? "" : category, raceNumber: driver.raceNumber, nationality: driver.nationality, isActive: driver.isActive, notes: driver.notes }),
-      });
-      if (response.ok) await onChanged();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return <section className="dash-panel driver-category-board">
-    <header><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM DRIVER CATEGORIES</span><h2>{locale === "cs" ? "Piloti podle kategorie" : "Drivers by category"}</h2><p>{locale === "cs" ? "Přetažením pilota mezi kategoriemi změníš jeho výchozí kategorii." : "Drag a driver between categories to change their default category."}</p></header>
-    <div className="driver-category-board-grid">{columns.map((category) => {
-      const drivers = active.filter((driver) => (driver.defaultCategory || NO_CATEGORY) === category);
-      return <div
-        className={`driver-category-column${dragOverColumn === category ? " drag-over" : ""}`}
-        key={category}
-        onDragOver={(event) => { event.preventDefault(); setDragOverColumn(category); }}
-        onDragLeave={() => setDragOverColumn((current) => (current === category ? null : current))}
-        onDrop={(event) => {
-          event.preventDefault();
-          setDragOverColumn(null);
-          const driver = active.find((item) => item.id === draggedId);
-          setDraggedId(null);
-          if (driver) void moveDriver(driver, category);
-        }}
-      >
-        <div className="driver-category-column-title"><strong>{category === NO_CATEGORY ? (locale === "cs" ? "Bez kategorie" : "No category") : category}</strong><span>{drivers.length}</span></div>
-        <div className="driver-category-chips">{drivers.map((driver) => <button
-          type="button"
-          className={`driver-chip${draggedId === driver.id ? " dragging" : ""}`}
-          key={driver.id}
-          draggable
-          disabled={saving}
-          onDragStart={() => setDraggedId(driver.id)}
-          onDragEnd={() => { setDraggedId(null); setDragOverColumn(null); }}
-        >{driver.nationality && <span>{countryFlag(driver.nationality)}</span>}{driver.name}</button>)}</div>
-      </div>;
-    })}</div>
-  </section>;
 }
 
 function DriverCategoryTiles({ locale, items, selected, onSelect }: { locale: Locale; items: DriverRecord[]; selected: DriverFilter; onSelect: (filter: DriverFilter) => void }) {
@@ -325,9 +269,11 @@ function RaceTypeFields({ raceType, locale, notesLabel }: { raceType: RaceTypeRe
 
 function TeamFields({ team, locale, notesLabel }: { team: TeamRecord | null; locale: Locale; notesLabel: string }) {
   const [removeLogo, setRemoveLogo] = useState(false);
+  const customers = useBillingCustomers();
   return <>
     <label><span>{locale === "cs" ? "Název týmu" : "Team name"} *</span><input name="name" defaultValue={team?.name ?? ""} required autoFocus maxLength={120} /></label>
     <label><span>{locale === "cs" ? "Země" : "Country"}</span><CountrySelect name="countryCode" defaultValue={team?.countryCode} locale={locale} /></label>
+    <label><span>{locale === "cs" ? "Vedeno jako zákazník" : "Billed as customer"}</span><select name="customerId" defaultValue={team?.customerId ?? ""}><option value="">{locale === "cs" ? "— tým není zákazník —" : "— team is not a customer —"}</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select><small className="field-help">{locale === "cs" ? "Pokud tým fakturuje centrálně za piloty, propoj ho s existujícím zákazníkem." : "If the team is billed centrally for its drivers, link it to an existing customer."}</small></label>
     <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Logo týmu" : "Team logo"}</span>
       {team?.logoUrl && !removeLogo && <div className="race-logo-preview"><RaceLogoBadge logoUrl={team.logoUrl} name={team.name} size="large" /><div><strong>{locale === "cs" ? "Aktuální logo" : "Current logo"}</strong><button type="button" onClick={() => setRemoveLogo(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
       {removeLogo && <input type="hidden" name="removeLogo" value="1" />}
@@ -340,13 +286,26 @@ function TeamFields({ team, locale, notesLabel }: { team: TeamRecord | null; loc
 
 function DriverFields({ driver, teams, locale, notesLabel }: { driver: DriverRecord | null; teams: TeamRecord[]; locale: Locale; notesLabel: string }) {
   const [removeLogo, setRemoveLogo] = useState(false);
+  const [teamId, setTeamId] = useState(driver?.teamId ?? "");
+  const [billingMode, setBillingMode] = useState<"self" | "team" | "customer">(driver?.billingMode ?? "self");
+  const customers = useBillingCustomers();
   return <>
     <label><span>{locale === "cs" ? "Jméno pilota" : "Driver name"} *</span><input name="name" defaultValue={driver?.name ?? ""} required autoFocus maxLength={120} /></label>
-    <label><span>{locale === "cs" ? "Tým" : "Team"}</span><select name="teamId" defaultValue={driver?.teamId ?? ""}><option value="">{locale === "cs" ? "Bez týmu" : "No team"}</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
+    <label><span>{locale === "cs" ? "Tým" : "Team"}</span><select name="teamId" value={teamId} onChange={(event) => { setTeamId(event.target.value); if (!event.target.value && billingMode === "team") setBillingMode("self"); }}><option value="">{locale === "cs" ? "Bez týmu" : "No team"}</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
     <label><span>{locale === "cs" ? "Výchozí kategorie" : "Default category"}</span><select name="defaultCategory" defaultValue={driver?.defaultCategory ?? ""}><option value="">—</option>{categoryOrder.map((category) => <option key={category}>{category}</option>)}</select></label>
     <label><span>{locale === "cs" ? "Startovní číslo" : "Race number"}</span><input name="raceNumber" defaultValue={driver?.raceNumber ?? ""} maxLength={10} /></label>
     <label><span>{locale === "cs" ? "Národnost" : "Nationality"}</span><CountrySelect name="nationality" defaultValue={driver?.nationality} locale={locale} /></label>
     <label><span>{locale === "cs" ? "Stav pilota" : "Driver status"}</span><select name="isActive" defaultValue={driver?.isActive === false ? "0" : "1"}><option value="1">{locale === "cs" ? "Aktivní" : "Active"}</option><option value="0">{locale === "cs" ? "Neaktivní – historie zůstane zachována" : "Inactive – history is preserved"}</option></select></label>
+    <fieldset className="driver-billing-field full-field"><legend>{locale === "cs" ? "Fakturace" : "Billing"}</legend>
+      <input type="hidden" name="billingMode" value={billingMode} />
+      <div className="driver-billing-modes">
+        <button type="button" className={billingMode === "self" ? "active" : ""} onClick={() => setBillingMode("self")}>{locale === "cs" ? "Platí sám" : "Pays themselves"}</button>
+        <button type="button" className={billingMode === "team" ? "active" : ""} disabled={!teamId} onClick={() => setBillingMode("team")}>{locale === "cs" ? "Tým" : "Team"}</button>
+        <button type="button" className={billingMode === "customer" ? "active" : ""} onClick={() => setBillingMode("customer")}>{locale === "cs" ? "Zákazník" : "Customer"}</button>
+      </div>
+      {billingMode === "customer" && <label className="full-field"><span>{locale === "cs" ? "Zákazník" : "Customer"} *</span><select name="customerId" defaultValue={driver?.customerId ?? ""} required><option value="">{locale === "cs" ? "Vyber zákazníka…" : "Select customer…"}</option>{customers.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>}
+      <small className="field-help">{billingMode === "team" ? (locale === "cs" ? "Faktura půjde na tým (případně na jeho propojeného zákazníka)." : "The invoice goes to the team (or its linked customer, if any).") : billingMode === "customer" ? (locale === "cs" ? "Faktura půjde přímo na vybraného zákazníka." : "The invoice goes directly to the selected customer.") : (locale === "cs" ? "Faktura půjde na jméno pilota, bez evidence zákazníka." : "The invoice goes under the driver's own name, no customer record.")}</small>
+    </fieldset>
     <label className="full-field race-logo-upload"><span>{locale === "cs" ? "Fotka pilota" : "Driver photo"}</span>
       {driver?.photoUrl && !removeLogo && <div className="race-logo-preview"><RaceLogoBadge logoUrl={driver.photoUrl} name={driver.name} size="large" /><div><strong>{locale === "cs" ? "Aktuální fotka" : "Current photo"}</strong><button type="button" onClick={() => setRemoveLogo(true)}>{locale === "cs" ? "Odstranit" : "Remove"}</button></div></div>}
       {removeLogo && <input type="hidden" name="removeLogo" value="1" />}
@@ -563,6 +522,20 @@ function Notes({ value = "", label }: { value?: string; label: string }) {
   return <label className="full-field"><span>{label}</span><textarea name="notes" defaultValue={value} rows={3} /></label>;
 }
 
+function useBillingCustomers() {
+  const [customers, setCustomers] = useState<CustomerRecord[]>([]);
+  useEffect(() => {
+    let active = true;
+    fetch("/api/customers", { cache: "no-store" }).then(async (response) => {
+      if (!response.ok) throw new Error();
+      const result = await response.json() as { customers: CustomerRecord[] };
+      if (active) setCustomers(result.customers ?? []);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+  return customers;
+}
+
 function pluralKey(kind: CatalogKind): keyof CatalogData {
   return ({ raceType: "raceTypes", team: "teams", driver: "drivers", mechanic: "mechanics", vehicle: "vehicles", carburetor: "carburetors" } as const)[kind];
 }
@@ -629,6 +602,7 @@ function friendlyCatalogError(error: string, locale: Locale) {
     "Carburetor type not found": "Vyber předdefinovaný typ karburátoru.",
     "Category is not compatible with carburetor type": "Vybraná kategorie nepatří k tomuto typu karburátoru.",
     "Select a logo file": "Vyber soubor s logem.",
+    "Race type is still used by an existing race": "Tento typ závodu je stále použitý u existujícího závodu, nejde smazat.",
     "Logo must be PNG, JPG or WebP": "Logo musí být ve formátu PNG, JPG nebo WebP.",
     "Logo is larger than 5 MB": "Logo je větší než povolených 5 MB.",
     "Logo upload failed": "Logo se nepodařilo nahrát.",
@@ -637,6 +611,8 @@ function friendlyCatalogError(error: string, locale: Locale) {
     "Photo must be PNG, JPG or WebP": "Fotka musí být ve formátu PNG, JPG nebo WebP.",
     "Photo is larger than 5 MB": "Fotka je větší než povolených 5 MB.",
     "Vehicle not found": "Auto už nebylo nalezeno.",
+    "Could not remove the record": "Záznam se nepodařilo odstranit.",
+    "Item not found": "Záznam už nebyl nalezen.",
   };
   return map[error] ?? error;
 }

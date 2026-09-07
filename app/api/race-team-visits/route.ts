@@ -14,11 +14,13 @@ type VisitPayload = {
   itemType?: ItemType;
   resourceId?: string | null;
   description?: string;
+  quantity?: number;
   visitDate?: string;
   mechanicId?: string | null;
   mechanicName?: string;
   currency?: "CZK" | "EUR";
   amountCents?: number | null;
+  isPaid?: boolean;
   notes?: string;
 };
 
@@ -64,12 +66,12 @@ export async function GET(request: Request) {
   const visits = await getD1().prepare(`
     SELECT id, race_id AS raceId, team_id AS teamId, team_name AS teamName,
            driver_id AS driverId, driver_name AS driverName, item_type AS itemType,
-           resource_id AS resourceId, description, visit_date AS visitDate, mechanic_id AS mechanicId, mechanic_name AS mechanicName, currency, amount_cents AS amountCents, notes,
+           resource_id AS resourceId, description, quantity, visit_date AS visitDate, mechanic_id AS mechanicId, mechanic_name AS mechanicName, currency, amount_cents AS amountCents, is_paid AS isPaid, notes,
            created_at AS createdAt, updated_at AS updatedAt
     FROM race_team_visits WHERE race_id = ? ORDER BY team_name COLLATE NOCASE, created_at
   `).bind(raceId).all<Record<string, unknown>>();
   const visitRows: Array<Record<string, unknown>> = visits.results;
-  return Response.json({ visits: visitRows.map((item) => ({ ...item, amountCents: item.amountCents === null ? null : Number(item.amountCents) })) });
+  return Response.json({ visits: visitRows.map((item) => ({ ...item, quantity: Number(item.quantity) || 1, amountCents: item.amountCents === null ? null : Number(item.amountCents), isPaid: Boolean(item.isPaid) })) });
 }
 
 export async function POST(request: Request) {
@@ -112,7 +114,7 @@ export async function DELETE(request: Request) {
     d1.prepare("DELETE FROM race_team_visits WHERE id = ? AND race_id = ?").bind(id, raceId),
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'delete', 'race_team_visit', ?, ?, ?)").bind(crypto.randomUUID(), user.email, id, JSON.stringify(existing), now),
   ];
-  if (existing.item_type === "stock" && existing.resource_id) statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + 1, updated_at = ? WHERE id = ?").bind(now, existing.resource_id as string));
+  if (existing.item_type === "stock" && existing.resource_id) statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + ?, updated_at = ? WHERE id = ?").bind(Number(existing.quantity) || 1, now, existing.resource_id as string));
   await d1.batch(statements);
   return Response.json({ id });
 }
@@ -139,36 +141,42 @@ async function saveVisit(payload: VisitPayload, user: AppUser, editing: boolean)
   const currency = payload.currency;
   const hasAmount = payload.amountCents !== null && payload.amountCents !== undefined && payload.amountCents !== ("" as unknown);
   const amountCents = hasAmount ? Number(payload.amountCents) : null;
+  const quantity = Number.isInteger(Number(payload.quantity)) && Number(payload.quantity) > 0 ? Number(payload.quantity) : 1;
+  const isPaid = Boolean(payload.isPaid);
 
   if (!teamName) return Response.json({ error: "Team is required" }, { status: 400 });
   if (!itemType || !ITEM_TYPES.includes(itemType)) return Response.json({ error: "Invalid item type" }, { status: 400 });
   if (!description) return Response.json({ error: "Description is required" }, { status: 400 });
   if (!currency || !["CZK", "EUR"].includes(currency)) return Response.json({ error: "Currency must be CZK or EUR" }, { status: 400 });
   if (amountCents !== null && (!Number.isInteger(amountCents) || amountCents < 0 || amountCents > 1_000_000_000)) return Response.json({ error: "Invalid amount" }, { status: 400 });
+  if (quantity > 10_000) return Response.json({ error: "Invalid quantity" }, { status: 400 });
 
   const d1 = getD1();
   const id = editing ? clean(payload.id, 80) : crypto.randomUUID();
-  const existing = editing ? await d1.prepare("SELECT id, item_type AS itemType, resource_id AS resourceId FROM race_team_visits WHERE id = ? AND race_id = ?").bind(id, raceId).first<{ id: string; itemType: ItemType; resourceId: string | null }>() : null;
+  const existing = editing ? await d1.prepare("SELECT id, item_type AS itemType, resource_id AS resourceId, quantity FROM race_team_visits WHERE id = ? AND race_id = ?").bind(id, raceId).first<{ id: string; itemType: ItemType; resourceId: string | null; quantity: number }>() : null;
   if (editing && !existing) return Response.json({ error: "Visit not found" }, { status: 404 });
 
   const previousStockId = existing?.itemType === "stock" ? existing.resourceId : null;
+  const previousQuantity = previousStockId ? Number(existing?.quantity) || 1 : 0;
   const nextStockId = itemType === "stock" ? resourceId : null;
-  if (nextStockId && nextStockId !== previousStockId) {
+  const nextQuantity = nextStockId ? quantity : 0;
+  if (nextStockId) {
     const part = await d1.prepare("SELECT quantity FROM inventory_parts WHERE id = ? AND archived_at IS NULL").bind(nextStockId).first<{ quantity: number }>();
     if (!part) return Response.json({ error: "Stock item not found" }, { status: 404 });
-    if (part.quantity < 1) return Response.json({ error: "Stock item is out of stock" }, { status: 409 });
+    const available = part.quantity + (nextStockId === previousStockId ? previousQuantity : 0);
+    if (available < nextQuantity) return Response.json({ error: "Stock item is out of stock" }, { status: 409 });
   }
 
   const now = Date.now();
   const statement = editing
-    ? d1.prepare("UPDATE race_team_visits SET team_id = ?, team_name = ?, driver_id = ?, driver_name = ?, item_type = ?, resource_id = ?, description = ?, visit_date = ?, mechanic_id = ?, mechanic_name = ?, currency = ?, amount_cents = ?, notes = ?, updated_at = ? WHERE id = ? AND race_id = ?").bind(teamId, teamName, driverId, driverName, itemType, resourceId, description, visitDate, mechanicId, mechanicName, currency, amountCents, notes, now, id, raceId)
-    : d1.prepare("INSERT INTO race_team_visits (id, race_id, team_id, team_name, driver_id, driver_name, item_type, resource_id, description, visit_date, mechanic_id, mechanic_name, currency, amount_cents, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, raceId, teamId, teamName, driverId, driverName, itemType, resourceId, description, visitDate, mechanicId, mechanicName, currency, amountCents, notes, user.email, now, now);
+    ? d1.prepare("UPDATE race_team_visits SET team_id = ?, team_name = ?, driver_id = ?, driver_name = ?, item_type = ?, resource_id = ?, description = ?, quantity = ?, visit_date = ?, mechanic_id = ?, mechanic_name = ?, currency = ?, amount_cents = ?, is_paid = ?, notes = ?, updated_at = ? WHERE id = ? AND race_id = ?").bind(teamId, teamName, driverId, driverName, itemType, resourceId, description, quantity, visitDate, mechanicId, mechanicName, currency, amountCents, isPaid ? 1 : 0, notes, now, id, raceId)
+    : d1.prepare("INSERT INTO race_team_visits (id, race_id, team_id, team_name, driver_id, driver_name, item_type, resource_id, description, quantity, visit_date, mechanic_id, mechanic_name, currency, amount_cents, is_paid, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, raceId, teamId, teamName, driverId, driverName, itemType, resourceId, description, quantity, visitDate, mechanicId, mechanicName, currency, amountCents, isPaid ? 1 : 0, notes, user.email, now, now);
   const statements = [
     statement,
-    d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, 'race_team_visit', ?, ?, ?)").bind(crypto.randomUUID(), user.email, editing ? "update" : "create", id, JSON.stringify({ raceId, teamName, driverName, itemType, description, currency, amountCents }), now),
+    d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, ?, 'race_team_visit', ?, ?, ?)").bind(crypto.randomUUID(), user.email, editing ? "update" : "create", id, JSON.stringify({ raceId, teamName, driverName, itemType, description, quantity, currency, amountCents, isPaid }), now),
   ];
-  if (previousStockId && previousStockId !== nextStockId) statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + 1, updated_at = ? WHERE id = ?").bind(now, previousStockId));
-  if (nextStockId && nextStockId !== previousStockId) statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity - 1, updated_at = ? WHERE id = ?").bind(now, nextStockId));
+  if (previousStockId) statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + ?, updated_at = ? WHERE id = ?").bind(previousQuantity, now, previousStockId));
+  if (nextStockId) statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity - ?, updated_at = ? WHERE id = ?").bind(nextQuantity, now, nextStockId));
   await d1.batch(statements);
   return Response.json({ id }, { status: editing ? 200 : 201 });
 }

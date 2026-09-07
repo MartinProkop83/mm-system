@@ -29,17 +29,25 @@ export async function GET(request: Request) {
                d.default_category AS defaultCategory, d.race_number AS raceNumber,
                d.nationality, d.is_active AS isActive, d.notes,
                d.photo_key AS photoKey, d.photo_updated_at AS photoUpdatedAt,
+               d.billing_mode AS billingMode, d.customer_id AS customerId,
+               COALESCE(c.name, '') AS customerName,
+               COALESCE(t.customer_id, '') AS teamCustomerId,
+               COALESCE(tc.name, '') AS teamCustomerName,
                d.created_at AS createdAt, d.updated_at AS updatedAt
         FROM drivers d
         LEFT JOIN teams t ON t.id = d.team_id
+        LEFT JOIN customers c ON c.id = d.customer_id
+        LEFT JOIN customers tc ON tc.id = t.customer_id
         WHERE d.id = ? AND d.archived_at IS NULL
       `).bind(id)
     : d1.prepare(`
-        SELECT id, name, country_code AS countryCode, notes,
-               logo_key AS logoKey, logo_updated_at AS logoUpdatedAt,
-               created_at AS createdAt, updated_at AS updatedAt
+        SELECT teams.id, teams.name, teams.country_code AS countryCode, teams.notes,
+               teams.logo_key AS logoKey, teams.logo_updated_at AS logoUpdatedAt,
+               teams.customer_id AS customerId, COALESCE(c.name, '') AS customerName,
+               teams.created_at AS createdAt, teams.updated_at AS updatedAt
         FROM teams
-        WHERE id = ? AND archived_at IS NULL
+        LEFT JOIN customers c ON c.id = teams.customer_id
+        WHERE teams.id = ? AND teams.archived_at IS NULL
       `).bind(id);
 
   const historyColumn = type === "driver" ? "e.driver_id" : "e.team_id";

@@ -407,6 +407,32 @@ async function createRuntimeSchema() {
       )
     `),
     d1.prepare(`
+      CREATE TABLE IF NOT EXISTS race_checklists (
+        id TEXT PRIMARY KEY NOT NULL,
+        race_id TEXT NOT NULL,
+        checklist_id TEXT,
+        vehicle_id TEXT,
+        vehicle_name_snapshot TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS race_checklist_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        race_checklist_id TEXT NOT NULL,
+        section TEXT NOT NULL DEFAULT '',
+        part_number TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        is_checked INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      )
+    `),
+    d1.prepare(`
       CREATE TABLE IF NOT EXISTS race_deliveries (
         id TEXT PRIMARY KEY NOT NULL,
         race_id TEXT NOT NULL,
@@ -435,11 +461,13 @@ async function createRuntimeSchema() {
         item_type TEXT NOT NULL DEFAULT 'part' CHECK (item_type IN ('part', 'service', 'stock', 'oil', 'other')),
         resource_id TEXT,
         description TEXT NOT NULL DEFAULT '',
+        quantity INTEGER NOT NULL DEFAULT 1,
         visit_date TEXT NOT NULL DEFAULT '',
         mechanic_id TEXT,
         mechanic_name TEXT NOT NULL DEFAULT '',
         currency TEXT NOT NULL DEFAULT 'CZK' CHECK (currency IN ('CZK', 'EUR')),
         amount_cents INTEGER,
+        is_paid INTEGER NOT NULL DEFAULT 0,
         notes TEXT NOT NULL DEFAULT '',
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL,
@@ -672,6 +700,28 @@ async function createRuntimeSchema() {
         line_total_cents INTEGER NOT NULL DEFAULT 0
       )
     `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS checklists (
+        id TEXT PRIMARY KEY NOT NULL,
+        name TEXT NOT NULL,
+        notes TEXT NOT NULL DEFAULT '',
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS checklist_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        checklist_id TEXT NOT NULL,
+        section TEXT NOT NULL DEFAULT '',
+        part_number TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0
+      )
+    `),
     d1.prepare("CREATE INDEX IF NOT EXISTS engines_status_idx ON engines (status)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_usage_engine_idx ON engine_usage_logs (engine_id, entry_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_engine_idx ON engine_service_entries (engine_id, service_date)"),
@@ -711,6 +761,10 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS audit_logs_entity_idx ON audit_logs (entity_type, entity_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS work_items_status_due_idx ON work_items (status, due_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS work_items_race_idx ON work_items (race_id)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS checklists_name_unique_idx ON checklists (LOWER(name)) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS checklist_items_checklist_idx ON checklist_items (checklist_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS race_checklists_race_idx ON race_checklists (race_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS race_checklist_items_checklist_idx ON race_checklist_items (race_checklist_id, sort_order)"),
   ]);
 
   const columns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();
@@ -816,6 +870,7 @@ async function createRuntimeSchema() {
     ["logo_key", "ALTER TABLE teams ADD COLUMN logo_key TEXT"],
     ["logo_content_type", "ALTER TABLE teams ADD COLUMN logo_content_type TEXT"],
     ["logo_updated_at", "ALTER TABLE teams ADD COLUMN logo_updated_at INTEGER"],
+    ["customer_id", "ALTER TABLE teams ADD COLUMN customer_id TEXT"],
   ].filter(([name]) => !existingTeamColumns.has(name));
   if (teamAdditions.length > 0) await d1.batch(teamAdditions.map(([, statement]) => d1.prepare(statement)));
 
@@ -874,6 +929,8 @@ async function createRuntimeSchema() {
     ["photo_key", "ALTER TABLE drivers ADD COLUMN photo_key TEXT"],
     ["photo_content_type", "ALTER TABLE drivers ADD COLUMN photo_content_type TEXT"],
     ["photo_updated_at", "ALTER TABLE drivers ADD COLUMN photo_updated_at INTEGER"],
+    ["billing_mode", "ALTER TABLE drivers ADD COLUMN billing_mode TEXT NOT NULL DEFAULT 'self'"],
+    ["customer_id", "ALTER TABLE drivers ADD COLUMN customer_id TEXT"],
   ].filter(([name]) => !existingDriverPhotoColumns.has(name));
   if (driverPhotoAdditions.length > 0) await d1.batch(driverPhotoAdditions.map(([, statement]) => d1.prepare(statement)));
 
@@ -987,6 +1044,8 @@ async function createRuntimeSchema() {
   const visitMechanicAdditions = [
     ["mechanic_id", "ALTER TABLE race_team_visits ADD COLUMN mechanic_id TEXT"],
     ["mechanic_name", "ALTER TABLE race_team_visits ADD COLUMN mechanic_name TEXT NOT NULL DEFAULT ''"],
+    ["quantity", "ALTER TABLE race_team_visits ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1"],
+    ["is_paid", "ALTER TABLE race_team_visits ADD COLUMN is_paid INTEGER NOT NULL DEFAULT 0"],
   ].filter(([name]) => !existingVisitColumns.has(name));
   if (visitMechanicAdditions.length > 0) await d1.batch(visitMechanicAdditions.map(([, statement]) => d1.prepare(statement)));
   await ensureRaceTeamVisitsOilType(d1);

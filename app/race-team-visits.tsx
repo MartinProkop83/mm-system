@@ -28,11 +28,13 @@ type TeamVisit = {
   itemType: ItemType;
   resourceId: string | null;
   description: string;
+  quantity: number;
   visitDate: string;
   mechanicId: string | null;
   mechanicName: string;
   currency: Currency;
   amountCents: number | null;
+  isPaid: boolean;
   notes: string;
 };
 
@@ -83,6 +85,16 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
     await load();
   }
 
+  async function togglePaid(visit: TeamVisit) {
+    const response = await fetch("/api/race-team-visits", {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ ...visit, id: visit.id, raceId: race.id, isPaid: !visit.isPaid }),
+    });
+    if (!response.ok) return showVisitError(response, locale);
+    await load();
+  }
+
   const groups = useMemo(() => {
     const map = new Map<string, { teamName: string; teamId: string | null; logoUrl?: string; items: TeamVisit[] }>();
     for (const visit of visits) {
@@ -106,8 +118,9 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
           <div className="race-team-visit-rows">{group.items.map((visit) => <div className="race-team-visit-row" key={visit.id}>
             <div className="race-team-visit-row-top">
               <span className={`race-team-visit-type type-${visit.itemType}`}>{itemTypeLabel(visit.itemType, locale)}</span>
-              <strong className="race-team-visit-title">{visit.description}</strong>
+              <strong className="race-team-visit-title">{visit.quantity > 1 ? `${visit.quantity}× ` : ""}{visit.description}</strong>
               <span className="race-team-visit-price">{visit.amountCents !== null ? formatMoney(visit.amountCents, visit.currency, locale) : "—"}</span>
+              {visit.amountCents !== null && (canManage ? <button type="button" className={`delivery-payment-toggle no-print ${visit.isPaid ? "paid" : "unpaid"}`} onClick={() => { void togglePaid(visit); }}>{visit.isPaid ? "✓" : "○"} {visit.isPaid ? (locale === "cs" ? "Zaplaceno" : "Paid") : (locale === "cs" ? "Nezaplaceno" : "Unpaid")}</button> : <span className={`status-pill ${visit.isPaid ? "success" : "danger"}`}>{visit.isPaid ? "✓" : "○"} {visit.isPaid ? (locale === "cs" ? "Zaplaceno" : "Paid") : (locale === "cs" ? "Nezaplaceno" : "Unpaid")}</span>)}
               {canManage && <span className="race-team-visit-actions no-print"><button type="button" onClick={() => setEditing(visit)} aria-label={locale === "cs" ? "Upravit" : "Edit"} title={locale === "cs" ? "Upravit" : "Edit"}>✎</button><button className="delete" type="button" onClick={() => { void remove(visit); }} aria-label={locale === "cs" ? "Odebrat" : "Remove"} title={locale === "cs" ? "Odebrat" : "Remove"}>×</button></span>}
             </div>
             <div className="race-team-visit-meta">
@@ -138,10 +151,12 @@ function VisitForm({ raceId, visit, teams, drivers, mechanics, parts, services, 
   const [oilBrand, setOilBrand] = useState<OilBrand | "">("");
   const [oilPackaging, setOilPackaging] = useState<OilPackaging>("1l");
   const [description, setDescription] = useState(visit?.description ?? "");
+  const [quantity, setQuantity] = useState(visit?.quantity ?? 1);
   const [visitDate, setVisitDate] = useState(visit?.visitDate || today());
   const [mechanicId, setMechanicId] = useState(visit?.mechanicId ?? "");
   const [currency, setCurrency] = useState<Currency>(visit?.currency ?? "CZK");
   const [amount, setAmount] = useState(visit && visit.amountCents !== null ? (visit.amountCents / 100).toFixed(2) : "");
+  const [isPaid, setIsPaid] = useState(visit?.isPaid ?? false);
   const [notes, setNotes] = useState(visit?.notes ?? "");
 
   const isNewTeam = teamId === NEW_TEAM_VALUE;
@@ -168,25 +183,44 @@ function VisitForm({ raceId, visit, teams, drivers, mechanics, parts, services, 
     if (oilBrand) setDescription(oilDescription(oilBrand, packaging, locale));
   }
 
+  function unitPriceCents(id: string, forCurrency: Currency) {
+    if (itemType === "service") {
+      const service = services.find((item) => item.id === id);
+      return service ? (forCurrency === "CZK" ? service.priceCzkCents : service.priceEurCents) : null;
+    }
+    if (itemType === "stock") {
+      const part = parts.find((item) => item.id === id);
+      return part ? (forCurrency === "CZK" ? part.priceCzkCents : part.priceEurCents) : null;
+    }
+    return null;
+  }
+
   function changeResource(id: string) {
     setResourceId(id);
     if (itemType === "service") {
       const service = services.find((item) => item.id === id);
-      if (service) { setDescription(service.name); setAmount(priceFor(currency === "CZK" ? service.priceCzkCents : service.priceEurCents)); }
+      if (service) setDescription(service.name);
     } else if (itemType === "stock") {
       const part = parts.find((item) => item.id === id);
-      if (part) { setDescription(part.name); setAmount(priceFor(currency === "CZK" ? part.priceCzkCents : part.priceEurCents)); }
+      if (part) setDescription(part.name);
     }
+    const unit = unitPriceCents(id, currency);
+    if (unit !== null) setAmount(priceFor(unit * quantity));
   }
 
   function changeCurrency(nextCurrency: Currency) {
     setCurrency(nextCurrency);
-    if (itemType === "service" && resourceId) {
-      const service = services.find((item) => item.id === resourceId);
-      if (service) setAmount(priceFor(nextCurrency === "CZK" ? service.priceCzkCents : service.priceEurCents));
-    } else if (itemType === "stock" && resourceId) {
-      const part = parts.find((item) => item.id === resourceId);
-      if (part) setAmount(priceFor(nextCurrency === "CZK" ? part.priceCzkCents : part.priceEurCents));
+    if (resourceId) {
+      const unit = unitPriceCents(resourceId, nextCurrency);
+      if (unit !== null) setAmount(priceFor(unit * quantity));
+    }
+  }
+
+  function changeQuantity(nextQuantity: number) {
+    setQuantity(nextQuantity);
+    if (resourceId) {
+      const unit = unitPriceCents(resourceId, currency);
+      if (unit !== null) setAmount(priceFor(unit * nextQuantity));
     }
   }
 
@@ -225,11 +259,13 @@ function VisitForm({ raceId, visit, teams, drivers, mechanics, parts, services, 
       itemType,
       resourceId: resourceId || null,
       description: description.trim(),
+      quantity,
       visitDate,
       mechanicId: mechanicId || null,
       mechanicName: mechanics.find((mechanic) => mechanic.id === mechanicId)?.name ?? "",
       currency,
       amountCents,
+      isPaid,
       notes: notes.trim(),
     };
     try {
@@ -270,7 +306,9 @@ function VisitForm({ raceId, visit, teams, drivers, mechanics, parts, services, 
           {itemType === "oil" && <label><span>{locale === "cs" ? "Druh oleje" : "Oil brand"}</span><select value={oilBrand} onChange={(event) => changeOilBrand(event.target.value as OilBrand)}><option value="">{locale === "cs" ? "— vybrat —" : "— select —"}</option><option value="factory">Factory</option><option value="castor_blend">Castor Blend</option></select></label>}
           {itemType === "oil" && <label><span>{locale === "cs" ? "Balení" : "Packaging"}</span><select value={oilPackaging} onChange={(event) => changeOilPackaging(event.target.value as OilPackaging)}><option value="1l">1 l</option><option value="carton12l">{locale === "cs" ? "Karton (12 l)" : "Carton (12 l)"}</option></select></label>}
           <label className="full-field"><span>{locale === "cs" ? "Co to bylo" : "What it was"} *</span><input value={description} onChange={(event) => setDescription(event.target.value)} required placeholder={locale === "cs" ? "např. svíčka, seřízení karburátoru…" : "e.g. spark plug, carburetor adjustment…"} /></label>
-          <label><span>{locale === "cs" ? "Cena (nepovinné)" : "Price (optional)"}</span><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" /></label>
+          <label><span>{locale === "cs" ? "Množství" : "Quantity"}</span><input type="number" min="1" max="10000" value={quantity} onChange={(event) => changeQuantity(Math.max(1, Number(event.target.value) || 1))} /></label>
+          <label><span>{locale === "cs" ? "Cena celkem (nepovinné)" : "Total price (optional)"}</span><input inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="0,00" /></label>
+          <label className="settings-check"><input type="checkbox" checked={isPaid} onChange={(event) => setIsPaid(event.target.checked)} /><span>{locale === "cs" ? "Zaplaceno" : "Paid"}</span></label>
           <label className="full-field"><span>{locale === "cs" ? "Poznámka" : "Note"}</span><textarea rows={2} value={notes} onChange={(event) => setNotes(event.target.value)} /></label>
         </div>
         {error && <p className="form-error">{error}</p>}

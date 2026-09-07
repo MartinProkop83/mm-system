@@ -13,9 +13,16 @@ import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pages";
+import { ChecklistsPage } from "./checklist-pages";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
+// Views whose own page component already renders its own eyebrow/title/description hero —
+// the shared topbar skips its generic title there instead of repeating it.
+const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "sales", "inventory", "documents", "settings"];
+// Views backed by CatalogPage — its own detail sub-view (driver/team/mechanic/vehicle/carburetor card)
+// replaces the list and already carries its own back button + hero, so the topbar hides entirely there.
+const CATALOG_BACKED_VIEWS: View[] = ["raceTypes", "teams", "drivers", "carburetors", "mechanics", "vehicles"];
 type EngineFilter = "ALL" | "MINI" | "OKJ" | "OKN" | "OK" | "KZ";
 type EngineDetailTab = "overview" | "technical" | "service" | "hours" | "history" | "documents";
 
@@ -443,6 +450,8 @@ export default function Home() {
   const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
   const [raceDetailOpen, setRaceDetailOpen] = useState(false);
+  const [catalogDetailOpen, setCatalogDetailOpen] = useState(false);
+  useEffect(() => { setCatalogDetailOpen(false); }, [view]);
   const [currentHour, setCurrentHour] = useState<number | null>(null);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [devUsers, setDevUsers] = useState<DevUser[]>([]);
@@ -737,12 +746,19 @@ export default function Home() {
           </div>
         </div>
 
-        {!(view === "races" && raceDetailOpen) && <header className="topbar">
-          <div>
-            {view === "dashboard" && <div className="eyebrow"><span className="streak"><i /><i /><i /></span>{locale === "cs" ? `Sezóna ${new Date().getFullYear()}` : `Season ${new Date().getFullYear()}`}</div>}
-            <h1>{view === "dashboard" ? timeGreeting(locale, session?.fullName ?? "Martin Prokop", currentHour ?? 8) : view === "engines" && detailEngine ? `${locale === "cs" ? "Motor" : "Engine"} ${detailEngine.code}` : title}</h1>
-            <p>{view === "dashboard" ? t.subtitle : view === "engines" && detailEngine ? `TM Racing · ${detailEngine.family}` : locale === "cs" ? "Centrální správa Macháč Motors" : "Macháč Motors central management"}</p>
-          </div>
+        {!(view === "races" && raceDetailOpen) && !(CATALOG_BACKED_VIEWS.includes(view) && catalogDetailOpen) && !(view === "engines" && detailEngine) && <header className="topbar">
+          {view === "dashboard" ? (
+            <div>
+              <div className="eyebrow"><span className="streak"><i /><i /><i /></span>{locale === "cs" ? `Sezóna ${new Date().getFullYear()}` : `Season ${new Date().getFullYear()}`}</div>
+              <h1>{timeGreeting(locale, session?.fullName ?? "Martin Prokop", currentHour ?? 8)}</h1>
+              <p>{t.subtitle}</p>
+            </div>
+          ) : VIEWS_WITH_OWN_HERO.includes(view) ? <div /> : (
+            <div>
+              <h1>{title}</h1>
+              <p>{locale === "cs" ? "Centrální správa Macháč Motors" : "Macháč Motors central management"}</p>
+            </div>
+          )}
           <div className="topbar-actions">
             <button className="topbar-cta" type="button" onClick={() => setQuickServiceOpen(true)}>＋ {t.quick}</button>
           </div>
@@ -784,21 +800,22 @@ export default function Home() {
         )}
         {view === "races" && <RacePage locale={locale} role={session?.role ?? "mechanic"} openRaceId={requestedRaceId} onDetailOpenChange={setRaceDetailOpen} />}
         {view === "calendar" && <CalendarPage locale={locale} onOpenRace={(raceId) => { setRequestedRaceId(raceId); setView("races"); setDetailEngineId(null); }} />}
-        {view === "raceTypes" && <CatalogPage kind="raceType" locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "raceTypes" && <CatalogPage kind="raceType" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "circuits" && <CircuitsPage locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "teams" && <CatalogPage kind="team" locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "teams" && <CatalogPage kind="team" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "customers" && <CustomersPage locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "drivers" && <CatalogPage kind="driver" locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "carburetors" && <CatalogPage kind="carburetor" locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "mechanics" && <CatalogPage kind="mechanic" locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "drivers" && <CatalogPage kind="driver" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
+        {view === "carburetors" && <CatalogPage kind="carburetor" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
+        {view === "mechanics" && <CatalogPage kind="mechanic" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "clothing" && <ClothingPage locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "vehicles" && <CatalogPage kind="vehicle" locale={locale} role={session?.role ?? "mechanic"} initialVehicleId={notifiedVehicleId} onInitialVehicleIdConsumed={() => setNotifiedVehicleId(null)} />}
+        {view === "vehicles" && <CatalogPage kind="vehicle" locale={locale} role={session?.role ?? "mechanic"} initialVehicleId={notifiedVehicleId} onInitialVehicleIdConsumed={() => setNotifiedVehicleId(null)} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "accommodation" && <LogisticsPage kind="accommodation" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "flights" && <LogisticsPage kind="flight" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "rentals" && <LogisticsPage kind="rental" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "service" && <ServiceCatalogPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "settings" && session && (
           <SettingsPage
             locale={locale}
@@ -807,7 +824,7 @@ export default function Home() {
             onCurrentUserUpdated={(user) => setSession((current) => current ? { ...current, ...user } : current)}
           />
         )}
-        {!(["dashboard", "tasks", "calendar", "engines", "races", "raceTypes", "circuits", "teams", "customers", "drivers", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "sales", "inventory", "settings"] as View[]).includes(view) && (
+        {view !== "dashboard" && !VIEWS_WITH_OWN_HERO.includes(view) && (
           <section className="placeholder-panel">
             <span className="placeholder-mark">{nav.find((item) => item.id === view)?.mark}</span>
             <h2>{title}</h2>

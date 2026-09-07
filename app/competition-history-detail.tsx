@@ -8,7 +8,9 @@ import { RaceLogoBadge } from "./race-logo-badge";
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
 type EntityType = "driver" | "team";
-type Subject = DriverRecord | TeamRecord;
+type DriverSubject = DriverRecord & { customerName?: string; teamCustomerId?: string; teamCustomerName?: string };
+type TeamSubject = TeamRecord & { customerName?: string };
+type Subject = DriverSubject | TeamSubject;
 
 type Assignment = {
   id: string;
@@ -129,8 +131,9 @@ export function CompetitionHistoryDetail({ entityType, entityId, locale, role, o
 
   const isDriver = entityType === "driver";
   const subject = data.subject;
-  const driver = isDriver ? subject as DriverRecord : null;
-  const team = !isDriver ? subject as TeamRecord : null;
+  const driver = isDriver ? subject as DriverSubject : null;
+  const team = !isDriver ? subject as TeamSubject : null;
+  const billingTarget = isDriver ? driverBillingTarget(driver!, locale) : (team!.customerName || team!.name);
   const races = new Set(data.assignments.map((item) => item.raceId)).size;
   const drivers = new Set(data.assignments.map((item) => item.driverId)).size;
   const categories = new Set(data.assignments.map((item) => item.category).filter(Boolean)).size;
@@ -164,7 +167,7 @@ export function CompetitionHistoryDetail({ entityType, entityId, locale, role, o
     </section>
 
     {data.canViewFinance && <section className="dash-panel competition-finance-panel">
-      <header><div><span className="eyebrow">MM FINANCE</span><h3>{isDriver ? (locale === "cs" ? "Platby pilota" : "Driver payments") : (locale === "cs" ? "Finance týmu" : "Team finances")}</h3><p>{locale === "cs" ? "Přehled cen závodů, zaplacených částek a neuhrazených plateb." : "Race fees, paid amounts and outstanding payments."}</p></div><strong>{filteredRaceCount}</strong></header>
+      <header><div><span className="eyebrow">MM FINANCE</span><h3>{isDriver ? (locale === "cs" ? "Platby pilota" : "Driver payments") : (locale === "cs" ? "Finance týmu" : "Team finances")}</h3><p>{locale === "cs" ? "Přehled cen závodů, zaplacených částek a neuhrazených plateb." : "Race fees, paid amounts and outstanding payments."}</p><span className="competition-billing-target">{locale === "cs" ? "Fakturuje se:" : "Billed to:"} <b>{billingTarget}</b></span></div><strong>{filteredRaceCount}</strong></header>
       <div className="competition-finance-filters no-print">
         <label>{locale === "cs" ? "Závod" : "Race"}<select value={raceFilter} onChange={(event) => setRaceFilter(event.target.value)}><option value="all">{locale === "cs" ? "Všechny závody" : "All races"}</option>{raceOptions.map((item) => <option key={item.id} value={item.id}>{item.name} · {dateOnly(item.startDate, locale)}</option>)}</select></label>
         {!isDriver && <label>{locale === "cs" ? "Pilot" : "Driver"}<select value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}><option value="all">{locale === "cs" ? "Všichni piloti" : "All drivers"}</option>{driverOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}</select></label>}
@@ -191,6 +194,12 @@ export function CompetitionHistoryDetail({ entityType, entityId, locale, role, o
 function EquipmentSlots({ type, values, locale, compact = false }: { type: "engine" | "carburetor"; values: string[]; locale: Locale; compact?: boolean }) {
   const title = type === "engine" ? (locale === "cs" ? "Motory" : "Engines") : (locale === "cs" ? "Karburátory" : "Carburetors");
   return <div className={`equipment-slot-list ${compact ? "compact" : ""}`}><small>{title}</small><div>{values.map((value, index) => <span className={value ? "filled" : "empty"} key={index}><b>{index + 1}</b>{value || "—"}</span>)}</div></div>;
+}
+
+function driverBillingTarget(driver: DriverSubject, locale: Locale) {
+  if (driver.billingMode === "customer") return driver.customerName || driver.name;
+  if (driver.billingMode === "team") return driver.teamCustomerName || driver.teamName || (locale === "cs" ? "tým bez zákazníka" : "team without a customer");
+  return driver.name;
 }
 
 function uniqueEquipment(assignments: Assignment[], type: "engine" | "carburetor") {

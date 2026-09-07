@@ -93,6 +93,7 @@ export const teams = sqliteTable("teams", {
   logoKey: text("logo_key"),
   logoContentType: text("logo_content_type"),
   logoUpdatedAt: integer("logo_updated_at", { mode: "timestamp_ms" }),
+  customerId: text("customer_id"),
   archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -111,6 +112,8 @@ export const drivers = sqliteTable("drivers", {
   photoKey: text("photo_key"),
   photoContentType: text("photo_content_type"),
   photoUpdatedAt: integer("photo_updated_at", { mode: "timestamp_ms" }),
+  billingMode: text("billing_mode").notNull().default("self"),
+  customerId: text("customer_id"),
   archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -375,6 +378,30 @@ export const raceExtras = sqliteTable("race_extras", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const raceChecklists = sqliteTable("race_checklists", {
+  id: text("id").primaryKey(),
+  raceId: text("race_id").notNull(),
+  checklistId: text("checklist_id"),
+  vehicleId: text("vehicle_id"),
+  vehicleNameSnapshot: text("vehicle_name_snapshot").notNull().default(""),
+  name: text("name").notNull(),
+  notes: text("notes").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const raceChecklistItems = sqliteTable("race_checklist_items", {
+  id: text("id").primaryKey(),
+  raceChecklistId: text("race_checklist_id").notNull(),
+  section: text("section").notNull().default(""),
+  partNumber: text("part_number").notNull().default(""),
+  name: text("name").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  isChecked: integer("is_checked", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+});
+
 export const raceDeliveries = sqliteTable("race_deliveries", {
   id: text("id").primaryKey(),
   raceId: text("race_id").notNull(),
@@ -402,11 +429,13 @@ export const raceTeamVisits = sqliteTable("race_team_visits", {
   itemType: text("item_type", { enum: ["part", "service", "stock", "oil", "other"] }).notNull().default("part"),
   resourceId: text("resource_id"),
   description: text("description").notNull().default(""),
+  quantity: integer("quantity").notNull().default(1),
   visitDate: text("visit_date").notNull().default(""),
   mechanicId: text("mechanic_id"),
   mechanicName: text("mechanic_name").notNull().default(""),
   currency: text("currency", { enum: ["CZK", "EUR"] }).notNull().default("CZK"),
   amountCents: integer("amount_cents"),
+  isPaid: integer("is_paid", { mode: "boolean" }).notNull().default(false),
   notes: text("notes").notNull().default(""),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -599,6 +628,26 @@ export const inventoryParts = sqliteTable("inventory_parts", {
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const checklists = sqliteTable("checklists", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  notes: text("notes").notNull().default(""),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const checklistItems = sqliteTable("checklist_items", {
+  id: text("id").primaryKey(),
+  checklistId: text("checklist_id").notNull(),
+  section: text("section").notNull().default(""),
+  partNumber: text("part_number").notNull().default(""),
+  name: text("name").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  sortOrder: integer("sort_order").notNull().default(0),
 });
 
 export const auditLogs = sqliteTable("audit_logs", {

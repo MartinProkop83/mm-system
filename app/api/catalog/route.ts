@@ -28,6 +28,8 @@ type CatalogPayload = {
   raceNumber?: string;
   nationality?: string;
   isActive?: boolean | string | number;
+  billingMode?: string;
+  customerId?: string | null;
   licensePlate?: string;
   currentKm?: string | number;
   serviceIntervalKm?: string | number;
@@ -73,12 +75,13 @@ export async function GET() {
   const d1 = getD1();
   const [raceTypes, teams, drivers, mechanics, vehicles, carburetors, carburetorAssignments, mechanicAssignments, vehicleAssignments] = await Promise.all([
     d1.prepare(`SELECT id, name, notes, series_options AS seriesOptions, calendar_color AS calendarColor, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM race_templates WHERE archived_at IS NULL ORDER BY name`).all(),
-    d1.prepare(`SELECT id, name, country_code AS countryCode, notes, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM teams WHERE archived_at IS NULL ORDER BY name`).all(),
+    d1.prepare(`SELECT id, name, country_code AS countryCode, notes, logo_key AS logoKey, logo_updated_at AS logoUpdatedAt, customer_id AS customerId, created_at AS createdAt, updated_at AS updatedAt FROM teams WHERE archived_at IS NULL ORDER BY name`).all(),
     d1.prepare(`
       SELECT d.id, d.name, d.team_id AS teamId, COALESCE(t.name, '') AS teamName,
              d.default_category AS defaultCategory, d.race_number AS raceNumber,
              d.nationality, d.is_active AS isActive, d.notes,
              d.photo_key AS photoKey, d.photo_updated_at AS photoUpdatedAt,
+             d.billing_mode AS billingMode, d.customer_id AS customerId,
              d.created_at AS createdAt, d.updated_at AS updatedAt
       FROM drivers d LEFT JOIN teams t ON t.id = d.team_id
       WHERE d.archived_at IS NULL ORDER BY d.name
@@ -251,6 +254,10 @@ export async function DELETE(request: Request) {
   const d1 = getD1();
   const now = Date.now();
   const table = tableFor(payload.type!);
+  if (payload.type === "raceType") {
+    const inUse = await d1.prepare("SELECT id FROM races WHERE race_template_id = ? AND status != 'archived' LIMIT 1").bind(payload.id).first();
+    if (inUse) return Response.json({ error: "Race type is still used by an existing race" }, { status: 409 });
+  }
   const logoKey = payload.type === "raceType" || payload.type === "team" ? text(existing.logo_key, 500) : "";
   await d1.batch([
     d1.prepare(`UPDATE ${table} SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`).bind(now, now, payload.id),
@@ -276,11 +283,13 @@ async function validatePayload(payload: CatalogPayload) {
   if (payload.type === "raceType" || payload.type === "team") {
     if (!text(payload.name, 120)) return Response.json({ error: "Name is required" }, { status: 400 });
     if (payload.type === "team" && payload.countryCode && !isCountryCode(text(payload.countryCode, 3))) return Response.json({ error: "Invalid country" }, { status: 400 });
+    if (payload.type === "team" && payload.customerId && !(await getD1().prepare("SELECT id FROM customers WHERE id = ? AND archived_at IS NULL").bind(payload.customerId).first())) return Response.json({ error: "Customer not found" }, { status: 400 });
   } else if (payload.type === "driver") {
     if (!text(payload.name, 120)) return Response.json({ error: "Name is required" }, { status: 400 });
     if (payload.defaultCategory && !raceCategories.has(text(payload.defaultCategory))) return Response.json({ error: "Invalid category" }, { status: 400 });
     if (payload.teamId && !(await getD1().prepare("SELECT id FROM teams WHERE id = ? AND archived_at IS NULL").bind(payload.teamId).first())) return Response.json({ error: "Team not found" }, { status: 400 });
     if (payload.nationality && !isCountryCode(text(payload.nationality, 3))) return Response.json({ error: "Invalid country" }, { status: 400 });
+    if (billingModeValue(payload.billingMode) === "customer" && !(await getD1().prepare("SELECT id FROM customers WHERE id = ? AND archived_at IS NULL").bind(text(payload.customerId, 80)).first())) return Response.json({ error: "Customer not found" }, { status: 400 });
   } else if (payload.type === "mechanic" || payload.type === "vehicle") {
     if (!text(payload.name, 120)) return Response.json({ error: "Name is required" }, { status: 400 });
   } else if (payload.type === "carburetor") {
@@ -305,8 +314,8 @@ async function validatePayload(payload: CatalogPayload) {
 function createStatement(type: CatalogType, id: string, payload: CatalogPayload, actor: string, now: number) {
   const d1 = getD1();
   if (type === "raceType") return d1.prepare("INSERT INTO race_templates (id, name, notes, series_options, calendar_color, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.notes, 1000), JSON.stringify(parseSeriesOptions(payload.seriesOptions)), normalizeRaceCalendarColor(payload.calendarColor), actor, now, now);
-  if (type === "team") return d1.prepare("INSERT INTO teams (id, name, country_code, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), actor, now, now);
-  if (type === "driver") return d1.prepare("INSERT INTO drivers (id, name, team_id, default_category, race_number, nationality, is_active, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), actor, now, now);
+  if (type === "team") return d1.prepare("INSERT INTO teams (id, name, country_code, notes, customer_id, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), text(payload.customerId, 80) || null, actor, now, now);
+  if (type === "driver") { const mode = billingModeValue(payload.billingMode); return d1.prepare("INSERT INTO drivers (id, name, team_id, default_category, race_number, nationality, is_active, notes, billing_mode, customer_id, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), mode, mode === "customer" ? text(payload.customerId, 80) || null : null, actor, now, now); }
   if (type === "mechanic") return d1.prepare("INSERT INTO mechanics (id, name, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), actor, now, now);
   if (type === "vehicle") return d1.prepare("INSERT INTO vehicles (id, name, license_plate, notes, current_km, service_interval_km, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.name, 120), text(payload.licensePlate, 20).toUpperCase(), text(payload.notes, 1000), wholeNumberOrNull(payload.currentKm), wholeNumberOrNull(payload.serviceIntervalKm), actor, now, now);
   return d1.prepare("INSERT INTO carburetors (id, code, carburetor_type_id, category, family, brand, model, status, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(id, text(payload.code, 20).toUpperCase(), text(payload.carburetorTypeId, 80), text(payload.category, 20), text(payload.family).toUpperCase(), text(payload.brand, 80), text(payload.model, 80), text(payload.status) || "ready", text(payload.notes, 1000), actor, now, now);
@@ -315,8 +324,8 @@ function createStatement(type: CatalogType, id: string, payload: CatalogPayload,
 function updateStatement(type: CatalogType, id: string, payload: CatalogPayload, now: number) {
   const d1 = getD1();
   if (type === "raceType") return d1.prepare("UPDATE race_templates SET name = ?, notes = ?, series_options = ?, calendar_color = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.notes, 1000), JSON.stringify(parseSeriesOptions(payload.seriesOptions)), normalizeRaceCalendarColor(payload.calendarColor), now, id);
-  if (type === "team") return d1.prepare("UPDATE teams SET name = ?, country_code = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), now, id);
-  if (type === "driver") return d1.prepare("UPDATE drivers SET name = ?, team_id = ?, default_category = ?, race_number = ?, nationality = ?, is_active = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), now, id);
+  if (type === "team") return d1.prepare("UPDATE teams SET name = ?, country_code = ?, notes = ?, customer_id = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.countryCode, 3).toUpperCase(), text(payload.notes, 1000), text(payload.customerId, 80) || null, now, id);
+  if (type === "driver") { const mode = billingModeValue(payload.billingMode); return d1.prepare("UPDATE drivers SET name = ?, team_id = ?, default_category = ?, race_number = ?, nationality = ?, is_active = ?, notes = ?, billing_mode = ?, customer_id = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), payload.teamId || null, text(payload.defaultCategory), text(payload.raceNumber, 10), text(payload.nationality, 3).toUpperCase(), activeValue(payload.isActive), text(payload.notes, 1000), mode, mode === "customer" ? text(payload.customerId, 80) || null : null, now, id); }
   if (type === "mechanic") return d1.prepare("UPDATE mechanics SET name = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), now, id);
   if (type === "vehicle") return d1.prepare("UPDATE vehicles SET name = ?, license_plate = ?, notes = ?, current_km = ?, service_interval_km = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.name, 120), text(payload.licensePlate, 20).toUpperCase(), text(payload.notes, 1000), wholeNumberOrNull(payload.currentKm), wholeNumberOrNull(payload.serviceIntervalKm), now, id);
   return d1.prepare("UPDATE carburetors SET code = ?, carburetor_type_id = ?, category = ?, family = ?, brand = ?, model = ?, status = ?, notes = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL").bind(text(payload.code, 20).toUpperCase(), text(payload.carburetorTypeId, 80), text(payload.category, 20), text(payload.family).toUpperCase(), text(payload.brand, 80), text(payload.model, 80), text(payload.status) || "ready", text(payload.notes, 1000), now, id);
@@ -345,4 +354,8 @@ function localIsoDate(date: Date) {
 
 function activeValue(value: unknown) {
   return String(value ?? "1") === "0" ? 0 : 1;
+}
+
+function billingModeValue(value: unknown) {
+  return value === "team" || value === "customer" ? value : "self";
 }

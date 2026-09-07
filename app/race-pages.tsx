@@ -11,6 +11,7 @@ import { RaceFinancePanel } from "./race-finance";
 import { RaceActivityPanel } from "./race-activity";
 import { RaceSalesPanel } from "./race-sales";
 import { RaceLogisticsPanel } from "./logistics-pages";
+import { RaceChecklistPanel } from "./race-checklist-panel";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { ClothingLightbox, type ClothingPhotoPreview } from "./clothing-photo";
 import type { CircuitRecord } from "./circuits-page";
@@ -156,6 +157,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
   const [listView, setListView] = useState<"cards" | "table">("cards");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [circuitFilter, setCircuitFilter] = useState("");
+  const [archiveTypeFilter, setArchiveTypeFilter] = useState("");
   const canManage = role !== "mechanic";
   const selectedRace = races.find((race) => race.id === selectedId) ?? null;
   const seasonOrder = [...races].sort((a, b) => a.startDate.localeCompare(b.startDate));
@@ -170,7 +172,16 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
     .filter((race) => race.status !== "completed")
     .filter((race) => !categoryFilter || race.categories.includes(categoryFilter))
     .filter((race) => !circuitFilter || race.circuitName === circuitFilter);
-  const archivedRaces = races.filter((race) => race.status === "completed");
+  const archivedRacesAll = races.filter((race) => race.status === "completed");
+  const archiveTypeKey = (race: RaceRecord) => race.raceTemplateId ?? "no-type";
+  const archiveTypeLabel = (race: RaceRecord) => race.raceType || race.name || (locale === "cs" ? "Bez typu" : "No type");
+  const archiveTypeTiles = [...new Set(archivedRacesAll.map(archiveTypeKey))]
+    .map((key) => {
+      const races = archivedRacesAll.filter((race) => archiveTypeKey(race) === key);
+      return { key, label: archiveTypeLabel(races[0]), count: races.length };
+    })
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+  const archivedRaces = archiveTypeFilter ? archivedRacesAll.filter((race) => archiveTypeKey(race) === archiveTypeFilter) : archivedRacesAll;
   const archiveYears = [...new Set(archivedRaces.map((race) => race.startDate.slice(0, 4)))].sort((a, b) => b.localeCompare(a));
   const archiveByYear = archiveYears.map((year) => ({
     year,
@@ -265,8 +276,13 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
         </div>}
       </>}
     </section>
-    {!loading && !loadError && archiveByYear.length > 0 && <section className="dash-panel data-panel race-archive">
+    {!loading && !loadError && archivedRacesAll.length > 0 && <section className="dash-panel data-panel race-archive">
       <header><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE ARCHIVE</span><h2>{locale === "cs" ? "Archiv závodů" : "Race archive"}</h2></header>
+      {archiveTypeTiles.length > 1 && <div className="carb-unit-category-tiles no-print">
+        <button type="button" className={`carb-unit-tile${archiveTypeFilter === "" ? " active" : ""}`} onClick={() => setArchiveTypeFilter("")}>{locale === "cs" ? "Vše" : "All"}<small>{archivedRacesAll.length}</small></button>
+        {archiveTypeTiles.map((tile) => <button key={tile.key} type="button" className={`carb-unit-tile${archiveTypeFilter === tile.key ? " active" : ""}`} onClick={() => setArchiveTypeFilter(tile.key)}>{tile.label}<small>{tile.count}</small></button>)}
+      </div>}
+      {archiveByYear.length === 0 && <p className="category-empty">{locale === "cs" ? "Žádný archivovaný závod neodpovídá filtru." : "No archived race matches the filter."}</p>}
       {archiveByYear.map((group) => <div className="race-archive-year" key={group.year}>
         <h3>{group.year}<small>{group.races.length} {locale === "cs" ? "závodů" : "races"}</small></h3>
         <div className="race-archive-grid">{group.races.map((race) => <button className="race-archive-tile" key={race.id} type="button" onClick={() => setSelectedId(race.id)} title={`${race.name} · ${race.track} · ${formatDateRange(race.startDate, race.endDate, locale)}`}>
@@ -279,14 +295,14 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
   </div>;
 }
 
-type RaceDetailTab = "plan" | "pilots" | "crew" | "travel" | "sales" | "visitors" | "deliveries" | "notes" | "finance" | "activity";
-const DEFAULT_TAB_ORDER: RaceDetailTab[] = ["plan", "pilots", "crew", "travel", "sales", "visitors", "deliveries", "notes", "finance", "activity"];
-const TAB_ORDER_STORAGE_KEY = "mm-race-detail-tab-order";
+type RaceDetailTab = "plan" | "pilots" | "crew" | "checklist" | "travel" | "sales" | "visitors" | "deliveries" | "notes" | "finance" | "activity";
+const DEFAULT_TAB_ORDER: RaceDetailTab[] = ["plan", "pilots", "crew", "checklist", "travel", "sales", "visitors", "deliveries", "notes", "finance", "activity"];
+const TAB_ORDER_STORAGE_PREFIX = "mm-race-detail-tab-order";
 
-function loadTabOrder(): RaceDetailTab[] {
+function loadTabOrder(raceId: string): RaceDetailTab[] {
   if (typeof window === "undefined") return DEFAULT_TAB_ORDER;
   try {
-    const saved = window.localStorage.getItem(TAB_ORDER_STORAGE_KEY);
+    const saved = window.localStorage.getItem(`${TAB_ORDER_STORAGE_PREFIX}:${raceId}`) ?? window.localStorage.getItem(TAB_ORDER_STORAGE_PREFIX);
     if (!saved) return DEFAULT_TAB_ORDER;
     const parsed = JSON.parse(saved) as string[];
     const known = parsed.filter((tab): tab is RaceDetailTab => DEFAULT_TAB_ORDER.includes(tab as RaceDetailTab));
@@ -307,9 +323,9 @@ function loadTabOrder(): RaceDetailTab[] {
   }
 }
 
-function saveTabOrder(order: RaceDetailTab[]) {
+function saveTabOrder(raceId: string, order: RaceDetailTab[]) {
   try {
-    window.localStorage.setItem(TAB_ORDER_STORAGE_KEY, JSON.stringify(order));
+    window.localStorage.setItem(`${TAB_ORDER_STORAGE_PREFIX}:${raceId}`, JSON.stringify(order));
   } catch {
     // ignore storage failures (private browsing, quota, etc.)
   }
@@ -331,7 +347,13 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
   const canManage = role !== "mechanic" && (race.status !== "completed" || role === "superadmin");
   const canViewFinance = role === "superadmin" || role === "boss";
 
-  useEffect(() => { setTabOrder(loadTabOrder()); }, []);
+  useEffect(() => {
+    const order = loadTabOrder(race.id);
+    setTabOrder(order);
+    const firstVisible = order.find((tab) => (tab === "sales" || tab === "finance" || tab === "activity") ? canViewFinance : true);
+    if (firstVisible) setDetailTab(firstVisible);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [race.id]);
 
   function reorderTab(from: RaceDetailTab, to: RaceDetailTab) {
     if (from === to) return;
@@ -339,7 +361,7 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
       const next = current.filter((tab) => tab !== from);
       const targetIndex = next.indexOf(to);
       next.splice(targetIndex, 0, from);
-      saveTabOrder(next);
+      saveTabOrder(race.id, next);
       return next;
     });
   }
@@ -348,6 +370,7 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     plan: locale === "cs" ? "Plán závodu" : "Race plan",
     pilots: locale === "cs" ? "Piloti" : "Drivers",
     crew: locale === "cs" ? "Posádka a doprava" : "Crew and transport",
+    checklist: locale === "cs" ? "Checklist" : "Checklist",
     travel: locale === "cs" ? "Cesta a ubytování" : "Travel and accommodation",
     sales: locale === "cs" ? "Prodej a servis" : "Sales and service",
     visitors: locale === "cs" ? "Jiné týmy" : "Other teams",
@@ -408,17 +431,27 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
       const assignedCarburetorIds = uniqueStrings(entries.flatMap((entry) => [entry.carburetor1Id, entry.carburetor2Id, entry.carburetor3Id]));
       const extraCarburetorIds = uniqueStrings(extras.filter((extra) => extra.resourceType === "carburetor").map((extra) => extra.resourceId));
       const isKz = category === "KZ";
-      const engineSlots = isKz ? [0, 1] : [0, 1, 2];
+      const maxEngines = isKz ? 2 : 3;
+      const maxCarburetors = 3;
+      // The header names only as many positions as anyone in the category currently uses —
+      // it grows from "Motor 1" to "Motor 1, Motor 2" etc. the moment a second slot is filled.
+      const usedEngineSlots = Math.min(maxEngines, Math.max(1, ...entries.map((entry) => [entry.engine1Id, entry.engine2Id, entry.engine3Id].filter(Boolean).length)));
+      const usedCarburetorSlots = Math.min(maxCarburetors, Math.max(1, ...entries.map((entry) => [entry.carburetor1Id, entry.carburetor2Id, entry.carburetor3Id].filter(Boolean).length)));
+      const engineHeaderLabels = Array.from({ length: usedEngineSlots }, (_, index) => `${locale === "cs" ? "Motor" : "Engine"} ${index + 1}`);
+      const carburetorHeaderLabels = Array.from({ length: usedCarburetorSlots }, (_, index) => `${locale === "cs" ? "Karb." : "Carb."} ${index + 1}`);
+      // Column width is driven by the widest code actually assigned at that position across
+      // the whole category, so real codes never truncate; header + row chips share the exact
+      // same px number, which is what keeps them aligned regardless of content length.
+      const engineColumnWidths = engineHeaderLabels.map((text, index) => equipmentColumnWidth(text, uniqueStrings(entries.map((entry) => [entry.engine1Code, entry.engine2Code, entry.engine3Code][index]))));
+      const carburetorColumnWidths = carburetorHeaderLabels.map((text, index) => equipmentColumnWidth(text, uniqueStrings(entries.map((entry) => [entry.carburetor1Code, entry.carburetor2Code, entry.carburetor3Code][index]))));
       return <article className={`dash-panel race-category category-${category.toLowerCase().replaceAll(" ", "-")}`} key={category}>
         <header><div className="category-heading"><span>{l.category}</span><h2>{category}</h2></div><CategoryLoadoutStats locale={locale} pilotCount={entries.length} engineCount={assignedEngineIds.length} extraEngineCount={extraEngineIds.length} carburetorCount={assignedCarburetorIds.length} extraCarburetorCount={extraCarburetorIds.length} /><div className="category-print-context print-only"><div><strong>{race.name}</strong><small>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}</small></div><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /></div><div className="category-actions no-print">{canManage && <><button className="secondary-compact" type="button" onClick={() => setExtraForm(category)}>＋ {l.addExtra}</button><button className="primary-button" type="button" onClick={() => setEntryForm({ category, entry: null })}>＋ {l.addDriver}</button></>}</div></header>
         {entries.length === 0 ? <p className="category-empty">{l.noDrivers}</p> : <div className="race-entry-list"><div className={isKz ? "entry-table kz-table" : "entry-table"}>
           <div className="entry-table-head">
             <span>#</span>
             <span>{l.driver}</span>
-            {engineSlots.map((index) => <span key={`h-engine-${index}`}>{locale === "cs" ? `Motor ${index + 1}` : `Engine ${index + 1}`}</span>)}
-            {!isKz && <span>{locale === "cs" ? "Karb. 1" : "Carb. 1"}</span>}
-            {!isKz && <span>{locale === "cs" ? "Karb. 2" : "Carb. 2"}</span>}
-            {!isKz && <span>{locale === "cs" ? "Karb. 3" : "Carb. 3"}</span>}
+            <span className="entry-equipment-head">{engineHeaderLabels.map((text, index) => <b key={text} style={equipmentColumnStyle(engineColumnWidths[index])}>{text}</b>)}</span>
+            {!isKz && <span className="entry-equipment-head">{carburetorHeaderLabels.map((text, index) => <b key={text} style={equipmentColumnStyle(carburetorColumnWidths[index])}>{text}</b>)}</span>}
             <span>{l.notes}</span>
             <span>{l.status}</span>
             <span className="no-print">{l.actions}</span>
@@ -434,6 +467,21 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
             const carburetorChoices = catalog.carburetors.filter((carburetor) => carbMatches(carburetor.family, category) && carburetor.status !== "retired" && !isSold(carburetor.soldAt));
             const entryTeam = entry.teamId ? catalog.teams.find((team) => team.id === entry.teamId) : undefined;
             const entryDriver = catalog.drivers.find((driver) => driver.id === entry.driverId);
+            function renderEquipmentCell(type: "engine" | "carburetor", values: string[], codes: string[], configurations: string[], selectedList: Array<{ upgradeCode?: string; labelColor?: string } | undefined>, equipmentChoices: EngineChoice[] | CarburetorRecord[], max: number, columnWidths: number[]) {
+              const filledCount = values.filter(Boolean).length;
+              const slotIndexes = Array.from({ length: filledCount }, (_, i) => i);
+              if (canManage && filledCount < max) slotIndexes.push(filledCount);
+              const zoneLabel = type === "engine" ? (locale === "cs" ? "Motory" : "Engines") : (locale === "cs" ? "Karburátory" : "Carburetors");
+              return <div className="entry-equipment-cell" data-equip-label={zoneLabel}>
+                {slotIndexes.length === 0 && <span className="equipment-empty">—</span>}
+                {slotIndexes.map((index) => {
+                  const columnWidth = index < filledCount ? columnWidths[index] : undefined;
+                  return canManage
+                    ? <InlineEquipmentPicker key={`${type}-${index}-${values[index]}`} type={type} position={index + 1} entry={entry} value={values[index] ?? ""} code={codes[index] ?? ""} configuration={configurations[index] ?? ""} upgradeCode={selectedList[index]?.upgradeCode ?? ""} labelColor={selectedList[index]?.labelColor ?? ""} selectedIds={values} choices={equipmentChoices} plan={plan!} locale={locale} isAddSlot={index === filledCount} columnWidth={columnWidth} onChange={(value) => updateEquipment(entry, type, index + 1, value)} />
+                    : <EquipmentValue key={`${type}-${index}`} code={codes[index] ?? ""} configuration={configurations[index] ?? ""} upgradeCode={selectedList[index]?.upgradeCode ?? ""} labelColor={selectedList[index]?.labelColor ?? ""} columnWidth={columnWidth} />;
+                })}
+              </div>;
+            }
             return <div
               id={`race-entry-${entry.id}`}
               className={`entry-table-row ${entry.isConfirmed ? "confirmed" : "unconfirmed"} ${draggedEntryId === entry.id ? "dragging" : ""}`}
@@ -449,8 +497,8 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
                 title={canManage ? (locale === "cs" ? "Přetažením změníš pořadí" : "Drag to reorder") : undefined}
               >#{driverNumber(catalog.drivers, entry.driverId)}</div>
               <div className="entry-driver"><strong>{entryDriver?.nationality && <span className="entry-flag">{countryFlag(entryDriver.nationality)}</span>}{entry.driverName}</strong><span className="entry-team">{entryTeam?.logoUrl && <RaceLogoBadge logoUrl={entryTeam.logoUrl} name={entryTeam.name} size="small" onOpen={setLogoPreview} />}{entry.teamName || "—"}</span></div>
-              {engineSlots.map((index) => <div key={`engine-${index}`} data-equip-label={locale === "cs" ? `Motor ${index + 1}` : `Engine ${index + 1}`}>{canManage ? <InlineEquipmentPicker key={`engine-${index}-${engineValues[index]}`} type="engine" position={index + 1} entry={entry} value={engineValues[index]} code={engineCodes[index]} configuration={engineConfigurations[index]} upgradeCode={selectedEngines[index]?.upgradeCode ?? ""} labelColor={selectedEngines[index]?.labelColor ?? ""} category={category} selectedIds={engineValues} choices={engineChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "engine", index + 1, value)} /> : <EquipmentValue code={engineCodes[index]} configuration={engineConfigurations[index]} upgradeCode={selectedEngines[index]?.upgradeCode ?? ""} labelColor={selectedEngines[index]?.labelColor ?? ""} />}</div>)}
-              {!isKz && [0, 1, 2].map((index) => <div key={`carb-${index}`} data-equip-label={locale === "cs" ? `Karb. ${index + 1}` : `Carb. ${index + 1}`}>{canManage ? <InlineEquipmentPicker key={`carb-${index}-${carburetorValues[index]}`} type="carburetor" position={index + 1} entry={entry} value={carburetorValues[index]} code={carburetorCodes[index]} configuration="" upgradeCode="" labelColor="" category={category} selectedIds={carburetorValues} choices={carburetorChoices} plan={plan} locale={locale} onChange={(value) => updateEquipment(entry, "carburetor", index + 1, value)} /> : <EquipmentValue code={carburetorCodes[index]} />}</div>)}
+              {renderEquipmentCell("engine", engineValues, engineCodes, engineConfigurations, selectedEngines, engineChoices, maxEngines, engineColumnWidths)}
+              {!isKz && renderEquipmentCell("carburetor", carburetorValues, carburetorCodes, [], [], carburetorChoices, maxCarburetors, carburetorColumnWidths)}
               <div className="entry-note"><InlineDriverNote entry={entry} canManage={canManage} locale={locale} onSave={(notes) => updateEntryNote(entry, notes)} /></div>
               <div className="entry-status">{canManage ? <button className={`confirmation-toggle no-print ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`} type="button" aria-pressed={entry.isConfirmed} onClick={() => { void toggleConfirmation(entry); }}>{entry.isConfirmed ? (locale === "cs" ? "✓ Potvrzen" : "✓ Confirmed") : (locale === "cs" ? "Nepotvrzen" : "Unconfirmed")}</button> : null}<span className={`print-only confirmation-label ${entry.isConfirmed ? "confirmed" : "unconfirmed"}`}>{entry.isConfirmed ? (locale === "cs" ? "Potvrzen" : "Confirmed") : (locale === "cs" ? "Nepotvrzen" : "Unconfirmed")}</span></div>
               <div className="entry-actions no-print">{canManage && <><button type="button" onClick={() => setEntryForm({ category, entry })} aria-label={l.editAssignment} title={l.editAssignment}>✎</button><button className="delete" type="button" onClick={() => { void remove("entry", entry.id); }} aria-label={l.delete} title={l.delete}>×</button></>}</div>
@@ -489,6 +537,14 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     window.setTimeout(() => { delete document.body.dataset.printMode; document.title = previousTitle; }, 500);
   }
 
+  function printPilots() {
+    const previousTitle = document.title;
+    document.body.dataset.printMode = "pilots";
+    document.title = `${racePrintTitle(race)}_pilots`;
+    window.print();
+    window.setTimeout(() => { delete document.body.dataset.printMode; document.title = previousTitle; }, 500);
+  }
+
   useEffect(() => { void loadPlan(); }, [race.id]);
 
   async function assign(kind: "mechanic" | "vehicle", resourceId: string) {
@@ -519,10 +575,14 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
 
   async function updateEquipment(entry: RaceEntry, type: "engine" | "carburetor", position: number, resourceId: string) {
     const previousTop = document.getElementById(`race-entry-${entry.id}`)?.getBoundingClientRect().top ?? null;
-    const engineIds = [entry.engine1Id ?? "", entry.engine2Id ?? "", entry.engine3Id ?? ""];
-    const carburetorIds = [entry.carburetor1Id ?? "", entry.carburetor2Id ?? "", entry.carburetor3Id ?? ""];
+    let engineIds = [entry.engine1Id ?? "", entry.engine2Id ?? "", entry.engine3Id ?? ""];
+    let carburetorIds = [entry.carburetor1Id ?? "", entry.carburetor2Id ?? "", entry.carburetor3Id ?? ""];
     if (type === "engine") engineIds[position - 1] = resourceId;
     else carburetorIds[position - 1] = resourceId;
+    // Keep slots gapless — Motor/Karb. 1 always fills first, so clearing a middle slot
+    // shifts the remaining ones up instead of leaving a hole the UI would have to show.
+    engineIds = compactSlots(engineIds);
+    carburetorIds = compactSlots(carburetorIds);
     const response = await fetch("/api/race-planning", {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -642,6 +702,8 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     <section className="stats-panel race-facts">
       <div className="race-facts-grid">
         <div className="race-facts-cell"><small>{l.raceDates}</small><strong>{formatDateRange(race.startDate, race.endDate, locale)}</strong></div>
+        <div className="race-facts-cell"><small>{l.mechanics}</small><strong>{plan?.mechanics.length ? plan.mechanics.map((item) => item.mechanicName).join(", ") : (locale === "cs" ? "Zatím nikdo" : "Nobody yet")}</strong></div>
+        <div className="race-facts-cell"><small>{l.cars}</small><strong>{plan?.vehicles.length ? plan.vehicles.map((item) => item.vehicleName).join(", ") : (locale === "cs" ? "Zatím žádné" : "None yet")}</strong><span>{plan?.vehicles.filter((item) => item.licensePlate).map((item) => item.licensePlate).join(" · ") || undefined}</span></div>
         <div className="race-facts-cell"><small>{l.travel}</small><strong>{formatDateRange(race.departureDate, race.returnDate, locale)}</strong></div>
         <div className="race-facts-cell"><small>{locale === "cs" ? "Trať / adresa" : "Track / address"}</small><strong>{race.track}</strong><span>{race.address || "—"}</span></div>
         <div className="race-facts-cell workshop-trip"><small>{locale === "cs" ? "Cesta z dílny" : "Trip from workshop"}</small><strong>{race.circuitDistanceKm !== null || race.circuitDriveMinutes !== null ? <>{race.circuitDistanceKm !== null ? `${formatDecimal(race.circuitDistanceKm, locale)} km` : "—"}{race.circuitDriveMinutes !== null ? ` · ≈ ${formatDriveMinutes(race.circuitDriveMinutes, locale)}` : ""}</> : (locale === "cs" ? "Po přiřazení tratě" : "After assigning a circuit")}</strong><span>{locale === "cs" ? "Vlčovice 314 · orientačně, bez aktuální dopravy" : "Vlčovice 314 · estimate, without live traffic"}</span></div>
@@ -656,7 +718,10 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     {renderCategoryStack("race-plan-categories")}
     </div>
     <div id="race-panel-pilots" role="tabpanel" aria-labelledby="race-tab-pilots" className={`race-plan-section no-print ${detailTab === "pilots" ? "active" : "hidden"}`}>
-    {canManage && totalDrivers > 0 && driversConfirmed < totalDrivers && <div className="race-pilots-bulk-actions"><button className="secondary-compact" type="button" disabled={confirmingAll} onClick={() => { void confirmAllPilots(); }}>{confirmingAll ? (locale === "cs" ? "Potvrzuji…" : "Confirming…") : `✓ ${locale === "cs" ? "Potvrdit všechny piloty" : "Confirm all drivers"}`}</button></div>}
+    {totalDrivers > 0 && <div className="race-pilots-bulk-actions no-print">
+      <button className="secondary-compact" type="button" onClick={printPilots}>⌁ {locale === "cs" ? "Vytisknout piloty" : "Print drivers"}</button>
+      {canManage && driversConfirmed < totalDrivers && <button className="secondary-compact" type="button" disabled={confirmingAll} onClick={() => { void confirmAllPilots(); }}>{confirmingAll ? (locale === "cs" ? "Potvrzuji…" : "Confirming…") : `✓ ${locale === "cs" ? "Potvrdit všechny piloty" : "Confirm all drivers"}`}</button>}
+    </div>}
     {plan && <RaceEquipmentOverview race={race} plan={plan} carburetors={catalog.carburetors} locale={locale} />}
     {renderCategoryStack("race-pilots-categories")}
     </div>
@@ -678,6 +743,9 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
         </div>)}
       </div>}
     </section>
+    </div>
+    <div id="race-panel-checklist" role="tabpanel" aria-labelledby="race-tab-checklist" className={`race-plan-section no-print ${detailTab === "checklist" ? "active" : "hidden"}`}>
+    <RaceChecklistPanel race={race} locale={locale} role={role} vehicles={plan?.vehicles.map((item) => ({ vehicleId: item.vehicleId, vehicleName: item.vehicleName })) ?? []} />
     </div>
     <div id="race-panel-travel" role="tabpanel" aria-labelledby="race-tab-travel" className={`race-plan-section ${detailTab === "travel" ? "active" : "hidden"}`}>
     <RaceLogisticsPanel raceId={race.id} locale={locale} role={role} />
@@ -815,6 +883,38 @@ function uniqueStrings(values: Array<string | null | undefined>) {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
+function compactSlots(ids: string[]) {
+  const filled = ids.filter(Boolean);
+  return [...filled, ...Array(ids.length - filled.length).fill("")];
+}
+
+// Header labels and chips are sized in raw px (not `ch`, which resolves differently per
+// font-size) from a real canvas text measurement, so the two always land on the exact same
+// number regardless of how wide the actual engine/carburetor code turns out to be.
+let equipmentMeasureCtx: CanvasRenderingContext2D | null | undefined;
+function measureEquipmentText(text: string, font: string) {
+  if (!text) return 0;
+  if (equipmentMeasureCtx === undefined) equipmentMeasureCtx = typeof document === "undefined" ? null : document.createElement("canvas").getContext("2d");
+  if (!equipmentMeasureCtx) return text.length * 11;
+  equipmentMeasureCtx.font = font;
+  return equipmentMeasureCtx.measureText(text).width;
+}
+
+const EQUIPMENT_MIN_COLUMN_WIDTH = 72;
+function equipmentColumnWidth(headerLabel: string, codes: string[]) {
+  const headerWidth = measureEquipmentText(headerLabel, "700 15px Arial, sans-serif") + headerLabel.length * 0.8;
+  const longestCode = codes.reduce((longest, code) => (code.length > longest.length ? code : longest), "");
+  const chipWidth = measureEquipmentText(longestCode, "700 20px Arial, sans-serif") + 48;
+  return Math.max(Math.ceil(headerWidth) + 8, Math.ceil(chipWidth), EQUIPMENT_MIN_COLUMN_WIDTH);
+}
+
+// Set as a custom property, not a literal width/flex — a screen-only CSS rule reads it.
+// Printing uses its own mm-scaled columns, and an inline width computed from screen pixels
+// would otherwise leak straight through (inline styles beat any print media-query override).
+function equipmentColumnStyle(width: number | undefined) {
+  return width ? ({ "--equip-col-width": `${width}px` } as React.CSSProperties) : undefined;
+}
+
 function carburetorBreakdown(ids: string[], carburetors: CarburetorRecord[]) {
   const counts = new Map<string, number>();
   uniqueStrings(ids).forEach((id) => {
@@ -855,8 +955,9 @@ function weatherIcon(code: number) {
   return "☁";
 }
 
-function EquipmentValue({ code, configuration = "", upgradeCode = "", labelColor = "" }: { code: string; configuration?: string; upgradeCode?: string; labelColor?: string }) {
-  return <span className={code ? "equipment-code" : "equipment-empty"} style={code && labelColor ? { borderLeft: `7px solid ${labelColor}` } : undefined}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
+function EquipmentValue({ code, configuration = "", upgradeCode = "", labelColor = "", columnWidth }: { code: string; configuration?: string; upgradeCode?: string; labelColor?: string; columnWidth?: number }) {
+  const widthStyle = equipmentColumnStyle(columnWidth);
+  return <span className={code ? "equipment-code" : "equipment-empty"} style={code && labelColor ? { borderLeft: `7px solid ${labelColor}`, ...widthStyle } : widthStyle}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
 }
 
 function ExtraEquipmentRow({ extra, engine, locale, canManage, onRemove }: { extra: RaceExtra; engine?: EngineChoice; locale: Locale; canManage: boolean; onRemove: () => Promise<void> }) {
@@ -888,7 +989,7 @@ function InlineDriverNote({ entry, canManage, locale, onSave }: { entry: RaceEnt
   return <div className="race-entry-note">{canManage && <input className="no-print" value={note} maxLength={140} aria-label={`${locale === "cs" ? "Poznámka" : "Note"} · ${entry.driverName}`} placeholder="" onChange={(event) => setNote(event.target.value)} onBlur={() => { void save(); }} onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }} />}{saving && <small className="no-print">{locale === "cs" ? "Ukládám…" : "Saving…"}</small>}<span className="print-only">{note || "—"}</span>{!canManage && <span className="no-print">{note || "—"}</span>}</div>;
 }
 
-function InlineEquipmentPicker({ type, position, entry, value, code, configuration, upgradeCode, labelColor, category, selectedIds, choices, plan, locale, onChange }: {
+function InlineEquipmentPicker({ type, position, entry, value, code, configuration, upgradeCode, labelColor, selectedIds, choices, plan, locale, isAddSlot = false, columnWidth, onChange }: {
   type: "engine" | "carburetor";
   position: number;
   entry: RaceEntry;
@@ -897,22 +998,52 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
   configuration: string;
   upgradeCode: string;
   labelColor: string;
-  category: string;
   selectedIds: string[];
   choices: Array<{ id: string; code: string; family: string; currentConfiguration?: string; upgradeCode?: string; labelColor?: string }>;
   plan: RacePlan;
   locale: Locale;
+  isAddSlot?: boolean;
+  columnWidth?: number;
   onChange: (value: string) => Promise<boolean>;
 }) {
   const [selected, setSelected] = useState(value);
   const [saving, setSaving] = useState(false);
   const [open, setOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState<React.CSSProperties>({});
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const label = `${type === "engine" ? (locale === "cs" ? "Motor" : "Engine") : (locale === "cs" ? "Karburátor" : "Carburetor")} ${position} · ${entry.driverName}`;
   const selectedChoice = choices.find((choice) => choice.id === selected);
   const selectedCode = selectedChoice?.code ?? (selected === value ? code : "");
   const selectedConfiguration = type === "engine" ? (selectedChoice?.currentConfiguration ?? (selected === value ? configuration : "")) : "";
   const selectedUpgradeCode = type === "engine" ? (selectedChoice?.upgradeCode ?? (selected === value ? upgradeCode : "")) : "";
   const selectedLabelColor = type === "engine" ? (selectedChoice?.labelColor ?? (selected === value ? labelColor : "")) : "";
+
+  // The menu is a viewport-fixed overlay (positioned from the trigger's own rect) rather than
+  // absolutely positioned inside the row — a plain absolute child gets visually buried under
+  // later grid rows/categories no matter how high its z-index goes, because it never escapes
+  // its ancestors' stacking contexts. Fixed positioning sidesteps that entirely.
+  function openMenu() {
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (rect) {
+      const menuWidth = Math.min(470, window.innerWidth - 24);
+      const left = Math.min(Math.max(12, rect.left), window.innerWidth - menuWidth - 12);
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const openUpward = spaceBelow < 220 && rect.top > spaceBelow;
+      setMenuStyle(openUpward
+        ? { position: "fixed", top: "auto", bottom: window.innerHeight - rect.top + 4, left, width: menuWidth, minWidth: rect.width }
+        : { position: "fixed", top: rect.bottom + 4, bottom: "auto", left, width: menuWidth, minWidth: rect.width });
+    }
+    setOpen(true);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    const close = () => setOpen(false);
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+    return () => { window.removeEventListener("scroll", close, true); window.removeEventListener("resize", close); };
+  }, [open]);
 
   async function change(nextValue: string) {
     setOpen(false);
@@ -923,9 +1054,12 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
     setSaving(false);
   }
 
-  return <div className={`equipment-picker${open ? " is-open" : ""}`} onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false); }}>
-    <button className="equipment-picker-trigger no-print" type="button" aria-label={label} aria-haspopup="listbox" aria-expanded={open} disabled={saving} style={selectedCode && selectedLabelColor ? { borderColor: selectedLabelColor, borderLeft: `9px solid ${selectedLabelColor}`, backgroundColor: `${selectedLabelColor}38`, boxShadow: `inset 0 0 0 1px ${selectedLabelColor}55` } : undefined} onClick={() => setOpen((current) => !current)}>{selectedCode ? <span className={`equipment-picker-family cat-${category.toLowerCase().replaceAll(" ", "-")}`}>{category}</span> : null}<span>{selectedCode ? equipmentDisplay(selectedCode, selectedConfiguration, selectedUpgradeCode) : (locale === "cs" ? "— Vybrat" : "— Select")}</span><b>⌄</b></button>
-    {open && <div className="equipment-picker-menu no-print" role="listbox" aria-label={label}>
+  const isEmptyAddSlot = isAddSlot && !selectedCode;
+  const addLabel = `${type === "engine" ? (locale === "cs" ? "Přidat motor" : "Add engine") : (locale === "cs" ? "Přidat karburátor" : "Add carburetor")} · ${entry.driverName}`;
+  const widthStyle = isEmptyAddSlot ? undefined : equipmentColumnStyle(columnWidth);
+  return <div ref={containerRef} className={`equipment-picker${open ? " is-open" : ""}${isEmptyAddSlot ? " equipment-picker-add" : ""}`} style={widthStyle} onBlur={(event) => { if (!containerRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false); }}>
+    <button ref={triggerRef} className="equipment-picker-trigger no-print" type="button" aria-label={isEmptyAddSlot ? addLabel : label} aria-haspopup="listbox" aria-expanded={open} disabled={saving} style={selectedCode && selectedLabelColor ? { borderColor: selectedLabelColor, borderLeft: `9px solid ${selectedLabelColor}`, backgroundColor: `${selectedLabelColor}38`, boxShadow: `inset 0 0 0 1px ${selectedLabelColor}55` } : undefined} onClick={() => (open ? setOpen(false) : openMenu())}>{isEmptyAddSlot ? <span aria-hidden="true">＋</span> : <><span>{selectedCode || (locale === "cs" ? "— Vybrat" : "— Select")}</span><b>⌄</b></>}</button>
+    {open && <div className="equipment-picker-menu no-print" style={menuStyle} role="listbox" aria-label={label}>
       <button type="button" className={!selected ? "selected" : ""} role="option" aria-selected={!selected} onClick={() => { void change(""); }}><strong>—</strong><span>{locale === "cs" ? "Bez přiřazení" : "Unassigned"}</span></button>
       {choices.map((choice) => {
         const option = equipmentOption(choice, type, entry, selectedIds, position, plan, locale);
@@ -935,7 +1069,7 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
       })}
     </div>}
     {saving && <small className="no-print">{locale === "cs" ? "Ukládám…" : "Saving…"}</small>}
-    <span className={`print-only ${selectedCode ? "equipment-code" : "equipment-empty"}`} style={selectedCode && selectedLabelColor ? { borderLeft: `7px solid ${selectedLabelColor}` } : undefined}>{selectedCode ? equipmentDisplay(selectedCode, selectedConfiguration, selectedUpgradeCode) : "—"}</span>
+    {!isEmptyAddSlot && <span className={`print-only ${selectedCode ? "equipment-code" : "equipment-empty"}`} style={selectedCode && selectedLabelColor ? { borderLeft: `7px solid ${selectedLabelColor}` } : undefined}>{selectedCode ? equipmentDisplay(selectedCode, selectedConfiguration, selectedUpgradeCode) : "—"}</span>}
   </div>;
 }
 
@@ -946,13 +1080,13 @@ function equipmentOption(choice: { id: string; code: string; family: string; cur
   const latest = [...assignments].sort((left, right) => right.startDate.localeCompare(left.startDate))[0];
   const usedInAnotherSlot = selectedIds.some((selectedId, index) => index !== position - 1 && selectedId === choice.id);
   const assignment = own ?? conflict ?? latest;
-  if (usedInAnotherSlot) return { disabled: true, tone: "busy", description: `${choice.family} · ${locale === "cs" ? "už vybrán u tohoto pilota" : "already selected for this driver"}` };
-  if (!assignment) return { disabled: false, tone: "available", description: `${choice.family} · ${locale === "cs" ? "volný" : "available"}` };
+  if (usedInAnotherSlot) return { disabled: true, tone: "busy", description: locale === "cs" ? "už vybrán u tohoto pilota" : "already selected for this driver" };
+  if (!assignment) return { disabled: false, tone: "available", description: locale === "cs" ? "volný" : "available" };
   const person = assignment.isExtra ? (locale === "cs" ? "Extra vybavení" : "Extra equipment") : assignment.driverName;
   const place = `${person || "—"} · ${assignment.raceName}`;
-  if (own) return { disabled: false, tone: "assigned", description: `${choice.family} · ${locale === "cs" ? "přiřazen" : "assigned"}: ${place}` };
-  if (conflict) return { disabled: true, tone: "busy", description: `🔒 ${choice.family} · ${locale === "cs" ? "obsazen" : "unavailable"}: ${place} · ${formatDateRange(assignment.startDate, assignment.endDate, locale)}` };
-  return { disabled: false, tone: "history", description: `${choice.family} · ${locale === "cs" ? "naposledy" : "last"}: ${place}` };
+  if (own) return { disabled: false, tone: "assigned", description: `${locale === "cs" ? "přiřazen" : "assigned"}: ${place}` };
+  if (conflict) return { disabled: true, tone: "busy", description: `🔒 ${locale === "cs" ? "obsazen" : "unavailable"}: ${place} · ${formatDateRange(assignment.startDate, assignment.endDate, locale)}` };
+  return { disabled: false, tone: "history", description: `${locale === "cs" ? "naposledy" : "last"}: ${place}` };
 }
 
 function equipmentDisplay(code: string | null | undefined, configuration: string | null | undefined, upgradeCode: string | null | undefined = "") {

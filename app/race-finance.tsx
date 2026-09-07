@@ -73,7 +73,19 @@ type RaceFinanceVisit = {
   mechanicName: string;
   currency: Currency;
   amountCents: number | null;
+  isPaid: boolean;
   notes: string;
+};
+
+type RaceFinanceDelivery = {
+  id: string;
+  customerName: string;
+  description: string;
+  quantity: number;
+  currency: Currency;
+  amountCents: number;
+  isPaid: boolean;
+  isDelivered: boolean;
 };
 
 type RaceFinanceSale = {
@@ -97,6 +109,7 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
   const [raceSales, setRaceSales] = useState<RaceFinanceSale[]>([]);
   const [travelCosts, setTravelCosts] = useState<Array<{ currency: Currency; cents: number }>>([]);
   const [visits, setVisits] = useState<RaceFinanceVisit[]>([]);
+  const [deliveries, setDeliveries] = useState<RaceFinanceDelivery[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
 
@@ -153,23 +166,43 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
       const response = await fetch(`/api/race-team-visits?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
       if (!response.ok) return;
       const result = await response.json() as { visits?: RaceFinanceVisit[] };
-      setVisits((result.visits ?? []).map((visit) => ({ ...visit, amountCents: visit.amountCents === null ? null : Number(visit.amountCents) })));
+      setVisits((result.visits ?? []).map((visit) => ({ ...visit, amountCents: visit.amountCents === null ? null : Number(visit.amountCents), isPaid: Boolean(visit.isPaid) })));
     } catch {
       setVisits([]);
     }
   }
 
-  useEffect(() => { void load(); void loadTravelCosts(); void loadVisits(); }, [race.id]);
+  async function loadDeliveries() {
+    try {
+      const response = await fetch(`/api/race-deliveries?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
+      if (!response.ok) return;
+      const result = await response.json() as { deliveries?: RaceFinanceDelivery[] };
+      setDeliveries((result.deliveries ?? []).map((delivery) => ({ ...delivery, amountCents: Number(delivery.amountCents), isPaid: Boolean(delivery.isPaid), isDelivered: Boolean(delivery.isDelivered) })));
+    } catch {
+      setDeliveries([]);
+    }
+  }
+
+  useEffect(() => { void load(); void loadTravelCosts(); void loadVisits(); void loadDeliveries(); }, [race.id]);
 
   const visitTotals = useMemo(() => {
-    const totals = new Map<Currency, { cents: number; count: number }>();
+    const totals = new Map<Currency, { cents: number; paidCents: number; count: number }>();
     for (const visit of visits) {
       if (visit.amountCents === null) continue;
-      const current = totals.get(visit.currency) ?? { cents: 0, count: 0 };
-      totals.set(visit.currency, { cents: current.cents + visit.amountCents, count: current.count + 1 });
+      const current = totals.get(visit.currency) ?? { cents: 0, paidCents: 0, count: 0 };
+      totals.set(visit.currency, { cents: current.cents + visit.amountCents, paidCents: current.paidCents + (visit.isPaid ? visit.amountCents : 0), count: current.count + 1 });
     }
     return [...totals].map(([currency, value]) => ({ currency, ...value }));
   }, [visits]);
+
+  const deliveryTotals = useMemo(() => {
+    const totals = new Map<Currency, { cents: number; paidCents: number; count: number }>();
+    for (const delivery of deliveries) {
+      const current = totals.get(delivery.currency) ?? { cents: 0, paidCents: 0, count: 0 };
+      totals.set(delivery.currency, { cents: current.cents + delivery.amountCents, paidCents: current.paidCents + (delivery.isPaid ? delivery.amountCents : 0), count: current.count + 1 });
+    }
+    return [...totals].map(([currency, value]) => ({ currency, ...value }));
+  }, [deliveries]);
 
   function update(entryId: string, change: Partial<FinanceEntry>) {
     setEntries((current) => current.map((entry) => {
@@ -238,13 +271,14 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
     const salesTotal = sales?.totalCents ?? 0;
     const visits = visitTotals.find((item) => item.currency === currency);
     const visitsTotal = visits?.cents ?? 0;
-    const trackedTotal = raceFees + salesTotal;
-    const grandTotal = trackedTotal + visitsTotal;
+    const deliveriesEntry = deliveryTotals.find((item) => item.currency === currency);
+    const deliveriesTotal = deliveriesEntry?.cents ?? 0;
+    const grandTotal = raceFees + salesTotal + visitsTotal + deliveriesTotal;
     const paidRaceFees = currencyEntries.filter((entry) => entry.isPaid).reduce((sum, entry) => sum + entry.finalPriceCents, 0);
-    const paid = paidRaceFees + (sales?.paidCents ?? 0);
+    const paid = paidRaceFees + (sales?.paidCents ?? 0) + (visits?.paidCents ?? 0) + (deliveriesEntry?.paidCents ?? 0);
     const costs = travelCosts.find((item) => item.currency === currency)?.cents ?? 0;
-    return { currency, count: currencyEntries.length, saleCount: sales?.saleCount ?? 0, visitCount: visits?.count ?? 0, base, discount: base - raceFees, raceFees, salesTotal, visitsTotal, grandTotal, paid, unpaid: trackedTotal - paid, costs, net: grandTotal - costs };
-  }).filter((summary) => summary.count > 0 || summary.saleCount > 0 || summary.visitCount > 0 || summary.costs > 0), [entries, salesTotals, travelCosts, visitTotals]);
+    return { currency, count: currencyEntries.length, saleCount: sales?.saleCount ?? 0, visitCount: visits?.count ?? 0, deliveryCount: deliveriesEntry?.count ?? 0, base, discount: base - raceFees, raceFees, salesTotal, visitsTotal, deliveriesTotal, grandTotal, paid, unpaid: grandTotal - paid, costs, net: grandTotal - costs };
+  }).filter((summary) => summary.count > 0 || summary.saleCount > 0 || summary.visitCount > 0 || summary.deliveryCount > 0 || summary.costs > 0), [entries, salesTotals, travelCosts, visitTotals, deliveryTotals]);
 
   return <section className="dash-panel race-finance-panel">
     <header className="race-finance-heading">
@@ -257,17 +291,18 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
 
     <div className="race-finance-summaries">
       {summaries.map((summary) => <article key={summary.currency}>
-        <header><strong>{summary.currency}</strong><span>{summary.count} {locale === "cs" ? "pilotů" : "drivers"} · {summary.saleCount} {locale === "cs" ? "prodejů" : "sales"}</span></header>
+        <header><strong>{summary.currency}</strong><span>{summary.count} {locale === "cs" ? "pilotů" : "drivers"} · {summary.saleCount} {locale === "cs" ? "prodejů" : "sales"} · {summary.deliveryCount} {locale === "cs" ? "předávek" : "deliveries"}</span></header>
         <div><span>{locale === "cs" ? "Před slevou" : "Before discount"}</span><b>{formatMoney(summary.base, summary.currency, locale)}</b></div>
         <div><span>{locale === "cs" ? "Slevy" : "Discounts"}</span><b>− {formatMoney(summary.discount, summary.currency, locale)}</b></div>
         <div><span>{locale === "cs" ? "Piloti po slevě" : "Drivers after discount"}</span><b>{formatMoney(summary.raceFees, summary.currency, locale)}</b></div>
         <div className="finance-summary-sales"><span>{locale === "cs" ? "Prodej" : "Sales"}</span><b>{formatMoney(summary.salesTotal, summary.currency, locale)}</b></div>
         <div className="finance-summary-visits"><span>{locale === "cs" ? "Jiné týmy" : "Other teams"}</span><b>{formatMoney(summary.visitsTotal, summary.currency, locale)}</b></div>
+        <div className="finance-summary-deliveries"><span>{locale === "cs" ? "Předávky" : "Deliveries"}</span><b>{formatMoney(summary.deliveriesTotal, summary.currency, locale)}</b></div>
         <div className="finance-summary-total"><span>{locale === "cs" ? "Celkem závod" : "Race total"}</span><b>{formatMoney(summary.grandTotal, summary.currency, locale)}</b></div>
         <div className="finance-summary-paid"><span>{locale === "cs" ? "Zaplaceno" : "Paid"}</span><b>{formatMoney(summary.paid, summary.currency, locale)}</b></div>
-        <div className="finance-summary-unpaid"><span>{locale === "cs" ? "Zbývá" : "Outstanding"}</span><b>{formatMoney(summary.unpaid, summary.currency, locale)}</b></div>
+        <div className={`finance-summary-unpaid ${summary.unpaid > 0 ? "has-outstanding" : "all-clear"}`}><span>{locale === "cs" ? "Zbývá" : "Outstanding"}</span><b>{formatMoney(summary.unpaid, summary.currency, locale)}</b></div>
         <div className="finance-summary-costs"><span>{locale === "cs" ? "Náklady (cesta)" : "Costs (travel)"}</span><b>− {formatMoney(summary.costs, summary.currency, locale)}</b></div>
-        <div className="finance-summary-net"><span>{locale === "cs" ? "Čistý zisk" : "Net profit"}</span><b>{formatMoney(summary.net, summary.currency, locale)}</b></div>
+        <div className={`finance-summary-net ${summary.net < 0 ? "is-loss" : ""}`}><span>{locale === "cs" ? "Čistý zisk" : "Net profit"}</span><b>{formatMoney(summary.net, summary.currency, locale)}</b></div>
       </article>)}
       {!loading && summaries.length === 0 && <p>{locale === "cs" ? "Zatím nejsou zadané žádné ceny." : "No prices entered yet."}</p>}
     </div>
