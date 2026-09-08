@@ -77,13 +77,36 @@ export const engineServiceEntries = sqliteTable("engine_service_entries", {
   serviceDate: text("service_date").notNull(),
   serviceType: text("service_type").notNull(),
   replacedParts: text("replaced_parts").notNull().default("[]"),
+  replacedPartsSnapshot: text("replaced_parts_snapshot").notNull().default("[]"),
   pistonSize: text("piston_size").notNull().default(""),
   notes: text("notes").notNull().default(""),
   pistonMinutesBefore: integer("piston_minutes_before").notNull().default(0),
   rodMinutesBefore: integer("rod_minutes_before").notNull().default(0),
+  mechanicId: text("mechanic_id"),
+  mechanicNameSnapshot: text("mechanic_name_snapshot").notNull().default(""),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * Per-family replaceable-parts catalog — currently only populated for MINI (see
+ * DB_BACKED_SERVICE_PART_FAMILIES in app/engine-family-rules.ts). Other families still use the
+ * hardcoded `serviceParts`/`allowedParts` lists until they're migrated here one by one.
+ */
+export const engineServicePartCatalog = sqliteTable("engine_service_part_catalog", {
+  id: text("id").primaryKey(),
+  family: text("family").notNull(),
+  partKey: text("part_key").notNull(),
+  labelCs: text("label_cs").notNull(),
+  labelEn: text("label_en").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("engine_service_part_catalog_family_key_idx").on(table.family, table.partKey),
+]);
 
 export const engineAutoServiceLog = sqliteTable("engine_auto_service_log", {
   id: text("id").primaryKey(),

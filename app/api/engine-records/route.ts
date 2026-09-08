@@ -2,7 +2,7 @@ import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
 import { raceLogoUrl } from "../../race-logo";
-import { NO_HOUR_TRACKING_ENGINE_FAMILIES } from "../../engine-family-rules";
+import { NO_HOUR_TRACKING_ENGINE_FAMILIES, AUTO_READY_ON_SERVICE_ENGINE_FAMILIES, DB_BACKED_SERVICE_PART_FAMILIES } from "../../engine-family-rules";
 
 const pistonSizes = new Set([
   "53.83", "53.85", "53.86", "53.87", "53.88", "53.89",
@@ -10,15 +10,39 @@ const pistonSizes = new Set([
 ]);
 const familiesWithPistonSizes = new Set(["OKJ", "OKN", "OKN-J", "OK"]);
 const serviceTypes = new Set(["inspection", "piston_service", "top_end", "full_service"]);
-const allowedParts = new Set([
-  "piston",
-  "oil_seals",
-  "crank_bearings",
-  "connecting_rod",
-  "upper_rod_cage",
-  "cylinder_gasket",
-  "head_gasket",
-]);
+
+type ServicePart = { id: string; cs: string; en: string };
+
+// Single remaining hardcoded parts list — only for families NOT in DB_BACKED_SERVICE_PART_FAMILIES.
+// Once a family's catalog moves into engine_service_part_catalog, remove it from here too.
+const LEGACY_SERVICE_PARTS: ServicePart[] = [
+  { id: "piston", cs: "Píst", en: "Piston" },
+  { id: "oil_seals", cs: "Gufera", en: "Oil seals" },
+  { id: "crank_bearings", cs: "Ložiska kliky", en: "Crank bearings" },
+  { id: "connecting_rod", cs: "Kompletní ojnice", en: "Complete connecting rod" },
+  { id: "upper_rod_cage", cs: "Horní klec ojnice", en: "Upper rod cage" },
+  { id: "cylinder_gasket", cs: "Těsnění válce", en: "Cylinder gasket" },
+  { id: "head_gasket", cs: "Těsnění hlavy", en: "Head gasket" },
+];
+const LEGACY_SERVICE_PART_IDS = new Set(LEGACY_SERVICE_PARTS.map((part) => part.id));
+
+// Which list a given family's replaceable parts come from — DB catalog for families already
+// migrated (DB_BACKED_SERVICE_PART_FAMILIES), the legacy hardcoded array for everyone else.
+async function getServicePartsForFamily(d1: ReturnType<typeof getD1>, family: string): Promise<ServicePart[]> {
+  if (!DB_BACKED_SERVICE_PART_FAMILIES.includes(family)) return LEGACY_SERVICE_PARTS;
+
+  const catalog = await d1.prepare(`
+    SELECT part_key AS id, label_cs AS cs, label_en AS en
+    FROM engine_service_part_catalog
+    WHERE family = ? AND archived_at IS NULL
+    ORDER BY sort_order ASC
+  `).bind(family).all<ServicePart>();
+  return catalog.results;
+}
+
+async function resolveMechanic(d1: ReturnType<typeof getD1>, mechanicId: string) {
+  return d1.prepare("SELECT id, name FROM mechanics WHERE id = ? AND archived_at IS NULL").bind(mechanicId).first<{ id: string; name: string }>();
+}
 
 type EngineRow = {
   id: string;
@@ -57,10 +81,13 @@ type ServiceRow = {
   serviceDate: string;
   serviceType: string;
   replacedParts: string;
+  replacedPartsSnapshot: string;
   pistonSize: string;
   notes: string;
   pistonMinutesBefore: number;
   rodMinutesBefore: number;
+  mechanicId: string | null;
+  mechanicName: string;
   createdBy: string;
   createdAt: number;
 };
@@ -75,9 +102,10 @@ type EngineAuditRow = {
 type EngineAuditEntry =
   | { id: string; action: "create" | "archive" | "update_technical" | "set_engine_baseline"; isSystem: false; createdAt: number }
   | { id: string; action: "status_change"; isSystem: false; createdAt: number; fromStatus: string; toStatus: string }
-  | { id: string; action: "engine_auto_service"; isSystem: true; createdAt: number; raceName: string };
+  | { id: string; action: "engine_auto_service"; isSystem: true; createdAt: number; raceName: string }
+  | { id: string; action: "service"; isSystem: false; createdAt: number; mechanicName: string; partsCount: number };
 
-const AUDIT_ACTIONS_SHOWN = ["create", "archive", "update_technical", "set_engine_baseline", "engine_auto_service", "update"];
+const AUDIT_ACTIONS_SHOWN = ["create", "archive", "update_technical", "set_engine_baseline", "engine_auto_service", "update", "service"];
 
 function parseAuditDetails(raw: string): Record<string, unknown> {
   try {
@@ -102,6 +130,12 @@ function toEngineAuditEntry(row: EngineAuditRow): EngineAuditEntry | null {
     const details = parseAuditDetails(row.details);
     const raceName = typeof details.raceName === "string" ? details.raceName : "";
     return { id: row.id, action: "engine_auto_service", isSystem: true, createdAt: row.createdAt, raceName };
+  }
+  if (row.action === "service") {
+    const details = parseAuditDetails(row.details);
+    const mechanicName = typeof details.mechanicName === "string" ? details.mechanicName : "";
+    const replacedParts = Array.isArray(details.replacedParts) ? details.replacedParts : [];
+    return { id: row.id, action: "service", isSystem: false, createdAt: row.createdAt, mechanicName, partsCount: replacedParts.length };
   }
   if (row.action === "create" || row.action === "archive" || row.action === "update_technical" || row.action === "set_engine_baseline") {
     return { id: row.id, action: row.action, isSystem: false, createdAt: row.createdAt };
@@ -140,6 +174,7 @@ type RecordPayload = {
   driverName?: string;
   serviceType?: string;
   replacedParts?: string[];
+  mechanicId?: string;
   pistonSize?: string;
   notes?: string;
   totalTime?: string;
@@ -160,8 +195,10 @@ function parseTime(value: string, allowZero = false) {
   return minutes;
 }
 
-function cleanParts(parts: string[] | undefined) {
-  return Array.from(new Set(parts ?? [])).filter((part) => allowedParts.has(part));
+// Used only inside recalculateEngine, which (per NO_HOUR_TRACKING_ENGINE_FAMILIES) only ever
+// runs for families still on the legacy hardcoded parts list — never for DB-backed families.
+function cleanLegacyParts(parts: string[] | undefined) {
+  return Array.from(new Set(parts ?? [])).filter((part) => LEGACY_SERVICE_PART_IDS.has(part));
 }
 
 function validatePistonSize(engine: EngineRow, replacedParts: string[], pistonSize: string) {
@@ -176,7 +213,13 @@ function deserializeService(row: ServiceRow) {
   } catch {
     replacedParts = [];
   }
-  return { ...row, replacedParts };
+  let replacedPartsSnapshot: Array<{ partKey: string; labelCs: string; labelEn: string }> = [];
+  try {
+    replacedPartsSnapshot = JSON.parse(row.replacedPartsSnapshot) as Array<{ partKey: string; labelCs: string; labelEn: string }>;
+  } catch {
+    replacedPartsSnapshot = [];
+  }
+  return { ...row, replacedParts, replacedPartsSnapshot };
 }
 
 async function getEngine(engineId: string) {
@@ -211,9 +254,11 @@ async function getService(recordId: string, engineId: string) {
   return getD1().prepare(`
     SELECT id, engine_id AS engineId, service_date AS serviceDate,
            service_type AS serviceType, replaced_parts AS replacedParts,
+           replaced_parts_snapshot AS replacedPartsSnapshot,
            piston_size AS pistonSize, notes,
            piston_minutes_before AS pistonMinutesBefore,
            rod_minutes_before AS rodMinutesBefore,
+           mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName,
            created_by AS createdBy, created_at AS createdAt
     FROM engine_service_entries
     WHERE id = ? AND engine_id = ?
@@ -236,9 +281,11 @@ async function recalculateEngine(engineId: string, now = Date.now()) {
     d1.prepare(`
       SELECT id, engine_id AS engineId, service_date AS serviceDate,
              service_type AS serviceType, replaced_parts AS replacedParts,
+             replaced_parts_snapshot AS replacedPartsSnapshot,
              piston_size AS pistonSize, notes,
              piston_minutes_before AS pistonMinutesBefore,
              rod_minutes_before AS rodMinutesBefore,
+             mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName,
              created_by AS createdBy, created_at AS createdAt
       FROM engine_service_entries WHERE engine_id = ?
     `).bind(engineId).all<ServiceRow>(),
@@ -271,7 +318,7 @@ async function recalculateEngine(engineId: string, now = Date.now()) {
       WHERE id = ? AND engine_id = ?
     `).bind(pistonMinutes, rodMinutes, event.record.id, engineId));
 
-    const parts = cleanParts(deserializeService(event.record).replacedParts);
+    const parts = cleanLegacyParts(deserializeService(event.record).replacedParts);
     if (parts.includes("connecting_rod")) {
       rodMinutes = 0;
       pistonMinutes = 0;
@@ -318,9 +365,11 @@ export async function GET(request: Request) {
     `).bind(engineId).all<UsageRow>(),
     d1.prepare(`
       SELECT id, service_date AS serviceDate, service_type AS serviceType,
-             replaced_parts AS replacedParts, piston_size AS pistonSize, notes,
+             replaced_parts AS replacedParts, replaced_parts_snapshot AS replacedPartsSnapshot,
+             piston_size AS pistonSize, notes,
              piston_minutes_before AS pistonMinutesBefore,
              rod_minutes_before AS rodMinutesBefore,
+             mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName,
              created_by AS createdBy, created_at AS createdAt
       FROM engine_service_entries
       WHERE engine_id = ?
@@ -376,6 +425,8 @@ export async function GET(request: Request) {
     auditEntries.sort((left, right) => right.createdAt - left.createdAt);
   }
 
+  const serviceParts = await getServicePartsForFamily(d1, engine.family);
+
   return Response.json({
     usage: usage.results,
     service: service.results.map(deserializeService),
@@ -384,6 +435,7 @@ export async function GET(request: Request) {
       logoUrl: raceLogoUrl(assignment.raceTemplateId, assignment.logoKey, assignment.logoUpdatedAt),
     })),
     audit: auditEntries,
+    serviceParts,
   });
 }
 
@@ -496,31 +548,52 @@ async function saveService(payload: RecordPayload, engine: EngineRow, actorEmail
   const serviceType = payload.serviceType?.trim() ?? "";
   if (!serviceTypes.has(serviceType)) return Response.json({ error: "Invalid service type" }, { status: 400 });
 
-  const replacedParts = cleanParts(payload.replacedParts);
+  const d1 = getD1();
+
+  const mechanicId = payload.mechanicId?.trim() ?? "";
+  if (!mechanicId) return Response.json({ error: "Mechanic is required" }, { status: 400 });
+  const mechanic = await resolveMechanic(d1, mechanicId);
+  if (!mechanic) return Response.json({ error: "Mechanic not found" }, { status: 400 });
+
+  const availableParts = await getServicePartsForFamily(d1, engine.family);
+  const availablePartIds = new Set(availableParts.map((part) => part.id));
+  const replacedParts = Array.from(new Set(payload.replacedParts ?? [])).filter((part) => availablePartIds.has(part));
+  const replacedPartsSnapshot = replacedParts.map((partId) => {
+    const part = availableParts.find((candidate) => candidate.id === partId)!;
+    return { partKey: part.id, labelCs: part.cs, labelEn: part.en };
+  });
+
   const pistonSize = payload.pistonSize?.trim() ?? "";
   if (!validatePistonSize(engine, replacedParts, pistonSize)) {
     return Response.json({ error: "Select a valid piston size" }, { status: 400 });
   }
 
-  const d1 = getD1();
   const id = crypto.randomUUID();
   const now = Date.now();
   const notes = payload.notes?.trim().slice(0, 1000) ?? "";
+  const autoReady = AUTO_READY_ON_SERVICE_ENGINE_FAMILIES.includes(engine.family);
+  const skipHourRecalculation = NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
 
-  await d1.batch([
+  const statements = [
     d1.prepare(`
       INSERT INTO engine_service_entries (
-        id, engine_id, service_date, service_type, replaced_parts, piston_size,
-        notes, piston_minutes_before, rod_minutes_before, created_by, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)
-    `).bind(id, engine.id, date, serviceType, JSON.stringify(replacedParts), pistonSize, notes, actorEmail, now),
+        id, engine_id, service_date, service_type, replaced_parts, replaced_parts_snapshot, piston_size,
+        notes, piston_minutes_before, rod_minutes_before, mechanic_id, mechanic_name_snapshot, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?, ?)
+    `).bind(id, engine.id, date, serviceType, JSON.stringify(replacedParts), JSON.stringify(replacedPartsSnapshot), pistonSize, notes, mechanic.id, mechanic.name, actorEmail, now),
     d1.prepare(`
       INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, 'service', 'engine', ?, ?, ?)
-    `).bind(crypto.randomUUID(), actorEmail, engine.id, JSON.stringify({ recordId: id, date, serviceType, replacedParts, pistonSize }), now),
-  ]);
+    `).bind(crypto.randomUUID(), actorEmail, engine.id, JSON.stringify({ recordId: id, date, serviceType, replacedParts, pistonSize, mechanicName: mechanic.name, autoReady }), now),
+  ];
+  if (autoReady) {
+    statements.push(d1.prepare(`
+      UPDATE engines SET status = 'ready', updated_at = ? WHERE id = ? AND archived_at IS NULL
+    `).bind(now, engine.id));
+  }
+  await d1.batch(statements);
 
-  const counters = await recalculateEngine(engine.id, now);
+  const counters = skipHourRecalculation ? await getEngine(engine.id) : await recalculateEngine(engine.id, now);
   const saved = await getService(id, engine.id);
   return Response.json({ service: saved ? deserializeService(saved) : null, counters }, { status: 201 });
 }
@@ -584,26 +657,41 @@ async function updateService(payload: RecordPayload, engine: EngineRow, actorEma
   if (!existing) return Response.json({ error: "Record not found" }, { status: 404 });
   const serviceType = payload.serviceType?.trim() ?? "";
   if (!serviceTypes.has(serviceType)) return Response.json({ error: "Invalid service type" }, { status: 400 });
-  const replacedParts = cleanParts(payload.replacedParts);
+
+  const d1 = getD1();
+  const mechanicId = payload.mechanicId?.trim() ?? "";
+  if (!mechanicId) return Response.json({ error: "Mechanic is required" }, { status: 400 });
+  const mechanic = await resolveMechanic(d1, mechanicId);
+  if (!mechanic) return Response.json({ error: "Mechanic not found" }, { status: 400 });
+
+  const availableParts = await getServicePartsForFamily(d1, engine.family);
+  const availablePartIds = new Set(availableParts.map((part) => part.id));
+  const replacedParts = Array.from(new Set(payload.replacedParts ?? [])).filter((part) => availablePartIds.has(part));
+  const replacedPartsSnapshot = replacedParts.map((partId) => {
+    const part = availableParts.find((candidate) => candidate.id === partId)!;
+    return { partKey: part.id, labelCs: part.cs, labelEn: part.en };
+  });
+
   const pistonSize = payload.pistonSize?.trim() ?? "";
   if (!validatePistonSize(engine, replacedParts, pistonSize)) return Response.json({ error: "Select a valid piston size" }, { status: 400 });
 
   const notes = payload.notes?.trim().slice(0, 1000) ?? "";
   const now = Date.now();
-  const d1 = getD1();
   await d1.batch([
     d1.prepare(`
       UPDATE engine_service_entries
-      SET service_date = ?, service_type = ?, replaced_parts = ?, piston_size = ?, notes = ?
+      SET service_date = ?, service_type = ?, replaced_parts = ?, replaced_parts_snapshot = ?, piston_size = ?, notes = ?,
+          mechanic_id = ?, mechanic_name_snapshot = ?
       WHERE id = ? AND engine_id = ?
-    `).bind(date, serviceType, JSON.stringify(replacedParts), pistonSize, notes, recordId, engine.id),
+    `).bind(date, serviceType, JSON.stringify(replacedParts), JSON.stringify(replacedPartsSnapshot), pistonSize, notes, mechanic.id, mechanic.name, recordId, engine.id),
     d1.prepare(`
       INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, 'correct_service', 'engine_service', ?, ?, ?)
-    `).bind(crypto.randomUUID(), actorEmail, recordId, JSON.stringify({ before: deserializeService(existing), after: { date, serviceType, replacedParts, pistonSize, notes } }), now),
+    `).bind(crypto.randomUUID(), actorEmail, recordId, JSON.stringify({ before: deserializeService(existing), after: { date, serviceType, replacedParts, pistonSize, notes, mechanicName: mechanic.name } }), now),
   ]);
 
-  const counters = await recalculateEngine(engine.id, now);
+  const skipHourRecalculation = NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
+  const counters = skipHourRecalculation ? await getEngine(engine.id) : await recalculateEngine(engine.id, now);
   const saved = await getService(recordId, engine.id);
   return Response.json({ service: saved ? deserializeService(saved) : null, counters });
 }

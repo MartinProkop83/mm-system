@@ -91,12 +91,29 @@ async function createRuntimeSchema() {
         service_date TEXT NOT NULL,
         service_type TEXT NOT NULL,
         replaced_parts TEXT NOT NULL DEFAULT '[]',
+        replaced_parts_snapshot TEXT NOT NULL DEFAULT '[]',
         piston_size TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '',
         piston_minutes_before INTEGER NOT NULL DEFAULT 0,
         rod_minutes_before INTEGER NOT NULL DEFAULT 0,
+        mechanic_id TEXT,
+        mechanic_name_snapshot TEXT NOT NULL DEFAULT '',
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_service_part_catalog (
+        id TEXT PRIMARY KEY NOT NULL,
+        family TEXT NOT NULL,
+        part_key TEXT NOT NULL,
+        label_cs TEXT NOT NULL,
+        label_en TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       )
     `),
     d1.prepare(`
@@ -775,6 +792,8 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS race_checklists_race_idx ON race_checklists (race_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_checklist_items_checklist_idx ON race_checklist_items (race_checklist_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_auto_service_log_unique_idx ON engine_auto_service_log (engine_id, race_id)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_part_catalog_family_key_idx ON engine_service_part_catalog (family, part_key) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_part_catalog_family_idx ON engine_service_part_catalog (family, sort_order) WHERE archived_at IS NULL"),
   ]);
 
   const columns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();
@@ -1073,6 +1092,42 @@ async function createRuntimeSchema() {
         .bind(crypto.randomUUID(), vehicle.id, serviceDate, vehicle.lastServiceKm, vehicle.lastServiceNote || "", vehicle.createdBy, vehicle.updatedAt);
     }));
   }
+
+  const serviceEntryColumns = await d1.prepare("PRAGMA table_info(engine_service_entries)").all<{ name: string }>();
+  const existingServiceEntryColumns = new Set(serviceEntryColumns.results.map((column: { name: string }) => column.name));
+  const serviceEntryAdditions = [
+    ["replaced_parts_snapshot", "ALTER TABLE engine_service_entries ADD COLUMN replaced_parts_snapshot TEXT NOT NULL DEFAULT '[]'"],
+    ["mechanic_id", "ALTER TABLE engine_service_entries ADD COLUMN mechanic_id TEXT"],
+    ["mechanic_name_snapshot", "ALTER TABLE engine_service_entries ADD COLUMN mechanic_name_snapshot TEXT NOT NULL DEFAULT ''"],
+  ].filter(([name]) => !existingServiceEntryColumns.has(name));
+  if (serviceEntryAdditions.length > 0) await d1.batch(serviceEntryAdditions.map(([, statement]) => d1.prepare(statement)));
+
+  await ensureMiniServicePartCatalogSeed(d1);
+}
+
+// Starting catalog for MINI — mirrors the parts this family already used from the old hardcoded
+// serviceParts/allowedParts lists (app/mm-dashboard.tsx, app/api/engine-records/route.ts). Seeded
+// once; from here on the catalog is managed via its own CRUD, not this file.
+async function ensureMiniServicePartCatalogSeed(d1: ReturnType<typeof getD1>) {
+  const existing = await d1.prepare("SELECT COUNT(*) AS count FROM engine_service_part_catalog WHERE family = 'MINI'").first<{ count: number }>();
+  if ((existing?.count ?? 0) > 0) return;
+
+  const now = Date.now();
+  const defaults: Array<[string, string, string]> = [
+    ["piston", "Píst", "Piston"],
+    ["oil_seals", "Gufera", "Oil seals"],
+    ["crank_bearings", "Ložiska kliky", "Crank bearings"],
+    ["connecting_rod", "Kompletní ojnice", "Complete connecting rod"],
+    ["upper_rod_cage", "Horní klec ojnice", "Upper rod cage"],
+    ["cylinder_gasket", "Těsnění válce", "Cylinder gasket"],
+    ["head_gasket", "Těsnění hlavy", "Head gasket"],
+  ];
+  await d1.batch(defaults.map(([partKey, labelCs, labelEn], index) =>
+    d1.prepare(`
+      INSERT INTO engine_service_part_catalog (id, family, part_key, label_cs, label_en, sort_order, created_by, created_at, updated_at)
+      VALUES (?, 'MINI', ?, ?, ?, ?, 'system', ?, ?)
+    `).bind(crypto.randomUUID(), partKey, labelCs, labelEn, index, now, now)
+  ));
 }
 
 async function ensureRaceTeamVisitsOilType(d1: ReturnType<typeof getD1>) {

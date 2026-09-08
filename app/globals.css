@@ -1027,7 +1027,7 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .action-column { width: 82px; text-align: right; }
 .table-action { min-height: 32px; padding: 0 var(--wrc-space-12); color: var(--wrc-ink-soft); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface); cursor: pointer; font-size: var(--wrc-text-xs); font-weight: 700; }
 .table-action:hover { color: var(--wrc-red); border-color: var(--wrc-red); }
-.engine-detail { --engine-accent: #dc6803; display: grid; gap: var(--wrc-space-12); }
+.engine-detail { --engine-accent: #dc6803; display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--wrc-space-12); }
 .engine-detail.family-mini { --engine-accent: var(--wrc-red); }
 .engine-detail.family-okj { --engine-accent: var(--wrc-blue); }
 .engine-detail.family-okn { --engine-accent: var(--wrc-amber); }
@@ -1040,7 +1040,7 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .engine-title-line { display: flex; align-items: center; gap: var(--wrc-space-8); }
 .engine-title-line h2 { margin: var(--wrc-space-4) 0; font-family: var(--font-barlow-condensed); font-weight: 800; font-size: var(--wrc-text-2xl); color: var(--wrc-ink); text-transform: uppercase; letter-spacing: var(--wrc-tracking-none); }
 .engine-detail-hero .race-hero-title p { margin: 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); }
-.engine-tabs { display: flex; gap: var(--wrc-space-2); overflow-x: auto; padding: 0 var(--wrc-space-4); border-bottom: 1px solid var(--wrc-line); background: var(--wrc-surface); }
+.engine-tabs { display: flex; gap: var(--wrc-space-2); min-width: 0; overflow-x: auto; padding: 0 var(--wrc-space-4); border-bottom: 1px solid var(--wrc-line); background: var(--wrc-surface); }
 .engine-tabs button { min-height: 46px; padding: 0 var(--wrc-space-16); color: var(--wrc-ink-faint); border: 0; border-bottom: 2px solid transparent; background: transparent; cursor: pointer; font-size: var(--wrc-text-sm); font-weight: 700; white-space: nowrap; }
 .engine-tabs button:hover { color: var(--wrc-ink); }
 .engine-tabs button.active { color: var(--engine-accent, var(--wrc-red)); border-bottom-color: var(--engine-accent, var(--wrc-red)); }

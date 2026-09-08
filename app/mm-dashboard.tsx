@@ -9,7 +9,7 @@ import { CalendarPage } from "./calendar-page";
 import { LogisticsPage } from "./logistics-pages";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { pluralForm, formatCount, type PluralForms } from "./pluralize";
-import { NO_HOUR_TRACKING_ENGINE_FAMILIES } from "./engine-family-rules";
+import { NO_HOUR_TRACKING_ENGINE_FAMILIES, AUTO_READY_ON_SERVICE_ENGINE_FAMILIES } from "./engine-family-rules";
 import { TaskPage, type WorkItem } from "./task-pages";
 import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
@@ -18,6 +18,7 @@ import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pag
 import { ChecklistsPage } from "./checklist-pages";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
+import { EngineServicePartCatalogPanel } from "./engine-service-part-catalog-panel";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
@@ -120,13 +121,18 @@ type ServiceRecord = {
   serviceDate: string;
   serviceType: string;
   replacedParts: string[];
+  replacedPartsSnapshot: Array<{ partKey: string; labelCs: string; labelEn: string }>;
   pistonSize: string;
   notes: string;
   pistonMinutesBefore: number;
   rodMinutesBefore: number;
+  mechanicId: string | null;
+  mechanicName: string;
   createdBy: string;
   createdAt: number;
 };
+
+type ServicePart = { id: string; cs: string; en: string };
 
 type EngineAuditEntry =
   | { id: string; action: "create"; isSystem: false; createdAt: number }
@@ -134,7 +140,8 @@ type EngineAuditEntry =
   | { id: string; action: "update_technical"; isSystem: false; createdAt: number }
   | { id: string; action: "set_engine_baseline"; isSystem: false; createdAt: number }
   | { id: string; action: "status_change"; isSystem: false; createdAt: number; fromStatus: EngineRecord["status"]; toStatus: EngineRecord["status"] }
-  | { id: string; action: "engine_auto_service"; isSystem: true; createdAt: number; raceName: string };
+  | { id: string; action: "engine_auto_service"; isSystem: true; createdAt: number; raceName: string }
+  | { id: string; action: "service"; isSystem: false; createdAt: number; mechanicName: string; partsCount: number };
 
 type EngineAssignment = {
   id: string;
@@ -175,15 +182,6 @@ type DashboardCatalog = {
   vehicles: Array<{ id: string; currentKm?: number | null; serviceIntervalKm?: number | null; lastServiceKm?: number | null }>;
 };
 
-const serviceParts = [
-  { id: "piston", cs: "Píst", en: "Piston" },
-  { id: "oil_seals", cs: "Gufera", en: "Oil seals" },
-  { id: "crank_bearings", cs: "Ložiska kliky", en: "Crank bearings" },
-  { id: "connecting_rod", cs: "Kompletní ojnice", en: "Complete connecting rod" },
-  { id: "upper_rod_cage", cs: "Horní klec ojnice", en: "Upper rod cage" },
-  { id: "cylinder_gasket", cs: "Těsnění válce", en: "Cylinder gasket" },
-  { id: "head_gasket", cs: "Těsnění hlavy", en: "Head gasket" },
-] as const;
 
 const pistonSizeOptions = ["53.83", "53.85", "53.86", "53.87", "53.88", "53.89", "53.90", "53.91", "53.92", "53.93", "53.94", "53.95"];
 
@@ -829,6 +827,7 @@ export default function Home() {
             engine={detailEngine}
             canManage={session ? session.role !== "mechanic" : false}
             role={session?.role ?? "mechanic"}
+            currentUserName={session?.fullName ?? ""}
             onBack={() => setDetailEngineId(null)}
             onEdit={() => openEngineEdit(detailEngine)}
             onSaved={syncEngine}
@@ -1283,6 +1282,7 @@ function Engines({
   const t = copy[locale];
   const [filter, setFilter] = useState<EngineFilter>("ALL");
   const [page, setPage] = useState(1);
+  const [catalogOpen, setCatalogOpen] = useState(false);
   const pageSize = 15;
   const activeEngines = useMemo(() => engines.filter((engine) => !isSold(engine.soldAt)), [engines]);
   const counts = useMemo(() => ({
@@ -1322,7 +1322,8 @@ function Engines({
         </div>
       )}
       <section className="dash-panel data-panel latest-carb-panel">
-        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div>{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</header>
+        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setCatalogOpen(true)}>{locale === "cs" ? "Sada dílů" : "Parts catalog"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
+        {catalogOpen && <EngineServicePartCatalogPanel locale={locale} onClose={() => setCatalogOpen(false)} />}
         {loading && <LoadingState label={t.loading} />}
         {!loading && error && <EmptyState variant="error" icon="!" title={t.databaseError} />}
         {!loading && !error && activeEngines.length === 0 && (
@@ -1370,11 +1371,12 @@ function Engines({
   );
 }
 
-function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved, showNotice }: {
+function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack, onEdit, onSaved, showNotice }: {
   locale: Locale;
   engine: EngineRecord;
   canManage: boolean;
   role: AppSession["role"];
+  currentUserName: string;
   onBack: () => void;
   onEdit: () => void;
   onSaved: (engine: EngineRecord) => void;
@@ -1392,6 +1394,8 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
   const [assignments, setAssignments] = useState<EngineAssignment[]>([]);
   const [auditEntries, setAuditEntries] = useState<EngineAuditEntry[]>([]);
+  const [serviceParts, setServiceParts] = useState<ServicePart[]>([]);
+  const [mechanics, setMechanics] = useState<Array<{ id: string; name: string }>>([]);
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [recordsError, setRecordsError] = useState(false);
   const usesHours = !NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
@@ -1418,13 +1422,14 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       setRecordsLoading(true);
       try {
         const response = await fetch(`/api/engine-records?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
-        const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[] };
-        if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit) throw new Error("load failed");
+        const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[]; serviceParts?: ServicePart[] };
+        if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit || !data.serviceParts) throw new Error("load failed");
         if (!active) return;
         setUsageRecords(data.usage);
         setServiceRecords(data.service);
         setAssignments(data.assignments);
         setAuditEntries(data.audit);
+        setServiceParts(data.serviceParts);
         setRecordsError(false);
       } catch {
         if (active) setRecordsError(true);
@@ -1435,6 +1440,17 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
     void loadRecords();
     return () => { active = false; };
   }, [engine.id]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/catalog", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { mechanics?: Array<{ id: string; name: string }> }) => {
+        if (active && data.mechanics) setMechanics(data.mechanics.map((mechanic) => ({ id: mechanic.id, name: mechanic.name })));
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   function applyCounters(counters: Partial<EngineRecord>) {
     onSaved({ ...engine, ...counters, updatedAt: Date.now() });
@@ -1450,12 +1466,13 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
     setRecordsLoading(true);
     try {
       const response = await fetch(`/api/engine-records?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
-      const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[] };
-      if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit) throw new Error("load failed");
+      const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[]; serviceParts?: ServicePart[] };
+      if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit || !data.serviceParts) throw new Error("load failed");
       setUsageRecords(data.usage);
       setServiceRecords(data.service);
       setAssignments(data.assignments);
       setAuditEntries(data.audit);
+      setServiceParts(data.serviceParts);
       setRecordsError(false);
     } catch {
       setRecordsError(true);
@@ -1588,7 +1605,10 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
           <div className="service-checklist">
             {serviceParts.map((part) => {
               const latest = serviceRecords.find((record) => record.replacedParts.includes(part.id));
-              return <div key={part.id} className={latest ? "has-record" : ""}><span>{latest ? "✓" : "○"}</span><strong>{locale === "cs" ? part.cs : part.en}</strong><small>{latest ? `${formatDisplayDate(latest.serviceDate, locale)}${part.id === "piston" && latest.pistonSize ? ` · ${latest.pistonSize}` : ""}` : (locale === "cs" ? "Bez servisního záznamu" : "No service record")}</small></div>;
+              const detail = latest
+                ? [formatDisplayDate(latest.serviceDate, locale), part.id === "piston" && latest.pistonSize ? latest.pistonSize : "", latest.mechanicName].filter(Boolean).join(" · ")
+                : (locale === "cs" ? "Bez servisního záznamu" : "No service record");
+              return <div key={part.id} className={latest ? "has-record" : ""}><span>{latest ? "✓" : "○"}</span><strong>{locale === "cs" ? part.cs : part.en}</strong><small>{detail}</small></div>;
             })}
           </div>
           {recordProblem()}
@@ -1632,8 +1652,8 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       {baselineOpen && <BaselineForm locale={locale} engine={engine} onClose={() => setBaselineOpen(false)} onSaved={(counters) => { applyCounters(counters); setBaselineOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Vstupní stav byl uložen a počítadla přepočítána." : "Starting state saved and counters recalculated."); }} />}
       {usageOpen && <UsageForm locale={locale} engine={engine} onClose={() => setUsageOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setUsageOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Motohodiny byly zapsány." : "Running hours logged."); }} />}
       {editingUsage && <UsageForm locale={locale} engine={engine} record={editingUsage} onClose={() => setEditingUsage(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingUsage(null); void reloadRecords(); showNotice(locale === "cs" ? "Záznam motohodin byl opraven." : "Running-hours record corrected."); }} />}
-      {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} onClose={() => setServiceOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); }} />}
-      {editingService && <ServiceEntryForm locale={locale} engine={engine} record={editingService} onClose={() => setEditingService(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingService(null); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl opraven." : "Service record corrected."); }} />}
+      {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} serviceParts={serviceParts} mechanics={mechanics} currentUserName={role === "mechanic" ? currentUserName : ""} onClose={() => setServiceOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); }} />}
+      {editingService && <ServiceEntryForm locale={locale} engine={engine} record={editingService} serviceParts={serviceParts} mechanics={mechanics} currentUserName="" onClose={() => setEditingService(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingService(null); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl opraven." : "Service record corrected."); }} />}
     </div>
   );
 }
@@ -1748,13 +1768,28 @@ function UsageForm({ locale, engine, record = null, onClose, onSaved }: { locale
   );
 }
 
-function ServiceEntryForm({ locale, engine, record = null, onClose, onSaved }: { locale: Locale; engine: EngineRecord; record?: ServiceRecord | null; onClose: () => void; onSaved: (record: ServiceRecord, counters: Partial<EngineRecord>) => void }) {
+function ServiceEntryForm({ locale, engine, record = null, serviceParts, mechanics, currentUserName, onClose, onSaved }: {
+  locale: Locale;
+  engine: EngineRecord;
+  record?: ServiceRecord | null;
+  serviceParts: ServicePart[];
+  mechanics: Array<{ id: string; name: string }>;
+  currentUserName: string;
+  onClose: () => void;
+  onSaved: (record: ServiceRecord, counters: Partial<EngineRecord>) => void;
+}) {
   const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedParts, setSelectedParts] = useState<string[]>(record?.replacedParts ?? []);
+  const defaultMechanicId = record?.mechanicId
+    ?? mechanics.find((mechanic) => mechanic.name.trim().toLowerCase() === currentUserName.trim().toLowerCase())?.id
+    ?? "";
+  const [mechanicId, setMechanicId] = useState(defaultMechanicId);
   const editing = Boolean(record);
+  const tracksHours = !NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
+  const autoReady = AUTO_READY_ON_SERVICE_ENGINE_FAMILIES.includes(engine.family);
   const supportsListedPistons = ["OKJ", "OKN", "OKN-J", "OK"].includes(engine.family);
   const resetsPiston = selectedParts.includes("piston") || selectedParts.includes("connecting_rod");
 
@@ -1774,6 +1809,7 @@ function ServiceEntryForm({ locale, engine, record = null, onClose, onSaved }: {
       date: formData.get("date"),
       serviceType: formData.get("serviceType"),
       replacedParts: selectedParts,
+      mechanicId,
       pistonSize: formData.get("pistonSize"),
       notes: formData.get("notes"),
     };
@@ -1796,17 +1832,19 @@ function ServiceEntryForm({ locale, engine, record = null, onClose, onSaved }: {
           <div className="form-grid">
             <label><span>{locale === "cs" ? "Datum servisu" : "Service date"} *</span><input name="date" type="date" defaultValue={record?.serviceDate ?? todayInputValue()} required /></label>
             <label><span>{locale === "cs" ? "Typ servisu" : "Service type"} *</span><select name="serviceType" defaultValue={record?.serviceType ?? "piston_service"}><option value="inspection">{locale === "cs" ? "Kontrola" : "Inspection"}</option><option value="piston_service">{locale === "cs" ? "Servis pístu" : "Piston service"}</option><option value="top_end">Top end</option><option value="full_service">{locale === "cs" ? "Kompletní servis" : "Full service"}</option></select></label>
+            <label><span>{locale === "cs" ? "Mechanik" : "Mechanic"} *</span><select name="mechanicId" value={mechanicId} onChange={(event) => setMechanicId(event.target.value)} required><option value="" disabled>{locale === "cs" ? "Vyber mechanika" : "Select mechanic"}</option>{mechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}</select></label>
           </div>
 
           <fieldset className="parts-fieldset"><legend>{locale === "cs" ? "Vyměněné díly" : "Replaced parts"}</legend><div className="parts-grid">{serviceParts.map((part) => <label key={part.id} className={selectedParts.includes(part.id) ? "selected" : ""}><input type="checkbox" checked={selectedParts.includes(part.id)} onChange={() => togglePart(part.id)} /><span>✓</span><strong>{locale === "cs" ? part.cs : part.en}</strong></label>)}</div></fieldset>
 
           {resetsPiston && supportsListedPistons && <label className="piston-size-field"><span>{locale === "cs" ? "Nový rozměr pístu" : "New piston size"} *</span><select name="pistonSize" defaultValue={record?.pistonSize && pistonSizeOptions.includes(record.pistonSize) ? record.pistonSize : engine.currentPistonSize && pistonSizeOptions.includes(engine.currentPistonSize) ? engine.currentPistonSize : ""} required><option value="" disabled>{locale === "cs" ? "Vyber rozměr" : "Select size"}</option>{pistonSizeOptions.map((size) => <option key={size} value={size}>{size}</option>)}</select><small>{locale === "cs" ? `Výběr platný pro ${engine.family}.` : `Options for ${engine.family}.`}</small></label>}
-          {resetsPiston && !supportsListedPistons && <p className="form-hint">{locale === "cs" ? `Pro ${engine.family} zatím velikost pístu nevybíráme; doplníme správný seznam samostatně.` : `Piston sizes for ${engine.family} will be added separately.`}</p>}
+          {tracksHours && resetsPiston && !supportsListedPistons && <p className="form-hint">{locale === "cs" ? `Pro ${engine.family} zatím velikost pístu nevybíráme; doplníme správný seznam samostatně.` : `Piston sizes for ${engine.family} will be added separately.`}</p>}
 
           <label className="standalone-textarea"><span>{locale === "cs" ? "Poznámka / specifikace dílů" : "Notes / parts specification"}</span><textarea name="notes" rows={3} defaultValue={record?.notes ?? ""} placeholder={locale === "cs" ? "Například značka, typ dílu, naměřené hodnoty…" : "For example brand, part type, measured values…"} /></label>
 
-          <div className="reset-preview"><div><span>{locale === "cs" ? "Počítadlo pístu" : "Piston counter"}</span><strong>{formatHours(engine.pistonMinutes)} → {resetsPiston ? "00:00" : formatHours(engine.pistonMinutes)}</strong></div><div><span>{locale === "cs" ? "Počítadlo ojnice" : "Rod counter"}</span><strong>{formatHours(engine.rodMinutes)} → {selectedParts.includes("connecting_rod") ? "00:00" : formatHours(engine.rodMinutes)}</strong></div></div>
-          {selectedParts.includes("connecting_rod") && <p className="form-hint">{locale === "cs" ? "Výměna kompletní ojnice vynuluje také počítadlo pístu." : "Replacing the complete connecting rod also resets the piston counter."}</p>}
+          {tracksHours && <div className="reset-preview"><div><span>{locale === "cs" ? "Počítadlo pístu" : "Piston counter"}</span><strong>{formatHours(engine.pistonMinutes)} → {resetsPiston ? "00:00" : formatHours(engine.pistonMinutes)}</strong></div><div><span>{locale === "cs" ? "Počítadlo ojnice" : "Rod counter"}</span><strong>{formatHours(engine.rodMinutes)} → {selectedParts.includes("connecting_rod") ? "00:00" : formatHours(engine.rodMinutes)}</strong></div></div>}
+          {tracksHours && selectedParts.includes("connecting_rod") && <p className="form-hint">{locale === "cs" ? "Výměna kompletní ojnice vynuluje také počítadlo pístu." : "Replacing the complete connecting rod also resets the piston counter."}</p>}
+          {autoReady && <p className="form-hint">{locale === "cs" ? "Po uložení se stav motoru automaticky přepne na Připraveno." : "Saving will automatically switch the engine status to Ready."}</p>}
           {error && <p className="form-error">{friendlyRecordError(error, locale)}</p>}
           <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{t.cancel}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? t.saving : editing ? (locale === "cs" ? "Uložit opravu" : "Save correction") : locale === "cs" ? "Uložit servis" : "Save service"}</button></div>
         </form>
@@ -1819,7 +1857,7 @@ function ServiceHistoryTable({ records, locale, canCorrect, onEdit, onDelete }: 
   return (
     <div className="records-table-wrap">
       <div className="records-title"><h3>{locale === "cs" ? "Historie servisu" : "Service history"}</h3>{canCorrect && <small>{locale === "cs" ? "Opravy jsou dostupné pouze superadminovi." : "Corrections are limited to superadmin."}</small>}</div>
-      <div className="table-wrap"><table className="records-table zebra"><thead><tr><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Vyměněno" : "Replaced"}</th><th>{locale === "cs" ? "Stav před servisem" : "Before service"}</th><th>{locale === "cs" ? "Zapsal" : "Recorded by"}</th>{canCorrect && <th>{locale === "cs" ? "Oprava" : "Correction"}</th>}</tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{formatDisplayDate(record.serviceDate, locale)}</strong></td><td>{serviceTypeLabel(record.serviceType, locale)}</td><td>{record.replacedParts.length ? record.replacedParts.map((part) => partLabel(part, locale)).join(", ") : (locale === "cs" ? "Pouze kontrola" : "Inspection only")}{record.pistonSize ? <small className="cell-note">{locale === "cs" ? "Píst" : "Piston"}: {record.pistonSize}</small> : null}</td><td><small>{locale === "cs" ? "Píst" : "Piston"}: {formatHours(record.pistonMinutesBefore)}</small><small className="cell-note">{locale === "cs" ? "Ojnice" : "Rod"}: {formatHours(record.rodMinutesBefore)}</small></td><td>{record.createdBy}</td>{canCorrect && <td><div className="record-actions"><button type="button" onClick={() => onEdit(record)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => onDelete(record.id)}>{locale === "cs" ? "Smazat" : "Delete"}</button></div></td>}</tr>)}</tbody></table></div>
+      <div className="table-wrap"><table className="records-table zebra"><thead><tr><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Vyměněno" : "Replaced"}</th><th>{locale === "cs" ? "Stav před servisem" : "Before service"}</th><th>{locale === "cs" ? "Mechanik" : "Mechanic"}</th>{canCorrect && <th>{locale === "cs" ? "Oprava" : "Correction"}</th>}</tr></thead><tbody>{records.map((record) => <tr key={record.id}><td><strong>{formatDisplayDate(record.serviceDate, locale)}</strong></td><td>{serviceTypeLabel(record.serviceType, locale)}</td><td>{record.replacedParts.length ? record.replacedParts.map((part) => servicePartLabel(record, part, locale)).join(", ") : (locale === "cs" ? "Pouze kontrola" : "Inspection only")}{record.pistonSize ? <small className="cell-note">{locale === "cs" ? "Píst" : "Piston"}: {record.pistonSize}</small> : null}</td><td><small>{locale === "cs" ? "Píst" : "Piston"}: {formatHours(record.pistonMinutesBefore)}</small><small className="cell-note">{locale === "cs" ? "Ojnice" : "Rod"}: {formatHours(record.rodMinutesBefore)}</small></td><td>{record.mechanicName || <span className="cell-note">{record.createdBy}</span>}</td>{canCorrect && <td><div className="record-actions"><button type="button" onClick={() => onEdit(record)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => onDelete(record.id)}>{locale === "cs" ? "Smazat" : "Delete"}</button></div></td>}</tr>)}</tbody></table></div>
     </div>
   );
 }
@@ -2209,8 +2247,13 @@ function auditEntryText(entry: EngineAuditEntry, locale: Locale) {
     const to = engineStatusLabel(entry.toStatus, locale);
     return locale === "cs" ? `Stav změněn z „${from}“ na „${to}“` : `Status changed from "${from}" to "${to}"`;
   }
-  const raceName = entry.raceName || (locale === "cs" ? "neznámý závod" : "unknown race");
-  return locale === "cs" ? `Stav změněn na Servis — automaticky po závodě ${raceName}` : `Status changed to Service — automatically after the ${raceName} race`;
+  if (entry.action === "engine_auto_service") {
+    const raceName = entry.raceName || (locale === "cs" ? "neznámý závod" : "unknown race");
+    return locale === "cs" ? `Stav změněn na Servis — automaticky po závodě ${raceName}` : `Status changed to Service — automatically after the ${raceName} race`;
+  }
+  const mechanicName = entry.mechanicName || (locale === "cs" ? "neznámý mechanik" : "unknown mechanic");
+  const partsText = entry.partsCount > 0 ? ` (${formatCount(entry.partsCount, locale, { cs: ["díl", "díly", "dílů"], en: ["part", "parts"] })})` : "";
+  return locale === "cs" ? `Proveden servis${partsText} — ${mechanicName}` : `Service performed${partsText} — ${mechanicName}`;
 }
 
 function formatDisplayDate(value: string | null, locale: Locale) {
@@ -2244,9 +2287,10 @@ function todayInputValue() {
   return local.toISOString().slice(0, 10);
 }
 
-function partLabel(partId: string, locale: Locale) {
-  const part = serviceParts.find((item) => item.id === partId);
-  return part ? (locale === "cs" ? part.cs : part.en) : partId;
+function servicePartLabel(record: ServiceRecord, partId: string, locale: Locale) {
+  const snapshot = record.replacedPartsSnapshot.find((item) => item.partKey === partId);
+  if (!snapshot) return partId;
+  return locale === "cs" ? snapshot.labelCs : snapshot.labelEn;
 }
 
 function serviceTypeLabel(serviceType: string, locale: Locale) {
