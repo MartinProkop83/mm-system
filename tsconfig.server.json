@@ -1,5 +1,6 @@
 {
-  // Separate TS project for Cloudflare Worker / D1 / R2 code (db/**, worker/**, app/api/**).
+  // Separate TS project for Cloudflare Worker / D1 / R2 code (db/**, worker/**, app/api/**,
+  // plus the shared server-safe helpers under app/*.ts that those routes import).
   //
   // Why this is a SEPARATE tsconfig instead of adding "@cloudflare/workers-types" to the main
   // one: workers-types is a pure ambient global .d.ts (no module exports to import
@@ -9,15 +10,28 @@
   // definitions into one program produced false type errors in unrelated client components
   // (e.g. `Response.json()` narrowing from `Promise<any>` to `Promise<unknown>`).
   //
-  // Keeping this as its own project means db/**, worker/**, and app/api/** get real
-  // Cloudflare types (D1Database, R2Bucket, the `env` bindings from cloudflare-env.d.ts) when
-  // checked via `npx tsc --noEmit -p tsconfig.server.json`, without ever touching the DOM lib
-  // used by the rest of the app under `npx tsc --noEmit -p .`.
+  // Why this is a PROJECT REFERENCE (composite) and not just excluded from the main tsconfig:
+  // db/index.ts and db/runtime-schema.ts are also reachable from the main program, transitively,
+  // via app/page.tsx -> app/server-auth.ts -> db/index.ts. A plain "exclude" in tsconfig.json
+  // does NOT stop TypeScript from still parsing and diagnosing an excluded file once some
+  // included file imports it — exclude only stops *automatic* discovery, not import-following.
+  // That meant db/index.ts kept surfacing "Cannot find module 'cloudflare:workers'" etc. under
+  // the main config even after being excluded, because main has no workers-types.
+  // Project references fix this properly: main only sees this project's *compiled declaration
+  // output* (.d.ts) for anything server-auth.ts imports from here, so it never re-parses these
+  // files' source under the wrong (DOM-only) globals, and never re-surfaces this project's own
+  // diagnostics. See CLAUDE.md for the two-tsconfig split and the `npm run typecheck` command
+  // that builds this project before checking the main one.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "lib": ["esnext"],
-    "types": ["@cloudflare/workers-types"]
+    "types": ["@cloudflare/workers-types"],
+    "composite": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "outDir": "./.ts-out/server"
   },
-  "include": ["db/**/*.ts", "worker/**/*.ts", "worker/cloudflare-env.d.ts", "app/api/**/*.ts"],
+  "include": ["db/**/*.ts", "worker/**/*.ts", "worker/cloudflare-env.d.ts", "app/api/**/*.ts", "app/*.ts"],
   "exclude": ["node_modules"]
 }

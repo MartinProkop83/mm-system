@@ -34,3 +34,29 @@ Nepiš je znovu ručně.
 
 ## Před dokončením
 Zkontroluj světlý i tmavý režim a šířky 1440/1000/760/500.
+
+# TypeScript — dva tsconfigy
+
+Projekt má dva tsconfigy, protože `@cloudflare/workers-types` je čistě ambientní
+balíček (žádné importy, jen globální deklarace) — jakmile je načtený, přepíše
+globály jako `Response`/`fetch`/`FormData` pro celý program. To koliduje s DOM
+typy, které potřebuje browser ("use client") kód.
+
+- `tsconfig.json` — hlavní, pro `app/**/*.tsx` a client kód. DOM lib, žádné
+  Cloudflare typy. Toto čte editor a Next.js/vinext.
+- `tsconfig.server.json` — pro `db/**`, `worker/**`, `app/api/**` a sdílené
+  server-safe helpery `app/*.ts` (auth, image URL buildery apod.). Má
+  `@cloudflare/workers-types`, žádné DOM. Je to `composite` projekt napojený
+  na hlavní přes `references` — hlavní tsconfig tak vidí jen zkompilované typy
+  (`.ts-out/server/`), ne zdrojový kód, takže se odtud nešíří ani Cloudflare
+  globály do browser kódu, ani "chybí typ" chyby zpátky do hlavního configu
+  (i když `app/page.tsx` importuje `server-auth.ts`, který importuje `db/index.ts`).
+
+`worker/cloudflare-env.d.ts` obsahuje ruční `Cloudflare.Env` augmentaci (normálně
+by ji generoval `wrangler types` z `wrangler.toml`, který projekt nemá) a
+záplatu pro mezeru v typech `FormData.get()` v nainstalované verzi workers-types.
+
+**Spouštění:** `npm run typecheck` spustí oba configy v pořadí (server nejdřív,
+protože musí vygenerovat `.d.ts` pro hlavní config). Nikdy nespouštěj jen
+`tsc --noEmit -p .` a nepovažuj to za kompletní kontrolu — přeskočí to celý
+`db/**`, `worker/**`, `app/api/**`.

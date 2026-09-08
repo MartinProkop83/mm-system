@@ -30,5 +30,6 @@
     ".next/dev/types/**/*.ts",
     "**/*.mts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "app/api/**", "app/*.ts", "db/**", "worker/**"],
+  "references": [{ "path": "./tsconfig.server.json" }]
 }

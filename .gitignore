@@ -18,6 +18,9 @@
 /.vinext/
 /out/
 
+# tsc --build output for tsconfig.server.json (declaration files only, see `npm run typecheck`)
+/.ts-out/
+
 # misc
 .DS_Store
 *.pem
