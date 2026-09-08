@@ -944,7 +944,8 @@ button { color: inherit; }
 .fleet-row.selected::before { content: ""; position: absolute; left: 0; top: 8px; bottom: 8px; width: 3px; background: var(--wrc-red); }
 .fleet-cat strong { display: block; font-family: var(--font-barlow-condensed); font-weight: 800; font-size: var(--wrc-text-lg); color: var(--wrc-ink); text-transform: uppercase; }
 .fleet-cat small { display: block; color: var(--wrc-ink-faint); font-size: var(--wrc-text-sm); margin-top: 2px; }
-.fleet-bar { display: flex; height: 11px; background: var(--wrc-surface-3); overflow: hidden; }
+.fleet-bar { display: flex; height: 11px; background: var(--wrc-surface-3); overflow: hidden; transition: width .16s ease; }
+.fleet-bar-empty { width: 100%; height: 100%; border: 1px dashed var(--wrc-line); background: var(--wrc-surface-2); box-sizing: border-box; }
 .fleet-bar div { height: 100%; }
 .fleet-bar div:not(:last-child) { border-right: 1px solid var(--wrc-surface); }
 .fleet-counts { display: flex; justify-content: flex-end; gap: var(--wrc-space-12); font-family: var(--font-jetbrains-mono), monospace; font-size: var(--wrc-text-base); font-weight: 600; }

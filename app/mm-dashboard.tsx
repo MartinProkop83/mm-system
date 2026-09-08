@@ -1015,6 +1015,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
     };
     return { category, total: rows.length, stats };
   });
+  const fleetGrandTotal = ownedEngines.length;
   const seasonRows = [...dashboardRaces].sort((a, b) => a.startDate.localeCompare(b.startDate)).slice(0, 8);
 
   const categoryEngines = ownedEngines.filter((engine) => (selectedCategory === "ALL" ? true : (engine.family === "OKN-J" ? "OKN" : engine.family) === selectedCategory));
@@ -1155,14 +1156,18 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
             <span><i style={{ background: "var(--wrc-red)" }} />{t.rebuild}</span>
             <span><i style={{ background: "var(--wrc-ink-faint)" }} />{t.storage}</span>
           </div>
-          {fleetRows.map(({ category, total, stats }) => (
+          {fleetRows.map(({ category, total, stats }) => {
+            const barWidth = fleetGrandTotal > 0 ? Math.max((total / fleetGrandTotal) * 100, FLEET_MIN_BAR_PERCENT) : 0;
+            return (
             <button className={category.id === selectedCategory ? "fleet-row selected" : "fleet-row"} type="button" key={category.id} onClick={() => setSelectedCategory(category.id)}>
               <div className="fleet-cat"><strong>{category.label}</strong><small>{formatCount(total, locale, ENGINE_FORMS)}</small></div>
-              <div className="fleet-bar">
-                {total > 0 && <div style={{ width: `${(stats.ready / total) * 100}%`, background: "var(--wrc-green)" }} />}
-                {total > 0 && <div style={{ width: `${(stats.due / total) * 100}%`, background: "var(--wrc-amber)" }} />}
-                {total > 0 && <div style={{ width: `${(stats.rebuild / total) * 100}%`, background: "var(--wrc-red)" }} />}
-                {total > 0 && <div style={{ width: `${(stats.storage / total) * 100}%`, background: "var(--wrc-ink-faint)" }} />}
+              <div className="fleet-bar" style={{ width: `${barWidth}%` }}>
+                {total > 0 ? <>
+                  <div style={{ width: `${(stats.ready / total) * 100}%`, background: "var(--wrc-green)" }} />
+                  <div style={{ width: `${(stats.due / total) * 100}%`, background: "var(--wrc-amber)" }} />
+                  <div style={{ width: `${(stats.rebuild / total) * 100}%`, background: "var(--wrc-red)" }} />
+                  <div style={{ width: `${(stats.storage / total) * 100}%`, background: "var(--wrc-ink-faint)" }} />
+                </> : <div className="fleet-bar-empty" />}
               </div>
               <div className="fleet-counts">
                 <b style={{ color: "var(--wrc-green)" }}>{stats.ready}</b>
@@ -1171,7 +1176,8 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
                 <b style={{ color: "var(--wrc-ink-faint)" }}>{stats.storage}</b>
               </div>
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -2004,6 +2010,8 @@ function czechVocative(firstName: string) {
   if (/[kg]$/u.test(normalized)) return `${firstName}u`;
   return `${firstName}e`;
 }
+
+const FLEET_MIN_BAR_PERCENT = 8;
 
 const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
 const DAY_FORMS: PluralForms = { cs: ["den", "dny", "dní"], en: ["day", "days"] };
