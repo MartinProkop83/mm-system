@@ -535,7 +535,7 @@
 :root[data-mode="dark"] .travel-detail-links { border-color: rgba(209, 39, 43, .35); background: rgba(209, 39, 43, .08); }
 :root[data-mode="dark"] .travel-detail-links a { border-color: rgba(209, 39, 43, .35); background: var(--wrc-surface); }
 
-@media screen and (max-width: 1300px) {
+@media screen and (max-width: 1280px) {
   .logistics-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .travel-attachment-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
@@ -714,7 +714,7 @@
 .clothing-team-items em { grid-column: 1 / -1; color: var(--wrc-ink-faint); font-size: var(--wrc-text-micro); font-style: normal; }
 .clothing-team-empty { margin: 0; padding: var(--wrc-space-16) var(--wrc-space-12); color: var(--wrc-ink-soft); font-size: var(--wrc-text-micro); }
 
-@media screen and (max-width: 1050px) {
+@media screen and (max-width: 1120px) {
   .clothing-hero { grid-template-columns: 58px 1fr; }
   .clothing-hero dl { grid-column: 1 / -1; }
   .clothing-assignment-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -883,7 +883,7 @@ button { color: inherit; }
 /* ================= DASHBOARD ================= */
 .dashboard-grid { display: grid; gap: var(--wrc-space-16); padding: 22px clamp(24px, 3vw, 52px) 55px; background: var(--wrc-bg); color: var(--wrc-ink); }
 
-.race-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: var(--wrc-space-12); }
+.race-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: var(--wrc-space-12); }
 .race-mini { position: relative; overflow: hidden; display: flex; flex-direction: column; padding: var(--wrc-space-16) var(--wrc-space-20); border: 1px solid var(--wrc-line); border-top: 2px solid var(--wrc-red); border-radius: var(--wrc-radius-sm); background: var(--wrc-surface); }
 .race-mini.muted { border-top-color: var(--wrc-ink-faint); }
 .race-mini-head { display: flex; align-items: center; gap: var(--wrc-space-8); margin-bottom: 10px; }
@@ -979,9 +979,9 @@ table.results tr:hover td { background: var(--wrc-surface-2); }
 .pill.storage { color: var(--wrc-ink-faint); background: var(--wrc-surface-2); }
 table.results td.hours { color: var(--wrc-ink-soft); font-family: var(--font-jetbrains-mono), monospace; }
 
-.section-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
-.section-head h2 { display: flex; align-items: center; margin: 0; color: var(--wrc-ink); font-family: var(--font-barlow-condensed); font-weight: 800; font-size: var(--wrc-text-2xl); text-transform: uppercase; }
-.section-head a { color: var(--wrc-ink-soft); font-size: var(--wrc-text-base); font-weight: 700; text-transform: uppercase; letter-spacing: var(--wrc-tracking-wide); cursor: pointer; }
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--wrc-space-12); margin-bottom: 12px; }
+.section-head h2 { display: flex; align-items: center; min-width: 0; margin: 0; color: var(--wrc-ink); font-family: var(--font-barlow-condensed); font-weight: 800; font-size: var(--wrc-text-2xl); text-transform: uppercase; }
+.section-head a { flex: none; color: var(--wrc-ink-soft); font-size: var(--wrc-text-base); font-weight: 700; text-transform: uppercase; letter-spacing: var(--wrc-tracking-wide); cursor: pointer; }
 .streak { display: inline-flex; align-items: center; gap: var(--wrc-space-2); margin-right: 9px; }
 .streak i { display: block; width: 4px; height: 16px; background: var(--wrc-red); transform: skewX(-18deg); }
 .streak i:nth-child(2) { height: 11px; opacity: .7; }
@@ -1691,7 +1691,7 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .race-team-visit-actions { flex: 0 0 auto; display: flex; gap: var(--wrc-space-4); }
 .race-team-visit-actions button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; color: var(--wrc-ink-faint); border: 0; border-radius: var(--wrc-radius-sm); background: transparent; cursor: pointer; font-size: var(--wrc-text-base); }
 .race-team-visit-actions button:hover { color: var(--wrc-red); background: var(--wrc-surface-2); }
-@media (max-width: 640px) {
+@media (max-width: 600px) {
   .race-team-visit-row-top { flex-wrap: wrap; }
   .race-team-visit-meta { padding-left: 0; }
 }
@@ -3119,15 +3119,15 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .inventory-part-card footer button { min-height: 36px; padding: 0 var(--wrc-space-12); color: var(--wrc-red); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface-2); cursor: pointer; font: inherit; font-size: var(--wrc-text-xs); font-weight: 800; }
 .inventory-part-card footer button.delete { color: var(--wrc-danger-ink); border-color: var(--wrc-line); }
 
-@media screen and (max-width: 1650px) {
+@media screen and (max-width: 1440px) {
   .inventory-card-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 
-@media screen and (max-width: 1180px) {
+@media screen and (max-width: 1120px) {
   .inventory-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
-@media screen and (max-width: 820px) {
+@media screen and (max-width: 760px) {
   .inventory-card-grid { grid-template-columns: 1fr; }
 }
 
@@ -3169,7 +3169,7 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .equipment-history-section span, .equipment-history-section small { color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); }
 .equipment-history-section > p { margin: 0; padding: var(--wrc-space-20) var(--wrc-space-16); color: var(--wrc-ink-soft); }
 
-@media screen and (max-width: 1320px) {
+@media screen and (max-width: 1280px) {
   .modal.sale-modal { width: calc(100vw - 24px); padding: var(--wrc-space-24); }
   .sale-modal .sale-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sale-modal .sale-state-check { grid-column: span 1; }
@@ -3362,7 +3362,7 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .carb-breakdown { display: flex; flex-wrap: wrap; gap: var(--wrc-space-6); min-height: 48px; padding: var(--wrc-space-12) var(--wrc-space-12); }
 .carb-breakdown span { padding: var(--wrc-space-4) var(--wrc-space-8); border-radius: var(--wrc-radius-xs); color: var(--wrc-ink-soft); background: var(--wrc-surface); font-size: var(--wrc-text-xs); }
 
-@media screen and (max-width: 800px) {
+@media screen and (max-width: 760px) {
   .circuit-directory-header { align-items: flex-start; flex-direction: column; padding: var(--wrc-space-20); }
   .circuit-header-actions { width: 100%; justify-content: space-between; }
   .circuit-card-grid { grid-template-columns: 1fr; }
@@ -3417,7 +3417,7 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
   grid-template-columns: minmax(160px, auto) minmax(0, 1fr);
 }
 
-@media screen and (max-width: 1450px) and (min-width: 1121px) {
+@media screen and (max-width: 1440px) and (min-width: 1121px) {
   .race-entry-actions {
     grid-column: 3;
     grid-row: 1 / span 2;
