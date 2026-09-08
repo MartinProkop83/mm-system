@@ -284,8 +284,9 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
         </div>}
       </>}
     </section>
-    {!loading && !loadError && archivedRacesAll.length > 0 && <section className="dash-panel data-panel race-archive">
+    {!loading && !loadError && <section className="dash-panel data-panel race-archive">
       <header><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE ARCHIVE</span><h2>{locale === "cs" ? "Archiv závodů" : "Race archive"}</h2></header>
+      {archivedRacesAll.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádný archivovaný závod." : "No archived races yet."}</p> : <>
       {archiveTypeTiles.length > 1 && <div className="carb-unit-category-tiles no-print">
         <button type="button" className={`carb-unit-tile${archiveTypeFilter === "" ? " active" : ""}`} onClick={() => setArchiveTypeFilter("")}>{locale === "cs" ? "Vše" : "All"}<small>{archivedRacesAll.length}</small></button>
         {archiveTypeTiles.map((tile) => <button key={tile.key} type="button" className={`carb-unit-tile${archiveTypeFilter === tile.key ? " active" : ""}`} onClick={() => setArchiveTypeFilter(tile.key)}>{tile.label}<small>{tile.count}</small></button>)}
@@ -298,6 +299,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
           <span>{race.name}<small>{formatDateRange(race.startDate, race.endDate, locale)}</small></span>
         </button>)}</div>
       </div>)}
+      </>}
     </section>}
     {raceForm && <RaceForm locale={locale} race={raceForm.race} catalog={catalog} circuits={circuits} mechanicIds={raceForm.mechanicIds} vehicleIds={raceForm.vehicleIds} onClose={() => setRaceForm(null)} onSaved={async (id) => { setRaceForm(null); await load(); setSelectedId(id); }} />}
   </div>;

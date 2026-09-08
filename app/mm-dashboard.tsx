@@ -1091,9 +1091,9 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         </section>
       </div>
 
-      {upcoming.length > 0 && (
-        <div>
-          <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{t.upcomingRaces}</h2><a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celý kalendář" : "Full calendar"}</a></div>
+      <div>
+        <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{t.upcomingRaces}</h2><a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celý kalendář" : "Full calendar"}</a></div>
+        {upcoming.length > 0 ? (
           <div className="season">
             {upcoming.slice(0, 8).map((race) => (
               <button className={race.id === nextRace?.id ? "round-card next" : "round-card"} type="button" key={race.id} onClick={() => onOpenRace(race.id)}>
@@ -1109,8 +1109,10 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
               </button>
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="category-empty">{locale === "cs" ? "Žádný nadcházející závod." : "No upcoming races."}</p>
+        )}
+      </div>
 
       <div className="stats-panel">
         <div className="stats-grid">
@@ -1122,9 +1124,9 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         </div>
       </div>
 
-      {seasonRows.length > 0 && (
-        <div>
-          <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{locale === "cs" ? "Sezóna — přehled závodů" : "Season — race overview"}</h2><a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celá sezóna" : "Full season"}</a></div>
+      <div>
+        <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{locale === "cs" ? "Sezóna — přehled závodů" : "Season — race overview"}</h2><a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celá sezóna" : "Full season"}</a></div>
+        {seasonRows.length > 0 ? (
           <div className="results-panel">
             <table className="results">
               <thead><tr><th>{locale === "cs" ? "Kolo" : "Round"}</th><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Datum" : "Date"}</th><th>{t.status}</th><th className="num-col">{t.driversCount}</th><th className="num-col">{t.enginesCount}</th><th className="num-col">{t.carbsCount}</th><th /></tr></thead>
@@ -1144,8 +1146,10 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="category-empty">{locale === "cs" ? "V sezóně zatím není žádný závod." : "No races in the season yet."}</p>
+        )}
+      </div>
 
       <div>
         <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{locale === "cs" ? "Stav motorů podle kategorie" : "Engine status by category"}</h2><a onClick={() => onOpenView("engines")}>{t.viewAll}</a></div>
@@ -1181,9 +1185,9 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         </div>
       </div>
 
-      {categoryEngines.length > 0 && (
-        <div>
-          <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{locale === "cs" ? `Motory — ${categoryLabel}` : `Engines — ${categoryLabel}`}</h2><a onClick={() => onOpenView("engines")}>{locale === "cs" ? `Zobrazit všech ${categoryEngines.length}` : `View all ${categoryEngines.length}`}</a></div>
+      <div>
+        <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{locale === "cs" ? `Motory — ${categoryLabel}` : `Engines — ${categoryLabel}`}</h2>{categoryEngines.length > 0 && <a onClick={() => onOpenView("engines")}>{locale === "cs" ? `Zobrazit všech ${categoryEngines.length}` : `View all ${categoryEngines.length}`}</a>}</div>
+        {categoryEngines.length > 0 ? (
           <div className="results-panel">
             <table className="results">
               <thead><tr><th>{locale === "cs" ? "Kód" : "Code"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Zapalování" : "Ignition"}</th><th>{locale === "cs" ? "Motohodiny" : "Hours"}</th><th>{locale === "cs" ? "Přiřazení" : "Assignment"}</th><th>{t.status}</th></tr></thead>
@@ -1201,8 +1205,10 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
               </tbody>
             </table>
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="category-empty">{locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."}</p>
+        )}
+      </div>
     </div>
   );
 }
