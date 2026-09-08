@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { countryFlag } from "./countries";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
 const SALE_FORMS: PluralForms = { cs: ["prodej", "prodeje", "prodejů"], en: ["sale", "sales"] };
@@ -311,11 +312,11 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
         <div className="finance-summary-costs"><span>{locale === "cs" ? "Náklady (cesta)" : "Costs (travel)"}</span><b>− {formatMoney(summary.costs, summary.currency, locale)}</b></div>
         <div className={`finance-summary-net ${summary.net < 0 ? "is-loss" : ""}`}><span>{locale === "cs" ? "Čistý zisk" : "Net profit"}</span><b>{formatMoney(summary.net, summary.currency, locale)}</b></div>
       </article>)}
-      {!loading && summaries.length === 0 && <p>{locale === "cs" ? "Zatím nejsou zadané žádné ceny." : "No prices entered yet."}</p>}
+      {!loading && summaries.length === 0 && <EmptyState size="compact" title={locale === "cs" ? "Zatím nejsou zadané žádné ceny." : "No prices entered yet."} />}
     </div>
 
-    {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám finance…" : "Loading finance…"}</p></div>}
-    {loadError && <div className="empty-state error-state"><b>!</b><p>{financeError(loadError, locale)}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div>}
+    {loading && <LoadingState label={locale === "cs" ? "Načítám finance…" : "Loading finance…"} />}
+    {loadError && <EmptyState variant="error" icon="!" title={financeError(loadError, locale)} action={<button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button>} />}
     {!loading && !loadError && <div className="race-finance-table-wrap">
       <table className="race-finance-table">
         <thead><tr><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Cena bez DPH" : "Price excl. VAT"}</th><th>{locale === "cs" ? "Sleva" : "Discount"}</th><th>{locale === "cs" ? "Konečná cena" : "Final price"}</th><th>{locale === "cs" ? "Platba" : "Payment"}</th><th>{locale === "cs" ? "Zaplaceno" : "Paid"}</th><th>{locale === "cs" ? "Poznámka" : "Note"}</th><th className="no-print">{locale === "cs" ? "Uložit" : "Save"}</th></tr></thead>
@@ -349,7 +350,7 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
             <td data-label={locale === "cs" ? "Poznámka" : "Note"}>{sale.notes || "—"}</td>
           </tr>)}</tbody>
         </table>
-      </div> : <div className="finance-sales-empty"><p>{locale === "cs" ? "K tomuto závodu zatím není přiřazen žádný prodej ani servis." : "No sales or services are linked to this race yet."}</p>{onOpenSales && <button className="secondary-compact no-print" type="button" onClick={onOpenSales}>{locale === "cs" ? "Prodej a servis →" : "Sales and service →"}</button>}</div>}
+      </div> : <EmptyState size="inline" title={locale === "cs" ? "K tomuto závodu zatím není přiřazen žádný prodej ani servis." : "No sales or services are linked to this race yet."} action={onOpenSales && <button className="secondary-compact no-print" type="button" onClick={onOpenSales}>{locale === "cs" ? "Prodej a servis →" : "Sales and service →"}</button>} />}
     </section>}
     {!loading && !loadError && <section className="race-finance-sales race-finance-visits">
       <header>
@@ -367,7 +368,7 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
             <td data-label={locale === "cs" ? "Cena" : "Price"}><strong className="finance-sale-total">{visit.amountCents !== null ? formatMoney(visit.amountCents, visit.currency, locale) : "—"}</strong></td>
           </tr>)}</tbody>
         </table>
-      </div> : <div className="finance-sales-empty"><p>{locale === "cs" ? "K tomuto závodu zatím nejsou zadané žádné návštěvy jiných týmů." : "No visits from other teams are recorded for this race yet."}</p>{onOpenVisits && <button className="secondary-compact no-print" type="button" onClick={onOpenVisits}>{locale === "cs" ? "Jiné týmy →" : "Other teams →"}</button>}</div>}
+      </div> : <EmptyState size="inline" title={locale === "cs" ? "K tomuto závodu zatím nejsou zadané žádné návštěvy jiných týmů." : "No visits from other teams are recorded for this race yet."} action={onOpenVisits && <button className="secondary-compact no-print" type="button" onClick={onOpenVisits}>{locale === "cs" ? "Jiné týmy →" : "Other teams →"}</button>} />}
     </section>}
     <footer className="race-finance-print-footer"><span>Macháč Motors · MM System</span><span>{locale === "cs" ? "Ceny bez DPH" : "Prices exclude VAT"}</span></footer>
   </section>;

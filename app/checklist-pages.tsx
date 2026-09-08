@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatCount, pluralForm, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 const MORE_FORMS: PluralForms = { cs: ["další", "další", "dalších"], en: ["more", "more"] };
@@ -52,14 +53,14 @@ export function ChecklistsPage({ locale, role }: { locale: Locale; role: Role })
       </div>
     </section>
     <section className="dash-panel data-panel checklist-list-panel">
-      {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
-      {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Checklisty se nepodařilo načíst." : "Could not load checklists."}</p></div>}
+      {loading && <LoadingState label={locale === "cs" ? "Načítám…" : "Loading…"} />}
+      {!loading && error && <EmptyState variant="error" icon="!" title={locale === "cs" ? "Checklisty se nepodařilo načíst." : "Could not load checklists."} />}
       {!loading && !error && checklists.length === 0 && (
-        <div className="empty-state">
-          <span className="empty-engine">☑</span>
-          <h2>{locale === "cs" ? "Zatím žádný checklist" : "No checklists yet"}</h2>
-          <p>{locale === "cs" ? "Vytvoř první checklist s díly a vybavením, které chceš mít v autě." : "Create the first checklist of parts and equipment you want in the car."}</p>
-        </div>
+        <EmptyState
+          icon="☑"
+          title={locale === "cs" ? "Zatím žádný checklist" : "No checklists yet"}
+          description={locale === "cs" ? "Vytvoř první checklist s díly a vybavením, které chceš mít v autě." : "Create the first checklist of parts and equipment you want in the car."}
+        />
       )}
       {!loading && !error && checklists.length > 0 && (
         <div className="checklist-list">

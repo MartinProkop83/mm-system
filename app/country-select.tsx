@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { localizedCountries } from "./countries";
+import { EmptyState } from "./empty-state";
 
 export function CountrySelect({ name, defaultValue = "", value, onChange, locale, required = false, autoFocus = false }: { name: string; defaultValue?: string | null; value?: string; onChange?: (event: ChangeEvent<HTMLSelectElement>) => void; locale: "cs" | "en"; required?: boolean; autoFocus?: boolean }) {
   const options = useMemo(() => localizedCountries(locale), [locale]);
@@ -44,7 +45,7 @@ export function CountrySelect({ name, defaultValue = "", value, onChange, locale
         if (event.key === "Enter") { event.preventDefault(); if (filtered.length > 0) commit(filtered[0].code); }
       }} />
       <div className="country-select-options">
-        {filtered.length === 0 && <p className="country-select-empty">{locale === "cs" ? "Žádná země nenalezena" : "No country found"}</p>}
+        {filtered.length === 0 && <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Žádná země nenalezena" : "No country found"} />}
         {filtered.map((country) => <button key={country.code} type="button" role="option" aria-selected={country.code === currentValue} className={country.code === currentValue ? "selected" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(country.code)}>{country.flag} {country.name} · {country.code}</button>)}
       </div>
     </div>}

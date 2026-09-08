@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const RECORD_FORMS: PluralForms = { cs: ["záznam", "záznamy", "záznamů"], en: ["record", "records"] };
 const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
@@ -44,9 +45,9 @@ export function RaceActivityPanel({ race, locale, active }: { race: RaceInfo; lo
       <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{locale === "cs" ? "Historie změn" : "Change history"}</h2><p>{locale === "cs" ? "Kdo a kdy co na tomto závodě změnil." : "Who changed what on this race, and when."}</p></div>
       <span>{formatCount(activity.length, locale, RECORD_FORMS)}</span>
     </header>
-    {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>
-      : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Historii se nepodařilo načíst." : "Could not load the history."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div>
-      : activity.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádná zaznamenaná aktivita." : "No recorded activity yet."}</p>
+    {loading ? <LoadingState label={locale === "cs" ? "Načítám…" : "Loading…"} />
+      : error ? <EmptyState variant="error" icon="!" title={locale === "cs" ? "Historii se nepodařilo načíst." : "Could not load the history."} action={<button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button>} />
+      : activity.length === 0 ? <EmptyState size="compact" title={locale === "cs" ? "Zatím žádná zaznamenaná aktivita." : "No recorded activity yet."} />
         : <ul className="race-activity-list">{activity.map((entry) => <li className="race-activity-row" key={entry.id}>
           <span className={`race-activity-dot tone-${activityTone(entry.action)}`} />
           <span className="race-activity-text"><strong>{describeActivity(entry, locale)}</strong><small>{entry.actorEmail} · {formatTimestamp(entry.createdAt, locale)}</small></span>

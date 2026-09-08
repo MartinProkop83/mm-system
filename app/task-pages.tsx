@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { EmptyState, LoadingState } from "./empty-state";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -120,9 +121,22 @@ export function TaskPage({ locale, role, currentUser }: { locale: Locale; role: 
     </section>
 
     <section className="panel task-list-panel">
-      {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám úkoly…" : "Loading tasks…"}</p></div>}
-      {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Úkoly se nepodařilo načíst." : "Tasks could not be loaded."}</p></div>}
-      {!loading && !error && visible.length === 0 && <div className="empty-state"><span className="empty-engine">✓</span><h2>{locale === "cs" ? "V této skupině nic není." : "Nothing in this group."}</h2><p>{locale === "cs" ? "Přidej úkol nebo připomínku pomocí tlačítka nahoře." : "Add a task or reminder with the button above."}</p></div>}
+      {loading && <LoadingState label={locale === "cs" ? "Načítám úkoly…" : "Loading tasks…"} />}
+      {!loading && error && <EmptyState variant="error" icon="!" title={locale === "cs" ? "Úkoly se nepodařilo načíst." : "Tasks could not be loaded."} />}
+      {!loading && !error && visible.length === 0 && (
+        tasks.length === 0 ? (
+          <EmptyState
+            icon="✓"
+            title={locale === "cs" ? "Zatím žádné úkoly." : "No tasks yet."}
+            description={locale === "cs" ? "Přidej úkol nebo připomínku pomocí tlačítka nahoře." : "Add a task or reminder with the button above."}
+          />
+        ) : (
+          <EmptyState
+            variant="filtered"
+            title={locale === "cs" ? "V tomto filtru nejsou žádné úkoly." : "No tasks match this filter."}
+          />
+        )
+      )}
       {!loading && !error && visible.map((task) => {
         const overdue = task.status !== "done" && Boolean(task.dueAt && task.dueAt < now);
         return <article key={task.id} className={`task-row priority-${task.priority}${task.status === "done" ? " completed" : ""}${overdue ? " overdue" : ""}`}>

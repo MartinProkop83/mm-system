@@ -11,6 +11,7 @@ import { RaceLogoBadge } from "./race-logo-badge";
 import { raceCalendarColorDefinition } from "./race-calendar-colors";
 import { CalendarColorSelect } from "./calendar-color-select";
 import type { CustomerRecord } from "./commerce-pages";
+import { EmptyState, LoadingState } from "./empty-state";
 
 export type CatalogKind = "raceType" | "team" | "driver" | "mechanic" | "vehicle" | "carburetor";
 type Locale = "cs" | "en";
@@ -137,9 +138,11 @@ export function CatalogPage({ kind, locale, role, initialVehicleId, onInitialVeh
       {kind === "carburetor" && <CarburetorFilterTiles locale={locale} items={allItems as CarburetorRecord[]} category={carbCategoryFilter} status={carbStatusFilter} onCategoryChange={setCarbCategoryFilter} onStatusChange={setCarbStatusFilter} />}
       {kind === "carburetor" && <CarburetorResultsPanel locale={locale} role={role} items={allItems as CarburetorRecord[]} types={data.carburetorTypes ?? []} category={carbCategoryFilter} status={carbStatusFilter} onOpen={(item) => setSelectedCarburetorId(item.id)} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
       {kind !== "carburetor" && <section className="dash-panel data-panel catalog-table-panel">
-        {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
-        {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
-        {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{l.empty}</h2><p>{l.history}</p></div>}
+        {loading && <LoadingState label={locale === "cs" ? "Načítám…" : "Loading…"} />}
+        {!loading && error && <EmptyState variant="error" icon="!" title={locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."} />}
+        {!loading && !error && items.length === 0 && (kind === "driver" && data.drivers.length > 0
+          ? <EmptyState variant="filtered" icon="＋" title={locale === "cs" ? "Žádný pilot neodpovídá tomuto filtru." : "No driver matches this filter."} description={locale === "cs" ? "Zkus jinou kategorii nebo zobraz aktivní piloty." : "Try a different category or show active drivers."} />
+          : <EmptyState icon="＋" title={l.empty} description={l.history} />)}
         {!loading && !error && items.length > 0 && <CatalogTable kind={kind} locale={locale} items={items} role={role} onOpen={(item) => { if (kind === "mechanic") setSelectedMechanicId((item as MechanicRecord).id); if (kind === "driver") setSelectedDriverId((item as DriverRecord).id); if (kind === "team") setSelectedTeamId((item as TeamRecord).id); if (kind === "vehicle") setSelectedVehicleId((item as VehicleRecord).id); }} onEdit={(item) => { setEditing(item); setFormOpen(true); }} onDelete={(item) => { void remove(item); }} />}
       </section>}
       {formOpen && <CatalogForm kind={kind} locale={locale} item={editing} teams={data.teams} carburetorTypes={data.carburetorTypes ?? []} onClose={() => { setFormOpen(false); setEditing(null); }} onSaved={async () => { setFormOpen(false); setEditing(null); await load(); }} />}
@@ -363,7 +366,7 @@ function CarburetorTypesSection({ locale, role, items, carburetors, onChanged }:
     await onChanged();
   }
 
-  return <section className="panel carb-type-library"><header><div><span className="eyebrow">MASTER DATA</span><h3>{locale === "cs" ? "Katalog typů karburátorů" : "Carburetor type catalog"}</h3><p>{locale === "cs" ? "Předdefinované značky, modely a kompatibilní závodní kategorie." : "Preset brands, models and compatible race categories."}</p></div>{canManage && <button className="secondary-compact" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {locale === "cs" ? "Přidat typ" : "Add type"}</button>}</header>{items.length === 0 ? <div className="carb-type-empty"><strong>{locale === "cs" ? "Zatím není vytvořený žádný typ" : "No types yet"}</strong><span>{locale === "cs" ? "Začni značkou, modelem a vyber jednu nebo více kategorií." : "Start with a brand, model and one or more categories."}</span></div> : <div className="carb-type-grid">{items.map((item) => {
+  return <section className="panel carb-type-library"><header><div><span className="eyebrow">MASTER DATA</span><h3>{locale === "cs" ? "Katalog typů karburátorů" : "Carburetor type catalog"}</h3><p>{locale === "cs" ? "Předdefinované značky, modely a kompatibilní závodní kategorie." : "Preset brands, models and compatible race categories."}</p></div>{canManage && <button className="secondary-compact" type="button" onClick={() => { setEditing(null); setFormOpen(true); }}>＋ {locale === "cs" ? "Přidat typ" : "Add type"}</button>}</header>{items.length === 0 ? <EmptyState size="inline" title={locale === "cs" ? "Zatím není vytvořený žádný typ" : "No types yet"} description={locale === "cs" ? "Začni značkou, modelem a vyber jednu nebo více kategorií." : "Start with a brand, model and one or more categories."} /> : <div className="carb-type-grid">{items.map((item) => {
     const unitCount = carburetors.filter((carb) => carb.carburetorTypeId === item.id && !isSold(carb.soldAt)).length;
     return <article className={`carb-type-card tone-${normalizeCarbFamily(item.categories[0] ?? "").toLowerCase()}`} key={item.id}>
       <RaceLogoBadge logoUrl={item.photoUrl} name={`${item.brand} ${item.model}`} fallback="⌁" size="large" />
@@ -476,7 +479,7 @@ function CarburetorResultsPanel({ locale, role, items, types, category, status, 
 
   return <section className="dash-panel data-panel latest-carb-panel">
     <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM CARBURETOR CARD</span><h2>{locale === "cs" ? "Seznam karburátorů" : "Carburetor list"}</h2></div></header>
-    {pageItems.length === 0 ? <p className="category-empty">{locale === "cs" ? "Žádný karburátor neodpovídá filtru." : "No carburetor matches the filter."}</p> : <div className="table-wrap"><table className="results zebra latest-carb-table">
+    {pageItems.length === 0 ? <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Žádný karburátor neodpovídá filtru." : "No carburetor matches the filter."} /> : <div className="table-wrap"><table className="results zebra latest-carb-table">
       <thead><tr><th className="num-col">#</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Typ" : "Type"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Poslední závod / pilot" : "Last race / driver"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th><th>{locale === "cs" ? "Přidáno" : "Added"}</th>{role !== "mechanic" && <th className="no-print">{l.actions}</th>}</tr></thead>
       <tbody>{pageItems.map((item, index) => {
         const type = types.find((candidate) => candidate.id === item.carburetorTypeId);

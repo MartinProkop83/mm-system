@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
+import { EmptyState, LoadingState } from "./empty-state";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -42,9 +43,9 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
   return <div className="commerce-page">
     <section className="dash-panel commerce-summary"><div><span className="eyebrow">{config.eyebrow}</span><h2>{locale === "cs" ? config.titleCs : config.titleEn}</h2><p>{locale === "cs" ? config.subtitleCs : config.subtitleEn}</p></div><div><strong>{items.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
     <section className="dash-panel data-panel commerce-list">
-      {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
-      {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."}</p></div>}
-      {!loading && !error && items.length === 0 && <div className="empty-state"><span className="empty-engine">＋</span><h2>{locale === "cs" ? "Zatím bez záznamů" : "No records yet"}</h2></div>}
+      {loading && <LoadingState label={locale === "cs" ? "Načítám…" : "Loading…"} />}
+      {!loading && error && <EmptyState variant="error" icon="!" title={locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."} />}
+      {!loading && !error && items.length === 0 && <EmptyState icon="＋" title={locale === "cs" ? "Zatím bez záznamů" : "No records yet"} />}
       {!loading && !error && items.length > 0 && kind === "inventory" && <InventoryGrid locale={locale} role={role} items={items as InventoryPartRecord[]} onEdit={setEditing} onDelete={(item) => { void remove(item); }} onPreview={setPhotoPreview} />}
       {!loading && !error && items.length > 0 && kind !== "inventory" && <CommerceTable kind={kind} locale={locale} role={role} items={items} onEdit={setEditing} onDelete={(item) => { void remove(item); }} />}
     </section>

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { raceCalendarColors } from "./race-calendar-colors";
+import { EmptyState } from "./empty-state";
 
 export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { name: string; defaultValue?: string; locale: "cs" | "en" }) {
   const [value, setValue] = useState(defaultValue);
@@ -45,7 +46,7 @@ export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { na
         if (event.key === "Enter") { event.preventDefault(); if (filtered.length > 0) commit(filtered[0].id); }
       }} />
       <div className="country-select-options">
-        {filtered.length === 0 && <p className="country-select-empty">{locale === "cs" ? "Žádná barva nenalezena" : "No color found"}</p>}
+        {filtered.length === 0 && <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Žádná barva nenalezena" : "No color found"} />}
         {filtered.map((color) => <button key={color.id} type="button" role="option" aria-selected={color.id === value} className={color.id === value ? "selected" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(color.id)}>
           <i className="calendar-color-swatch-dot" style={dotStyle(color)} />{locale === "cs" ? color.labelCs : color.labelEn}
         </button>)}

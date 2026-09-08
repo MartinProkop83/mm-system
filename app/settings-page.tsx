@@ -1,6 +1,7 @@
 "use client";
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
+import { EmptyState, LoadingState } from "./empty-state";
 
 type Locale = "cs" | "en";
 type AppRole = "superadmin" | "boss" | "mechanic";
@@ -312,12 +313,15 @@ export function SettingsPage({
           <div><h3>{t.usersTitle}</h3><p>{t.usersIntro}</p></div>
         </header>
 
-        {loading && <div className="settings-message"><span className="spinner" />{t.loading}</div>}
+        {loading && <LoadingState size="inline" label={t.loading} />}
         {!loading && loadError && (
-          <div className="settings-message settings-error">
-            <span>{t.loadError}</span>
-            <button className="secondary-compact" type="button" onClick={() => void loadUsers()}>{t.retry}</button>
-          </div>
+          <EmptyState
+            variant="error"
+            size="inline"
+            icon="!"
+            title={t.loadError}
+            action={<button className="secondary-compact" type="button" onClick={() => void loadUsers()}>{t.retry}</button>}
+          />
         )}
         {!loading && !loadError && (
           <div className="table-wrap settings-table-wrap">

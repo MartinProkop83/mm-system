@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
 import { pluralForm, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
@@ -93,8 +94,8 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
     }
   }
 
-  if (loading) return <section className="dash-panel clothing-message"><span className="spinner" /><p>{locale === "cs" ? "Načítám oblečení…" : "Loading clothing…"}</p></section>;
-  if (error) return <section className="dash-panel clothing-message clothing-error"><b>!</b><p>{locale === "cs" ? "Oblečení se nepodařilo načíst." : "Clothing could not be loaded."}</p><button className="secondary-compact" type="button" onClick={() => { setLoading(true); void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></section>;
+  if (loading) return <section className="dash-panel"><LoadingState label={locale === "cs" ? "Načítám oblečení…" : "Loading clothing…"} /></section>;
+  if (error) return <section className="dash-panel"><EmptyState variant="error" icon="!" title={locale === "cs" ? "Oblečení se nepodařilo načíst." : "Clothing could not be loaded."} action={<button className="secondary-compact" type="button" onClick={() => { setLoading(true); void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button>} /></section>;
 
   return <div className="clothing-page">
     <section className="dash-panel clothing-hero">
@@ -121,8 +122,8 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
         {data.mechanics.length > 0 && <label className="clothing-mechanic-picker"><span>{locale === "cs" ? "Mechanik" : "Mechanic"}</span><select value={selectedMechanicId} onChange={(event) => setSelectedMechanicId(event.target.value)}>{data.mechanics.map((mechanic) => <option key={mechanic.id} value={mechanic.id}>{mechanic.name}</option>)}</select></label>}
       </header>
 
-      {!data.mechanics.length ? <EmptyBlock title={locale === "cs" ? "Nejdřív přidej mechanika" : "Add a mechanic first"} text={locale === "cs" ? "Mechaniky založíš v položce Mechanici v levém menu." : "Create mechanics from the Mechanics item in the left menu."} />
-        : !data.items.length ? <EmptyBlock title={locale === "cs" ? "Katalog oblečení je prázdný" : "The clothing catalog is empty"} text={locale === "cs" ? "V nastavení vytvoř vlastní položky, nebo načti doporučenou startovní sadu." : "Create custom items in settings or load the recommended starter set."} action={canManage ? <button className="primary-button" type="button" disabled={seeding} onClick={() => void seedDefaults()}>{seeding ? (locale === "cs" ? "Připravuji…" : "Preparing…") : (locale === "cs" ? "＋ Přidat doporučenou sadu" : "＋ Add recommended set")}</button> : undefined} />
+      {!data.mechanics.length ? <EmptyState icon="＋" title={locale === "cs" ? "Nejdřív přidej mechanika" : "Add a mechanic first"} description={locale === "cs" ? "Mechaniky založíš v položce Mechanici v levém menu." : "Create mechanics from the Mechanics item in the left menu."} />
+        : !data.items.length ? <EmptyState icon="＋" title={locale === "cs" ? "Katalog oblečení je prázdný" : "The clothing catalog is empty"} description={locale === "cs" ? "V nastavení vytvoř vlastní položky, nebo načti doporučenou startovní sadu." : "Create custom items in settings or load the recommended starter set."} action={canManage ? <button className="primary-button" type="button" disabled={seeding} onClick={() => void seedDefaults()}>{seeding ? (locale === "cs" ? "Připravuji…" : "Preparing…") : (locale === "cs" ? "＋ Přidat doporučenou sadu" : "＋ Add recommended set")}</button> : undefined} />
         : <>
           <div className="clothing-selected-person">
             <span>{initials(selectedMechanic?.name ?? "MM")}</span>
@@ -147,7 +148,7 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
         <div className="clothing-size-list">{item.sizes.map((size) => <span key={size}>{size}</span>)}</div>
         <div className="clothing-default-quantity"><small>{locale === "cs" ? "Výchozí počet" : "Default qty"}</small><strong>{item.defaultQuantity}×</strong></div>
         {canManage && <button className="secondary-compact" type="button" onClick={() => setItemForm(item)}>✎ {locale === "cs" ? "Upravit" : "Edit"}</button>}
-      </article>)}</div> : <EmptyBlock title={locale === "cs" ? "Zatím tu nic není" : "Nothing here yet"} text={locale === "cs" ? "Přidej první typ oblečení včetně všech dostupných velikostí." : "Add the first clothing type with all available sizes."} />}
+      </article>)}</div> : <EmptyState icon="＋" title={locale === "cs" ? "Zatím tu nic není" : "Nothing here yet"} description={locale === "cs" ? "Přidej první typ oblečení včetně všech dostupných velikostí." : "Add the first clothing type with all available sizes."} />}
     </section>}
 
     {itemForm && <ItemModal locale={locale} role={role} item={itemForm === "new" ? null : itemForm} onClose={() => setItemForm(null)} onSaved={async () => { setItemForm(null); await load(); }} />}
@@ -276,14 +277,10 @@ function TeamClothingOverview({ data, locale, selectedMechanicId, onSelect, onPr
           const item = data.items.find((candidate) => candidate.id === assignment.clothingItemId);
           if (!item) return null;
           return <div key={assignment.id}><ClothingPhoto imageUrl={item.imageUrl} name={item.name} fallback={item.name.slice(0, 2).toUpperCase()} className="clothing-team-photo" onOpen={onPreview} /><span><small>{item.name}</small><strong>{assignment.size} · {assignment.quantity}×</strong><em>{formatAssignmentDate(assignment.assignedAt, locale)}</em></span></div>;
-        })}</div> : <p className="clothing-team-empty">{locale === "cs" ? "Zatím není nic přiřazeno." : "Nothing assigned yet."}</p>}
+        })}</div> : <EmptyState size="compact" title={locale === "cs" ? "Zatím není nic přiřazeno." : "Nothing assigned yet."} />}
       </article>;
     })}</div>
   </section>;
-}
-
-function EmptyBlock({ title, text, action }: { title: string; text: string; action?: React.ReactNode }) {
-  return <div className="clothing-empty"><span aria-hidden="true">＋</span><strong>{title}</strong><p>{text}</p>{action}</div>;
 }
 
 function initials(name: string) {

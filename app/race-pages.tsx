@@ -16,6 +16,7 @@ import { RaceLogoBadge } from "./race-logo-badge";
 import { ClothingLightbox, type ClothingPhotoPreview } from "./clothing-photo";
 import type { CircuitRecord } from "./circuits-page";
 import { formatCount, pluralForm, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
 const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
@@ -248,9 +249,9 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
       {canManage && <button className="primary-button" type="button" onClick={() => setRaceForm({ race: null, mechanicIds: [], vehicleIds: [] })}>＋ {l.newRace}</button>}
     </section>
     <section className="dash-panel data-panel race-directory-list">
-      {loading && <div className="empty-state"><span className="spinner" /><p>{l.loading}</p></div>}
-      {!loading && loadError && <div className="empty-state error-state"><b>!</b><p>{l.error}</p></div>}
-      {!loading && !loadError && races.length === 0 && <div className="empty-state"><span className="empty-engine">⚑</span><h2>{l.empty}</h2>{canManage && <button className="primary-button" type="button" onClick={() => setRaceForm({ race: null, mechanicIds: [], vehicleIds: [] })}>＋ {l.newRace}</button>}</div>}
+      {loading && <LoadingState label={l.loading} />}
+      {!loading && loadError && <EmptyState variant="error" icon="!" title={l.error} />}
+      {!loading && !loadError && races.length === 0 && <EmptyState icon="⚑" title={l.empty} action={canManage && <button className="primary-button" type="button" onClick={() => setRaceForm({ race: null, mechanicIds: [], vehicleIds: [] })}>＋ {l.newRace}</button>} />}
       {!loading && !loadError && races.length > 0 && <>
         <div className="race-list-toggle no-print">
           <button className={listView === "cards" ? "active" : ""} type="button" aria-pressed={listView === "cards"} onClick={() => setListView("cards")}>{locale === "cs" ? "Karty" : "Cards"}</button>
@@ -260,7 +261,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
           <label><span>{locale === "cs" ? "Kategorie" : "Category"}</span><select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)}><option value="">{locale === "cs" ? "Všechny" : "All"}</option>{availableCategories.map((category) => <option key={category} value={category}>{category}</option>)}</select></label>
           <label><span>{locale === "cs" ? "Trať" : "Circuit"}</span><select value={circuitFilter} onChange={(event) => setCircuitFilter(event.target.value)}><option value="">{locale === "cs" ? "Všechny" : "All"}</option>{availableCircuits.map((circuitName) => <option key={circuitName} value={circuitName}>{circuitName}</option>)}</select></label>
         </div>
-        {currentRaces.length === 0 && <p className="category-empty">{locale === "cs" ? "Žádný závod neodpovídá filtru." : "No race matches the filter."}</p>}
+        {currentRaces.length === 0 && <EmptyState variant="filtered" size="compact" title={locale === "cs" ? "Žádný závod neodpovídá filtru." : "No race matches the filter."} />}
         {currentRaces.length > 0 && listView === "cards" && <div className="race-cards">{currentRaces.map((race) => <button className="race-card" key={race.id} type="button" onClick={() => setSelectedId(race.id)}>
           <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
           <span className="race-card-main"><small>MM RACE CONTROL{(race.series || race.seriesRound) && ` · ${[race.series, race.seriesRound ? `Round ${race.seriesRound}` : ""].filter(Boolean).join(" · ")}`}</small><strong>{race.name}</strong><span>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}, {race.countryCode}</span><i>{race.categories.join(" · ")}</i></span>
@@ -286,12 +287,12 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
     </section>
     {!loading && !loadError && <section className="dash-panel data-panel race-archive">
       <header><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE ARCHIVE</span><h2>{locale === "cs" ? "Archiv závodů" : "Race archive"}</h2></header>
-      {archivedRacesAll.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádný archivovaný závod." : "No archived races yet."}</p> : <>
+      {archivedRacesAll.length === 0 ? <EmptyState size="compact" title={locale === "cs" ? "Zatím žádný archivovaný závod." : "No archived races yet."} /> : <>
       {archiveTypeTiles.length > 1 && <div className="carb-unit-category-tiles no-print">
         <button type="button" className={`carb-unit-tile${archiveTypeFilter === "" ? " active" : ""}`} onClick={() => setArchiveTypeFilter("")}>{locale === "cs" ? "Vše" : "All"}<small>{archivedRacesAll.length}</small></button>
         {archiveTypeTiles.map((tile) => <button key={tile.key} type="button" className={`carb-unit-tile${archiveTypeFilter === tile.key ? " active" : ""}`} onClick={() => setArchiveTypeFilter(tile.key)}>{tile.label}<small>{tile.count}</small></button>)}
       </div>}
-      {archiveByYear.length === 0 && <p className="category-empty">{locale === "cs" ? "Žádný archivovaný závod neodpovídá filtru." : "No archived race matches the filter."}</p>}
+      {archiveByYear.length === 0 && <EmptyState variant="filtered" size="compact" title={locale === "cs" ? "Žádný archivovaný závod neodpovídá filtru." : "No archived race matches the filter."} />}
       {archiveByYear.map((group) => <div className="race-archive-year" key={group.year}>
         <h3>{group.year}<small>{formatCount(group.races.length, locale, RACE_FORMS)}</small></h3>
         <div className="race-archive-grid">{group.races.map((race) => <button className="race-archive-tile" key={race.id} type="button" onClick={() => setSelectedId(race.id)} title={`${race.name} · ${race.track} · ${formatDateRange(race.startDate, race.endDate, locale)}`}>
@@ -429,7 +430,7 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
   }
 
   function renderCategoryStack(sectionId: string) {
-    if (loading) return <section className="dash-panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám plán…" : "Loading plan…"}</p></section>;
+    if (loading) return <section className="dash-panel"><LoadingState label={locale === "cs" ? "Načítám plán…" : "Loading plan…"} /></section>;
     if (!plan) return null;
     return <section className="race-category-stack" id={sectionId}>{race.categories.map((category) => {
       const entries = plan.entries.filter((entry) => entry.category === category);
@@ -456,7 +457,7 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
       const carburetorColumnWidths = carburetorHeaderLabels.map((text, index) => equipmentColumnWidth(text, uniqueStrings(entries.map((entry) => [entry.carburetor1Code, entry.carburetor2Code, entry.carburetor3Code][index]))));
       return <article className={`dash-panel race-category category-${category.toLowerCase().replaceAll(" ", "-")}`} key={category}>
         <header><div className="category-heading"><span>{l.category}</span><h2>{category}</h2></div><CategoryLoadoutStats locale={locale} pilotCount={entries.length} engineCount={assignedEngineIds.length} extraEngineCount={extraEngineIds.length} carburetorCount={assignedCarburetorIds.length} extraCarburetorCount={extraCarburetorIds.length} /><div className="category-print-context print-only"><div><strong>{race.name}</strong><small>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}</small></div><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /></div><div className="category-actions no-print">{canManage && <><button className="secondary-compact" type="button" onClick={() => setExtraForm(category)}>＋ {l.addExtra}</button><button className="primary-button" type="button" onClick={() => setEntryForm({ category, entry: null })}>＋ {l.addDriver}</button></>}</div></header>
-        {entries.length === 0 ? <p className="category-empty">{l.noDrivers}</p> : <div className="race-entry-list"><div className={isKz ? "entry-table kz-table" : "entry-table"}>
+        {entries.length === 0 ? <EmptyState size="compact" title={l.noDrivers} /> : <div className="race-entry-list"><div className={isKz ? "entry-table kz-table" : "entry-table"}>
           <div className="entry-table-head">
             <span>#</span>
             <span>{l.driver}</span>

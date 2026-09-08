@@ -6,6 +6,7 @@ import type { MechanicRecord } from "./catalog-pages";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const DAY_FORMS: PluralForms = { cs: ["den", "dny", "dní"], en: ["day", "days"] };
 const RECORD_FORMS: PluralForms = { cs: ["záznam", "záznamy", "záznamů"], en: ["record", "records"] };
@@ -68,8 +69,8 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
     return available.sort((left, right) => left.departureDate.localeCompare(right.departureDate))[0] ?? null;
   }, [data]);
 
-  if (error) return <section className="dash-panel empty-state error-state"><b>!</b><p>{locale === "cs" ? "Kartu mechanika se nepodařilo načíst." : "Could not load the mechanic card."}</p><button className="secondary-compact" type="button" onClick={onBack}>{locale === "cs" ? "Zpět" : "Back"}</button></section>;
-  if (!data) return <section className="dash-panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám kartu mechanika…" : "Loading mechanic card…"}</p></section>;
+  if (error) return <section className="dash-panel"><EmptyState variant="error" icon="!" title={locale === "cs" ? "Kartu mechanika se nepodařilo načíst." : "Could not load the mechanic card."} action={<button className="secondary-compact" type="button" onClick={onBack}>{locale === "cs" ? "Zpět" : "Back"}</button>} /></section>;
+  if (!data) return <section className="dash-panel"><LoadingState label={locale === "cs" ? "Načítám kartu mechanika…" : "Loading mechanic card…"} /></section>;
 
   const today = todayIso();
   const upcomingCount = data.assignments.filter((item) => item.raceStatus !== "completed" && item.returnDate >= today).length;
@@ -112,12 +113,12 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
         <ClothingPhoto imageUrl={item.imageUrl} name={item.itemName} fallback={item.itemName.slice(0, 2).toUpperCase()} className={`mechanic-clothing-mark tone-${index % 4}`} onOpen={setPhotoPreview} />
         <div><small>{item.itemName}</small><strong>{locale === "cs" ? "Velikost" : "Size"} {item.size}</strong><time>{locale === "cs" ? "Předáno" : "Issued"} {formatAssignedDate(item.assignedAt, locale)}</time>{item.notes && <p>{item.notes}</p>}</div>
         <b>{item.quantity}×</b>
-      </article>)}</div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez oblečení" : "No clothing yet"}</strong><p>{locale === "cs" ? "Položky přiřadíš v nové sekci Oblečení v levém menu." : "Assign items from the Clothing section in the left menu."}</p></div>}
+      </article>)}</div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez oblečení" : "No clothing yet"} description={locale === "cs" ? "Položky přiřadíš v nové sekci Oblečení v levém menu." : "Assign items from the Clothing section in the left menu."} />}
     </section>
 
     <section className="dash-panel mechanic-history-panel">
       <header><div><span className="eyebrow">RACE HISTORY</span><h3>{locale === "cs" ? "Kompletní historie závodů" : "Complete race history"}</h3><p>{locale === "cs" ? "Kdy a kde byl mechanik přiřazený." : "When and where the mechanic was assigned."}</p></div><strong>{data.assignments.length}</strong></header>
-      {data.assignments.length ? <div className="table-wrap"><table className="engine-table mechanic-history-table race-logo-history-table"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Místo" : "Location"}</th><th>{locale === "cs" ? "Termín závodu" : "Race dates"}</th><th>{locale === "cs" ? "Cesta" : "Travel"}</th><th>{locale === "cs" ? "Auto" : "Car"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th></tr></thead><tbody>{data.assignments.map((item) => <MechanicHistoryRows key={item.id} item={item} locale={locale} />)}</tbody></table></div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez závodu" : "No races yet"}</strong><p>{locale === "cs" ? "Historie se vytvoří automaticky po přiřazení mechanika k závodu." : "History is created automatically after assigning the mechanic to a race."}</p></div>}
+      {data.assignments.length ? <div className="table-wrap"><table className="engine-table mechanic-history-table race-logo-history-table"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Místo" : "Location"}</th><th>{locale === "cs" ? "Termín závodu" : "Race dates"}</th><th>{locale === "cs" ? "Cesta" : "Travel"}</th><th>{locale === "cs" ? "Auto" : "Car"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th></tr></thead><tbody>{data.assignments.map((item) => <MechanicHistoryRows key={item.id} item={item} locale={locale} />)}</tbody></table></div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez závodu" : "No races yet"} description={locale === "cs" ? "Historie se vytvoří automaticky po přiřazení mechanika k závodu." : "History is created automatically after assigning the mechanic to a race."} />}
     </section>
     <p className="mechanic-print-footer">MM SYSTEM · MACHÁČ MOTORS · {locale === "cs" ? "Karta mechanika" : "Mechanic card"} · {new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB").format(new Date())}</p>
     {photoPreview && <ClothingLightbox preview={photoPreview} onClose={() => setPhotoPreview(null)} />}
@@ -140,7 +141,7 @@ function MechanicRaceTravel({ assignment, locale, compact = false }: { assignmen
 
 function TravelGroup({ title, icon, empty, children }: { title: string; icon: string; empty: string; children: ReactNode }) {
   const hasChildren = Array.isArray(children) ? children.length > 0 : Boolean(children);
-  return <section className="mechanic-travel-group"><header><span>{icon}</span><strong>{title}</strong></header><div>{hasChildren ? children : <p className="mechanic-travel-empty">{empty}</p>}</div></section>;
+  return <section className="mechanic-travel-group"><header><span>{icon}</span><strong>{title}</strong></header><div>{hasChildren ? children : <EmptyState size="compact" title={empty} />}</div></section>;
 }
 
 function RaceStatus({ value, locale }: { value: RaceAssignment["raceStatus"]; locale: Locale }) {

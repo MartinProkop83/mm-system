@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { countryFlag } from "./countries";
+import { EmptyState, LoadingState } from "./empty-state";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -107,14 +108,14 @@ export function RaceChecklistPanel({ race, locale, role, vehicles }: { race: Rac
         </div>
       </div>
     )}
-    {loading && <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>}
-    {!loading && error && <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Checklisty se nepodařilo načíst." : "Could not load checklists."}</p></div>}
+    {loading && <LoadingState label={locale === "cs" ? "Načítám…" : "Loading…"} />}
+    {!loading && error && <EmptyState variant="error" icon="!" title={locale === "cs" ? "Checklisty se nepodařilo načíst." : "Could not load checklists."} />}
     {!loading && !error && checklists.length === 0 && (
-      <div className="empty-state">
-        <span className="empty-engine">☑</span>
-        <h2>{locale === "cs" ? "Zatím žádný checklist" : "No checklist yet"}</h2>
-        <p>{locale === "cs" ? "Přiřaď šablonu z Dokumentů a odškrtávej vybavení před odjezdem." : "Attach a template from Documents and tick off equipment before departure."}</p>
-      </div>
+      <EmptyState
+        icon="☑"
+        title={locale === "cs" ? "Zatím žádný checklist" : "No checklist yet"}
+        description={locale === "cs" ? "Přiřaď šablonu z Dokumentů a odškrtávej vybavení před odjezdem." : "Attach a template from Documents and tick off equipment before departure."}
+      />
     )}
     {!loading && !error && checklists.length > 0 && <div className="race-checklist-list">
       {checklists.map((checklist) => <RaceChecklistCard key={checklist.id} checklist={checklist} locale={locale} canManage={canManage} onToggle={(item) => { void toggleItem(checklist.id, item); }} onRemove={() => { void detach(checklist); }} />)}

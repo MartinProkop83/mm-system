@@ -6,6 +6,7 @@ import type { LogisticsData, LogisticsRace } from "./logistics-pages";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { raceCalendarColorDefinition } from "./race-calendar-colors";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
 const MECHANIC_FORMS: PluralForms = { cs: ["mechanik", "mechanici", "mechaniků"], en: ["mechanic", "mechanics"] };
@@ -68,9 +69,15 @@ export function CalendarPage({ locale, onOpenRace }: { locale: Locale; onOpenRac
     </section>
     <section className="dash-panel calendar-board calendar-print-area">
       <header><button type="button" className="no-print" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() - 1, 1))}>‹</button><div><h3>{monthLabel}</h3>{printFilterParts.length > 0 && <span className="print-only calendar-print-filter">{printFilterParts.join(" · ")}</span>}<button type="button" className="no-print" onClick={() => { const today = new Date(); setMonth(new Date(today.getFullYear(), today.getMonth(), 1)); }}>{locale === "cs" ? "Dnes" : "Today"}</button></div><button type="button" className="no-print" onClick={() => setMonth(new Date(month.getFullYear(), month.getMonth() + 1, 1))}>›</button></header>
-      {loading ? <div className="empty-state"><span className="spinner" /></div> : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Kalendář se nepodařilo načíst." : "Could not load the calendar."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div> : <div className="calendar-grid">{(locale === "cs" ? ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]).map((day) => <strong className="calendar-weekday" key={day}>{day}</strong>)}{days.map((day) => { const iso = isoDate(day); const dayRaces = races.filter((race) => race.departureDate <= iso && race.returnDate >= iso); return <div className={`calendar-day ${day.getMonth() !== month.getMonth() ? "outside" : ""} ${iso === isoDate(new Date()) ? "today" : ""}`} key={iso}><span className="calendar-date">{day.getDate()}</span>{dayRaces.slice(0, 3).map((race) => <CalendarRaceEvent key={race.id} race={race} locale={locale} onOpen={() => onOpenRace(race.id)} />)}</div>; })}</div>}
+      {loading ? <LoadingState /> : error ? <EmptyState variant="error" icon="!" title={locale === "cs" ? "Kalendář se nepodařilo načíst." : "Could not load the calendar."} action={<button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button>} /> : <div className="calendar-grid">{(locale === "cs" ? ["Po", "Út", "St", "Čt", "Pá", "So", "Ne"] : ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]).map((day) => <strong className="calendar-weekday" key={day}>{day}</strong>)}{days.map((day) => { const iso = isoDate(day); const dayRaces = races.filter((race) => race.departureDate <= iso && race.returnDate >= iso); return <div className={`calendar-day ${day.getMonth() !== month.getMonth() ? "outside" : ""} ${iso === isoDate(new Date()) ? "today" : ""}`} key={iso}><span className="calendar-date">{day.getDate()}</span>{dayRaces.slice(0, 3).map((race) => <CalendarRaceEvent key={race.id} race={race} locale={locale} onOpen={() => onOpenRace(race.id)} />)}</div>; })}</div>}
     </section>
-    {!error && <section className="calendar-agenda"><div className="calendar-agenda-heading"><h3>{locale === "cs" ? "Přehled výjezdů" : "Travel overview"}</h3><span>{formatCount(races.length, locale, RACE_FORMS)}</span></div>{races.length === 0 ? <div className="dash-panel empty-state"><h3>{locale === "cs" ? "Pro tento filtr nejsou žádné výjezdy" : "No trips match this filter"}</h3><p>{locale === "cs" ? "Volné dny zůstávají v kalendáři bez označení." : "Free days remain blank in the calendar."}</p></div> : races.map((race) => <RaceAgenda key={race.id} race={race} data={data} locale={locale} />)}</section>}
+    {!error && <section className="calendar-agenda"><div className="calendar-agenda-heading"><h3>{locale === "cs" ? "Přehled výjezdů" : "Travel overview"}</h3><span>{formatCount(races.length, locale, RACE_FORMS)}</span></div>{races.length === 0 ? <section className="dash-panel"><EmptyState
+        variant={(mechanicId || vehicleId) ? "filtered" : "data"}
+        title={(mechanicId || vehicleId)
+          ? (locale === "cs" ? "Pro tento filtr nejsou žádné výjezdy" : "No trips match this filter")
+          : (locale === "cs" ? "Zatím žádné výjezdy" : "No trips yet")}
+        description={locale === "cs" ? "Volné dny zůstávají v kalendáři bez označení." : "Free days remain blank in the calendar."}
+      /></section> : races.map((race) => <RaceAgenda key={race.id} race={race} data={data} locale={locale} />)}</section>}
   </div>;
 }
 

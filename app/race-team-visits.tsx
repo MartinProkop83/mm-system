@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const RECORD_FORMS: PluralForms = { cs: ["záznam", "záznamy", "záznamů"], en: ["record", "records"] };
 
@@ -120,7 +121,7 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
         <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{locale === "cs" ? "Jiné týmy" : "Other teams"}</h2><p>{locale === "cs" ? "Když k nám na place přijde někdo z jiného týmu pro díl, servis nebo něco ze skladu." : "When someone from another team stops by our pit for a part, service, or stock item."}</p></div>
         <div className="race-team-visits-summary"><span>{formatCount(visits.length, locale, RECORD_FORMS)}</span>{canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing(null)}>＋ {locale === "cs" ? "Přidat návštěvu" : "Add visit"}</button>}</div>
       </header>
-      {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div> : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Návštěvy se nepodařilo načíst." : "Could not load visits."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div> : groups.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádné návštěvy jiných týmů." : "No visits from other teams yet."}</p> : <div className="race-team-visits-groups">
+      {loading ? <LoadingState label={locale === "cs" ? "Načítám…" : "Loading…"} /> : error ? <EmptyState variant="error" icon="!" title={locale === "cs" ? "Návštěvy se nepodařilo načíst." : "Could not load visits."} action={<button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button>} /> : groups.length === 0 ? <EmptyState size="compact" title={locale === "cs" ? "Zatím žádné návštěvy jiných týmů." : "No visits from other teams yet."} /> : <div className="race-team-visits-groups">
         {groups.map((group) => <article className="race-team-visit-group" key={group.teamId ?? group.teamName}>
           <header><RaceLogoBadge logoUrl={group.logoUrl} name={group.teamName} fallback="♙" size="small" /><strong>{group.teamName}</strong><span>{group.items.length}</span></header>
           <div className="race-team-visit-rows">{group.items.map((visit) => <div className="race-team-visit-row" key={visit.id}>

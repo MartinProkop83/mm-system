@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CatalogData } from "./catalog-pages";
 import { SaleForm, paymentMethodLabel, saleItemDescription, type EngineChoice, type SaleRecord } from "./sales-page";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const ORDER_FORMS: PluralForms = { cs: ["objednávka", "objednávky", "objednávek"], en: ["order", "orders"] };
 
@@ -70,9 +71,15 @@ export function RaceSalesPanel({ race, locale, role }: { race: RaceInfo; locale:
         {canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Nová objednávka" : "New order"}</button>}
       </header>
 
-      {loading && <div className="race-sales-state"><span className="spinner" /> {locale === "cs" ? "Načítám objednávky…" : "Loading orders…"}</div>}
-      {!loading && error && <div className="race-sales-state error-state">{locale === "cs" ? "Objednávky se nepodařilo načíst." : "Could not load orders."}</div>}
-      {!loading && !error && activeSales.length === 0 && <div className="race-sales-empty no-print"><strong>{locale === "cs" ? "Zatím bez objednávek" : "No orders yet"}</strong><p>{locale === "cs" ? "Přidej zákazníka, více dílů nebo servis do jedné objednávky. Součet se vypočítá automaticky." : "Add a customer, multiple items or service to one order. The total is calculated automatically."}</p>{canManage && <button className="secondary-compact" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat první objednávku" : "Add first order"}</button>}</div>}
+      {loading && <LoadingState size="inline" label={locale === "cs" ? "Načítám objednávky…" : "Loading orders…"} />}
+      {!loading && error && <EmptyState variant="error" size="inline" icon="!" title={locale === "cs" ? "Objednávky se nepodařilo načíst." : "Could not load orders."} />}
+      {!loading && !error && activeSales.length === 0 && <EmptyState
+        size="inline"
+        className="no-print"
+        title={locale === "cs" ? "Zatím bez objednávek" : "No orders yet"}
+        description={locale === "cs" ? "Přidej zákazníka, více dílů nebo servis do jedné objednávky. Součet se vypočítá automaticky." : "Add a customer, multiple items or service to one order. The total is calculated automatically."}
+        action={canManage && <button className="secondary-compact" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat první objednávku" : "Add first order"}</button>}
+      />}
 
       {!loading && !error && activeSales.length > 0 && <div className="race-order-list">{activeSales.map((sale) => <article className="race-order" key={sale.id}>
         <header><div><span>{sale.saleNumber}</span><h3>{sale.customerName}</h3>{sale.documentNumber && <small>{locale === "cs" ? "Doklad" : "Document"}: {sale.documentNumber}</small>}</div><div className="race-order-status"><b className={sale.isDelivered ? "done" : "open"}>{sale.isDelivered ? "✓ " : "○ "}{sale.isDelivered ? (locale === "cs" ? "Předáno" : "Delivered") : (locale === "cs" ? "Nepředáno" : "Not delivered")}</b><b className={sale.isPaid ? "done" : "open"}>{sale.isPaid ? "✓ " : "○ "}{sale.isPaid ? (locale === "cs" ? "Zaplaceno" : "Paid") : (locale === "cs" ? "Nezaplaceno" : "Unpaid")}</b></div></header>

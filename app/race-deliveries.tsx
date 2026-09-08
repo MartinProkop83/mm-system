@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { formatCount, type PluralForms } from "./pluralize";
+import { EmptyState, LoadingState } from "./empty-state";
 
 const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
@@ -139,8 +140,8 @@ export function RaceDeliveriesPanel({ race, locale, role, activeSection, previou
           <thead><tr><th>{locale === "cs" ? "Zákazník" : "Customer"}</th><th>{locale === "cs" ? "Co vezeme" : "Item"}</th><th>{locale === "cs" ? "Množství" : "Qty"}</th><th>{locale === "cs" ? "Cena" : "Amount"}</th><th>{locale === "cs" ? "Platba" : "Payment"}</th><th>{locale === "cs" ? "Předáno" : "Delivered"}</th><th>{locale === "cs" ? "Zaplaceno" : "Paid"}</th><th>{locale === "cs" ? "Poznámka" : "Note"}</th>{canManage && <th className="no-print">{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead>
           <tbody>
             {deliveries.map((delivery) => <tr key={delivery.id}><td><strong>{delivery.customerName}</strong></td><td>{delivery.description}</td><td>{delivery.quantity}</td><td><strong>{formatMoney(delivery.amountCents, delivery.currency, locale)}</strong></td><td>{paymentMethodLabel(delivery.paymentMethod, locale)}</td><td>{canManage ? <button className={`delivery-payment-toggle no-print ${delivery.isDelivered ? "paid" : "unpaid"}`} type="button" onClick={() => { void toggleDelivered(delivery); }}>{delivery.isDelivered ? "✓" : "○"} {delivery.isDelivered ? (locale === "cs" ? "Ano" : "Yes") : (locale === "cs" ? "Ne" : "No")}</button> : null}<span className={`delivery-payment-print ${delivery.isDelivered ? "paid" : "unpaid"}`}>{delivery.isDelivered ? "✓" : "□"}</span></td><td>{canManage ? <button className={`delivery-payment-toggle no-print ${delivery.isPaid ? "paid" : "unpaid"}`} type="button" onClick={() => { void togglePaid(delivery); }}>{delivery.isPaid ? "✓" : "○"} {delivery.isPaid ? (locale === "cs" ? "Ano" : "Yes") : (locale === "cs" ? "Ne" : "No")}</button> : null}<span className={`delivery-payment-print ${delivery.isPaid ? "paid" : "unpaid"}`}>{delivery.isPaid ? "✓" : "□"}</span></td><td>{delivery.notes || "—"}</td>{canManage && <td className="delivery-row-actions no-print"><button type="button" onClick={() => setEditing(delivery)}>{locale === "cs" ? "Upravit" : "Edit"}</button><button className="delete" type="button" onClick={() => { void remove(delivery); }}>×</button></td>}</tr>)}
-            {loading && <tr className="no-print"><td colSpan={9}>{locale === "cs" ? "Načítám…" : "Loading…"}</td></tr>}
-            {!loading && deliveries.length === 0 && <tr className="delivery-empty-row no-print"><td colSpan={9}>{locale === "cs" ? "Zatím nejsou přidané žádné předávky. Přidej je před odjezdem, nebo použij prázdné řádky na vytištěném listu." : "No deliveries yet. Add them before departure or use the blank rows on the printed sheet."}</td></tr>}
+            {loading && <tr className="no-print"><td colSpan={9}><LoadingState size="compact" label={locale === "cs" ? "Načítám…" : "Loading…"} /></td></tr>}
+            {!loading && deliveries.length === 0 && <tr className="no-print"><td colSpan={9}><EmptyState size="compact" title={locale === "cs" ? "Zatím nejsou přidané žádné předávky. Přidej je před odjezdem, nebo použij prázdné řádky na vytištěném listu." : "No deliveries yet. Add them before departure or use the blank rows on the printed sheet."} /></td></tr>}
             {Array.from({ length: Math.max(3, 7 - deliveries.length) }, (_, index) => <tr className="delivery-print-blank" key={`blank-${index}`}><td>&nbsp;</td><td /><td /><td /><td /><td>□</td><td>□</td><td /></tr>)}
           </tbody>
         </table>

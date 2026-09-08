@@ -15,6 +15,7 @@ import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pages";
 import { ChecklistsPage } from "./checklist-pages";
+import { EmptyState, LoadingState } from "./empty-state";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
@@ -693,7 +694,7 @@ export default function Home() {
             />
             {searchQuery.trim() && (
               <div className="util-search-results">
-                {searchResults.length === 0 && <div className="util-search-empty">{locale === "cs" ? "Nic nenalezeno" : "Nothing found"}</div>}
+                {searchResults.length === 0 && <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Nic nenalezeno" : "Nothing found"} />}
                 {searchResults.map((item) => (
                   <button key={item.id} type="button" onMouseDown={() => { setView(item.id); setSearchQuery(""); if (item.id !== "engines") setDetailEngineId(null); }}>
                     <span aria-hidden="true">{item.mark}</span>{t[item.id]}
@@ -714,7 +715,7 @@ export default function Home() {
               {notifOpen && (
                 <div className="notif-panel">
                   <header><strong>{locale === "cs" ? "Upozornění" : "Notifications"}</strong></header>
-                  {enginesNeedingService.length === 0 && vehiclesNeedingService.length === 0 && <div className="notif-empty">{locale === "cs" ? "Žádná upozornění" : "Nothing to flag"}</div>}
+                  {enginesNeedingService.length === 0 && vehiclesNeedingService.length === 0 && <EmptyState size="compact" title={locale === "cs" ? "Žádná upozornění" : "Nothing to flag"} />}
                   {enginesNeedingService.slice(0, 6).map((engine) => (
                     <button key={engine.id} type="button" className="notif-row" onClick={() => { setView("engines"); setDetailEngineId(engine.id); setNotifOpen(false); }}>
                       <i />
@@ -905,7 +906,7 @@ function QuickServiceForm({ locale, onClose, onSaved }: { locale: Locale; onClos
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="modal" role="dialog" aria-modal="true">
       <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{locale === "cs" ? "Zápis servisu auta" : "Log vehicle service"}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
-      {loading ? <div className="empty-state"><span className="spinner" /></div> : !vehicles.length ? <p className="form-error">{locale === "cs" ? "Nejdřív přidej auto v katalogu." : "Add a vehicle to the catalog first."}</p> : <form onSubmit={submit}>
+      {loading ? <LoadingState /> : !vehicles.length ? <p className="form-error">{locale === "cs" ? "Nejdřív přidej auto v katalogu." : "Add a vehicle to the catalog first."}</p> : <form onSubmit={submit}>
         <div className="form-grid">
           <label className="full-field"><span>{locale === "cs" ? "Auto" : "Vehicle"} *</span><select value={vehicleId} required onChange={(event) => setVehicleId(event.target.value)}>{vehicles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.licensePlate ? ` · ${item.licensePlate}` : ""}</option>)}</select></label>
           <label><span>{locale === "cs" ? "Datum servisu" : "Service date"} *</span><input type="date" value={serviceDate} required onChange={(event) => setServiceDate(event.target.value)} /></label>
@@ -1031,11 +1032,12 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
         <a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celý kalendář" : "Full calendar"}</a>
       </div>
       <div>
-        {loading ? <div className="dashboard-loading">{t.loading}</div> : raceGroup.length === 0 ? (
-          <div className="race-mini-empty">
-            <strong>{locale === "cs" ? "Žádný nadcházející závod" : "No upcoming race"}</strong>
-            <button className="topbar-cta" type="button" onClick={() => onOpenView("races")}>{locale === "cs" ? "Přejít na závody" : "Open races"} →</button>
-          </div>
+        {loading ? <LoadingState size="inline" label={t.loading} /> : raceGroup.length === 0 ? (
+          <EmptyState
+            size="inline"
+            title={locale === "cs" ? "Žádný nadcházející závod" : "No upcoming race"}
+            action={<button className="topbar-cta" type="button" onClick={() => onOpenView("races")}>{locale === "cs" ? "Přejít na závody" : "Open races"} →</button>}
+          />
         ) : (
           <div className="race-grid">
             {raceGroup.map((race) => {
@@ -1087,7 +1089,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
               <div><b>{item.actorName}</b> {activityDescription(item, locale)}<small>{relativeActivityTime(item.createdAt, locale)}</small></div>
             </div>
           ))}
-          {!loading && dashboardActivity.length === 0 && <p className="dashboard-list-empty">{locale === "cs" ? "Zatím nebyla zaznamenána žádná aktivita." : "No activity has been recorded yet."}</p>}
+          {!loading && dashboardActivity.length === 0 && <EmptyState size="compact" title={locale === "cs" ? "Zatím nebyla zaznamenána žádná aktivita." : "No activity has been recorded yet."} />}
         </section>
       </div>
 
@@ -1110,7 +1112,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
             ))}
           </div>
         ) : (
-          <p className="category-empty">{locale === "cs" ? "Žádný nadcházející závod." : "No upcoming races."}</p>
+          <EmptyState size="compact" title={locale === "cs" ? "Žádný nadcházející závod." : "No upcoming races."} />
         )}
       </div>
 
@@ -1147,7 +1149,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
             </table>
           </div>
         ) : (
-          <p className="category-empty">{locale === "cs" ? "V sezóně zatím není žádný závod." : "No races in the season yet."}</p>
+          <EmptyState size="compact" title={locale === "cs" ? "V sezóně zatím není žádný závod." : "No races in the season yet."} />
         )}
       </div>
 
@@ -1206,7 +1208,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
             </table>
           </div>
         ) : (
-          <p className="category-empty">{locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."}</p>
+          <EmptyState size="compact" title={locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."} />
         )}
       </div>
     </div>
@@ -1277,18 +1279,18 @@ function Engines({
       )}
       <section className="dash-panel data-panel latest-carb-panel">
         <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div>{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</header>
-        {loading && <div className="empty-state"><span className="spinner" /><p>{t.loading}</p></div>}
-        {!loading && error && <div className="empty-state error-state"><b>!</b><p>{t.databaseError}</p></div>}
+        {loading && <LoadingState label={t.loading} />}
+        {!loading && error && <EmptyState variant="error" icon="!" title={t.databaseError} />}
         {!loading && !error && activeEngines.length === 0 && (
-          <div className="empty-state">
-            <span className="empty-engine">◫</span>
-            <h2>{t.emptyEngines}</h2>
-            <p>{t.emptyEnginesHelp}</p>
-            {canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.addEngine}</button>}
-          </div>
+          <EmptyState
+            icon="◫"
+            title={t.emptyEngines}
+            description={t.emptyEnginesHelp}
+            action={canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.addEngine}</button>}
+          />
         )}
         {!loading && !error && activeEngines.length > 0 && visibleEngines.length === 0 && (
-          <p className="category-empty">{locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."}</p>
+          <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "V této kategorii zatím není žádný motor." : "There are no engines in this category yet."} />
         )}
         {!loading && !error && pageEngines.length > 0 && (
           <div className="table-wrap">
@@ -1389,8 +1391,8 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
   }
 
   function recordProblem() {
-    if (recordsLoading) return <div className="records-state"><span className="spinner" /><p>{t.loading}</p></div>;
-    if (recordsError) return <div className="records-state error-state"><b>!</b><p>{t.databaseError}</p></div>;
+    if (recordsLoading) return <LoadingState size="inline" label={t.loading} />;
+    if (recordsError) return <EmptyState variant="error" size="inline" icon="!" title={t.databaseError} />;
     return null;
   }
 
@@ -1495,7 +1497,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
                 <div className="engine-assignment-equipment"><span><small>{locale === "cs" ? "Pozice" : "Position"}</small><strong>{locale === "cs" ? "Motor" : "Engine"} {currentAssignment.position}</strong></span><span><small>{locale === "cs" ? "Spárovaný karburátor" : "Paired carburetor"}</small><strong>{currentAssignment.carburetorCode || "—"}</strong></span></div>
               </div>
             ) : (
-              <div className="no-assignment"><strong>{locale === "cs" ? "Motor teď není přiřazený" : "Engine is not currently assigned"}</strong><p>{locale === "cs" ? "Po přiřazení v plánu závodu se zde automaticky ukáže jezdec, závod a karburátor." : "Once assigned in a race plan, the driver, race and carburetor will appear here automatically."}</p></div>
+              <EmptyState size="inline" title={locale === "cs" ? "Motor teď není přiřazený" : "Engine is not currently assigned"} description={locale === "cs" ? "Po přiřazení v plánu závodu se zde automaticky ukáže jezdec, závod a karburátor." : "Once assigned in a race plan, the driver, race and carburetor will appear here automatically."} />
             )}
           </section>
 
@@ -1539,7 +1541,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
             })}
           </div>
           {recordProblem()}
-          {!recordsLoading && !recordsError && serviceRecords.length === 0 && <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez historie servisu" : "No service history yet"}</strong><p>{locale === "cs" ? "První zápis bude obsahovat datum, typ servisu a zaškrtnuté vyměněné díly." : "The first entry will include the date, service type and replaced parts."}</p></div>}
+          {!recordsLoading && !recordsError && serviceRecords.length === 0 && <EmptyState size="inline" title={locale === "cs" ? "Zatím bez historie servisu" : "No service history yet"} description={locale === "cs" ? "První zápis bude obsahovat datum, typ servisu a zaškrtnuté vyměněné díly." : "The first entry will include the date, service type and replaced parts."} />}
           {!recordsLoading && !recordsError && serviceRecords.length > 0 && <ServiceHistoryTable records={serviceRecords} locale={locale} canCorrect={isSuperadmin} onEdit={(record) => setEditingService(record)} onDelete={(recordId) => { void deleteRecord("service", recordId); }} />}
         </section>
       )}
@@ -1549,7 +1551,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
           <div className="tab-panel-header"><div><span className="eyebrow">OPPAMA</span><h2>{t.usageTab}</h2><p>{usesHours ? (locale === "cs" ? "Zápis po skončení závodu ve formátu HH:MM." : "Logged after each race in HH:MM format.") : (locale === "cs" ? "MINI a OKJ neevidují motohodiny." : "MINI and OKJ do not track running hours.")}</p></div>{usesHours && <div className="tab-actions">{isSuperadmin && <button className="secondary-compact" type="button" onClick={() => setBaselineOpen(true)}>⌁ {locale === "cs" ? "Vstupní stav" : "Starting state"}</button>}<button className="primary-button" type="button" onClick={() => setUsageOpen(true)}>＋ {t.logHours}</button></div>}</div>
           <div className="hours-summary"><div><span>{locale === "cs" ? "Poslední Oppama" : "Last Oppama"}</span><strong>{usesHours ? formatHours(engine.lastOppamaMinutes) : "—"}</strong></div><div><span>{locale === "cs" ? "Píst od výměny" : "Piston since replacement"}</span><strong>{usesHours ? formatHours(engine.pistonMinutes) : "—"}</strong><small>{engine.currentPistonSize ? `${locale === "cs" ? "Rozměr" : "Size"}: ${engine.currentPistonSize}` : ""}</small></div><div><span>{locale === "cs" ? "Ojnice / klika" : "Rod / crank"}</span><strong>{usesHours ? formatHours(engine.rodMinutes) : "—"}</strong></div></div>
           {recordProblem()}
-          {!recordsLoading && !recordsError && usageRecords.length === 0 && <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez záznamů provozu" : "No usage entries yet"}</strong><p>{locale === "cs" ? "Po závodu zapiš stav Oppama; systém ho přičte k pístu i ojnici." : "After a race, log Oppama and the system will add it to both counters."}</p></div>}
+          {!recordsLoading && !recordsError && usageRecords.length === 0 && <EmptyState size="inline" title={locale === "cs" ? "Zatím bez záznamů provozu" : "No usage entries yet"} description={locale === "cs" ? "Po závodu zapiš stav Oppama; systém ho přičte k pístu i ojnici." : "After a race, log Oppama and the system will add it to both counters."} />}
           {!recordsLoading && !recordsError && usageRecords.length > 0 && <UsageHistoryTable records={usageRecords} locale={locale} canCorrect={isSuperadmin} onEdit={(record) => setEditingUsage(record)} onDelete={(recordId) => { void deleteRecord("usage", recordId); }} />}
         </section>
       )}
@@ -1557,7 +1559,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       {tab === "history" && (
         <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">RACE HISTORY</span><h2>{t.historyTab}</h2><p>{locale === "cs" ? "Závody, piloti a spárované karburátory zůstávají trvale v kartě motoru." : "Races, drivers and paired carburetors remain permanently in the engine card."}</p></div></div>
-          {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table zebra"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <div className="empty-inline"><strong>{locale === "cs" ? "Zatím bez závodu" : "No races yet"}</strong><p>{locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."}</p></div>}
+          {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table zebra"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez závodu" : "No races yet"} description={locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."} />}
           <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">AUDIT</span><h3>{locale === "cs" ? "Změny karty" : "Card changes"}</h3></div></div>
           <div className="history-list"><div><i /><span><strong>{locale === "cs" ? "Motor založen v systému" : "Engine created in the system"}</strong><small>{formatTimestamp(engine.createdAt, locale)}</small></span></div>{engine.updatedAt !== engine.createdAt && <div><i /><span><strong>{locale === "cs" ? "Poslední změna údajů" : "Latest data update"}</strong><small>{formatTimestamp(engine.updatedAt, locale)}</small></span></div>}</div>
         </section>
