@@ -8,6 +8,7 @@ import { countryFlag } from "./countries";
 import { CalendarPage } from "./calendar-page";
 import { LogisticsPage } from "./logistics-pages";
 import { RaceLogoBadge } from "./race-logo-badge";
+import { pluralForm, formatCount, type PluralForms } from "./pluralize";
 import { TaskPage, type WorkItem } from "./task-pages";
 import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
@@ -203,12 +204,8 @@ const copy = {
     documents: "Dokumenty",
     settings: "Nastavení",
     nextRace: "Příští závod",
-    days: "za 10 dní",
     openRace: "Otevřít závod",
     actionCenter: "Úkoly a upozornění",
-    engineService: "2 motory potřebují servis",
-    carbService: "5 karburátorů brzy k servisu",
-    docsReview: "3 dokumenty ke kontrole",
     overview: "Přehled vybavení",
     ready: "Připraveno",
     due: "Brzy servis",
@@ -313,12 +310,8 @@ const copy = {
     documents: "Documents",
     settings: "Settings",
     nextRace: "Next race",
-    days: "10 days left",
     openRace: "Open race",
     actionCenter: "Tasks & alerts",
-    engineService: "2 engines need service",
-    carbService: "5 carburetors expiring soon",
-    docsReview: "3 documents to review",
     overview: "Equipment overview",
     ready: "Ready",
     due: "Service soon",
@@ -1032,7 +1025,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
       <div className="section-head">
         <h2>
           <span className="streak"><i /><i /><i /></span>
-          {raceGroup.length > 1 ? (locale === "cs" ? `Tento víkend — ${raceGroup.length} závody souběžně` : `This weekend — ${raceGroup.length} races at once`) : t.nextRace}
+          {raceGroup.length > 1 ? (locale === "cs" ? `Tento víkend — ${formatCount(raceGroup.length, "cs", RACE_FORMS)} souběžně` : `This weekend — ${raceGroup.length} races at once`) : t.nextRace}
         </h2>
         <a onClick={() => onOpenView("races")}>{locale === "cs" ? "Celý kalendář" : "Full calendar"}</a>
       </div>
@@ -1078,10 +1071,10 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
       <div className="info-grid">
         <section className="dash-panel">
           <h3>{t.actionCenter}</h3>
-          <button type="button" className="alert-row" onClick={() => onOpenView("engines")}><span className="alert-dot critical" /><span>{locale === "cs" ? `${serviceCount} motorů potřebuje servis` : `${serviceCount} engines need service`}</span><b>›</b></button>
-          <button type="button" className="alert-row" onClick={() => onOpenView("carburetors")}><span className="alert-dot warning" /><span>{locale === "cs" ? `${ownedCarburetors.filter((item) => item.status === "service").length} karburátorů potřebuje servis` : `${ownedCarburetors.filter((item) => item.status === "service").length} carburetors need service`}</span><b>›</b></button>
+          <button type="button" className="alert-row" onClick={() => onOpenView("engines")}><span className="alert-dot critical" /><span>{engineServiceLabel(serviceCount, locale)}</span><b>›</b></button>
+          <button type="button" className="alert-row" onClick={() => onOpenView("carburetors")}><span className="alert-dot warning" /><span>{carburetorServiceLabel(ownedCarburetors.filter((item) => item.status === "service").length, locale)}</span><b>›</b></button>
           {vehiclesNeedingService.length > 0 && <button type="button" className="alert-row" onClick={() => onOpenView("vehicles")}><span className={`alert-dot ${vehiclesNeedingService.some((vehicle) => vehicleServiceStatus(vehicle) === "due") ? "critical" : "warning"}`} /><span>{vehiclesNeedingServiceLabel(vehiclesNeedingService.length, locale)}</span><b>›</b></button>}
-          <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className={`alert-dot ${overdueTasks.length ? "critical" : "info"}`} /><span>{overdueTasks.length ? (locale === "cs" ? `${overdueTasks.length} ${taskCountWord(overdueTasks.length)} po termínu` : `${overdueTasks.length} overdue tasks`) : (locale === "cs" ? openTaskLabel(activeTasks.length) : `${activeTasks.length} open tasks`)}</span><b>›</b></button>
+          <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className={`alert-dot ${overdueTasks.length ? "critical" : "info"}`} /><span>{overdueTasks.length ? overdueTasksLabel(overdueTasks.length, locale) : openTasksLabel(activeTasks.length, locale)}</span><b>›</b></button>
           {nextTask && <button type="button" className="alert-row" onClick={() => onOpenView("tasks")}><span className="alert-dot info" /><span>{nextTask.title}</span><b>›</b></button>}
         </section>
 
@@ -1164,7 +1157,7 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
           </div>
           {fleetRows.map(({ category, total, stats }) => (
             <button className={category.id === selectedCategory ? "fleet-row selected" : "fleet-row"} type="button" key={category.id} onClick={() => setSelectedCategory(category.id)}>
-              <div className="fleet-cat"><strong>{category.label}</strong><small>{total} {locale === "cs" ? "motorů" : "engines"}</small></div>
+              <div className="fleet-cat"><strong>{category.label}</strong><small>{formatCount(total, locale, ENGINE_FORMS)}</small></div>
               <div className="fleet-bar">
                 {total > 0 && <div style={{ width: `${(stats.ready / total) * 100}%`, background: "var(--wrc-green)" }} />}
                 {total > 0 && <div style={{ width: `${(stats.due / total) * 100}%`, background: "var(--wrc-amber)" }} />}
@@ -2012,23 +2005,35 @@ function czechVocative(firstName: string) {
   return `${firstName}e`;
 }
 
-function taskCountWord(count: number) {
-  if (count === 1) return "úkol";
-  if (count >= 2 && count <= 4) return "úkoly";
-  return "úkolů";
+const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
+const DAY_FORMS: PluralForms = { cs: ["den", "dny", "dní"], en: ["day", "days"] };
+const ENGINE_FORMS: PluralForms = { cs: ["motor", "motory", "motorů"], en: ["engine", "engines"] };
+const CARBURETOR_FORMS: PluralForms = { cs: ["karburátor", "karburátory", "karburátorů"], en: ["carburetor", "carburetors"] };
+const VEHICLE_FORMS: PluralForms = { cs: ["auto", "auta", "aut"], en: ["vehicle", "vehicles"] };
+const NEEDS_SERVICE_VERB: PluralForms = { cs: ["potřebuje", "potřebují", "potřebuje"], en: ["needs", "need"] };
+const TASK_FORMS: PluralForms = { cs: ["úkol", "úkoly", "úkolů"], en: ["task", "tasks"] };
+const OPEN_ADJ_FORMS: PluralForms = { cs: ["otevřený", "otevřené", "otevřených"], en: ["open", "open"] };
+
+function engineServiceLabel(count: number, locale: Locale) {
+  return `${formatCount(count, locale, ENGINE_FORMS)} ${pluralForm(count, locale, NEEDS_SERVICE_VERB)} ${locale === "cs" ? "servis" : "service"}`;
+}
+
+function carburetorServiceLabel(count: number, locale: Locale) {
+  return `${formatCount(count, locale, CARBURETOR_FORMS)} ${pluralForm(count, locale, NEEDS_SERVICE_VERB)} ${locale === "cs" ? "servis" : "service"}`;
 }
 
 function vehiclesNeedingServiceLabel(count: number, locale: Locale) {
-  if (locale === "en") return `${count} vehicle${count === 1 ? "" : "s"} need service`;
-  if (count === 1) return "1 auto potřebuje servis";
-  if (count >= 2 && count <= 4) return `${count} auta potřebují servis`;
-  return `${count} aut potřebuje servis`;
+  return `${formatCount(count, locale, VEHICLE_FORMS)} ${pluralForm(count, locale, NEEDS_SERVICE_VERB)} ${locale === "cs" ? "servis" : "service"}`;
 }
 
-function openTaskLabel(count: number) {
-  if (count === 1) return "1 otevřený úkol";
-  if (count >= 2 && count <= 4) return `${count} otevřené úkoly`;
-  return `${count} otevřených úkolů`;
+function overdueTasksLabel(count: number, locale: Locale) {
+  if (locale === "cs") return `${formatCount(count, "cs", TASK_FORMS)} po termínu`;
+  return `${count} overdue ${pluralForm(count, "en", TASK_FORMS)}`;
+}
+
+function openTasksLabel(count: number, locale: Locale) {
+  if (locale === "cs") return `${count} ${pluralForm(count, "cs", OPEN_ADJ_FORMS)} ${pluralForm(count, "cs", TASK_FORMS)}`;
+  return `${count} open ${pluralForm(count, "en", TASK_FORMS)}`;
 }
 
 function localIsoMinute(date: Date) {
@@ -2061,7 +2066,7 @@ function raceCountdown(race: DashboardRace, today: string, locale: Locale) {
   if (race.status === "active" || (race.startDate <= today && race.endDate >= today)) return locale === "cs" ? "probíhá" : "active";
   const days = Math.max(0, Math.ceil((parseIsoDate(race.startDate).getTime() - parseIsoDate(today).getTime()) / 86_400_000));
   if (days === 0) return locale === "cs" ? "dnes" : "today";
-  return locale === "cs" ? `za ${days} dní` : `${days} days`;
+  return locale === "cs" ? `za ${formatCount(days, "cs", DAY_FORMS)}` : formatCount(days, "en", DAY_FORMS);
 }
 
 const RACE_WATERMARK_STOPWORDS = new Set(["a", "v", "na", "of", "the", "de", "di", "and", "za", "pro"]);

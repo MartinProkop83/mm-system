@@ -15,6 +15,14 @@ import { RaceChecklistPanel } from "./race-checklist-panel";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { ClothingLightbox, type ClothingPhotoPreview } from "./clothing-photo";
 import type { CircuitRecord } from "./circuits-page";
+import { formatCount, pluralForm, type PluralForms } from "./pluralize";
+
+const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
+const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
+const MECHANIC_FORMS: PluralForms = { cs: ["mechanik", "mechanici", "mechaniků"], en: ["mechanic", "mechanics"] };
+const VEHICLE_FORMS: PluralForms = { cs: ["auto", "auta", "aut"], en: ["vehicle", "vehicles"] };
+const ENGINE_FORMS: PluralForms = { cs: ["motor", "motory", "motorů"], en: ["engine", "engines"] };
+const CARBURETOR_FORMS: PluralForms = { cs: ["karburátor", "karburátory", "karburátorů"], en: ["carburetor", "carburetors"] };
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -256,7 +264,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
         {currentRaces.length > 0 && listView === "cards" && <div className="race-cards">{currentRaces.map((race) => <button className="race-card" key={race.id} type="button" onClick={() => setSelectedId(race.id)}>
           <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
           <span className="race-card-main"><small>MM RACE CONTROL{(race.series || race.seriesRound) && ` · ${[race.series, race.seriesRound ? `Round ${race.seriesRound}` : ""].filter(Boolean).join(" · ")}`}</small><strong>{race.name}</strong><span>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}, {race.countryCode}</span><i>{race.categories.join(" · ")}</i></span>
-          <span className="race-card-counts"><b>{race.driverCount}</b><small>{locale === "cs" ? "pilotů" : "drivers"}</small><em className={`race-status ${race.status}`}>{raceStatus(race.status, locale)}</em><em className={`race-readiness-pill ${raceIsBasicallyReady(race) ? "done" : "pending"}`}>{raceIsBasicallyReady(race) ? "✓" : "⚠"} {locale === "cs" ? "Připraveno" : "Ready"}</em></span>
+          <span className="race-card-counts"><b>{race.driverCount}</b><small>{pluralForm(race.driverCount, locale, DRIVER_FORMS)}</small><em className={`race-status ${race.status}`}>{raceStatus(race.status, locale)}</em><em className={`race-readiness-pill ${raceIsBasicallyReady(race) ? "done" : "pending"}`}>{raceIsBasicallyReady(race) ? "✓" : "⚠"} {locale === "cs" ? "Připraveno" : "Ready"}</em></span>
         </button>)}</div>}
         {currentRaces.length > 0 && listView === "table" && <div className="results-panel">
           <table className="results">
@@ -284,7 +292,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
       </div>}
       {archiveByYear.length === 0 && <p className="category-empty">{locale === "cs" ? "Žádný archivovaný závod neodpovídá filtru." : "No archived race matches the filter."}</p>}
       {archiveByYear.map((group) => <div className="race-archive-year" key={group.year}>
-        <h3>{group.year}<small>{group.races.length} {locale === "cs" ? "závodů" : "races"}</small></h3>
+        <h3>{group.year}<small>{formatCount(group.races.length, locale, RACE_FORMS)}</small></h3>
         <div className="race-archive-grid">{group.races.map((race) => <button className="race-archive-tile" key={race.id} type="button" onClick={() => setSelectedId(race.id)} title={`${race.name} · ${race.track} · ${formatDateRange(race.startDate, race.endDate, locale)}`}>
           <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
           <span>{race.name}<small>{formatDateRange(race.startDate, race.endDate, locale)}</small></span>
@@ -727,7 +735,7 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     </div>
     <div id="race-panel-crew" role="tabpanel" aria-labelledby="race-tab-crew" className={`race-plan-section ${detailTab === "crew" ? "active" : "hidden"}`}>
     <section className="dash-panel race-logistics-panel">
-      <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE LOGISTICS</span><h2>{locale === "cs" ? "Posádka a doprava" : "Crew and transport"}</h2><p>{locale === "cs" ? "Mechanici a týmová auta přiřazená k tomuto závodu." : "Mechanics and team vehicles assigned to this race."}</p></div><div className="race-logistics-summary"><span><strong>{plan?.mechanics.length ?? 0}</strong>{locale === "cs" ? "mechaniků" : "mechanics"}</span><span><strong>{plan?.vehicles.length ?? 0}</strong>{locale === "cs" ? "aut" : "vehicles"}</span></div></header>
+      <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE LOGISTICS</span><h2>{locale === "cs" ? "Posádka a doprava" : "Crew and transport"}</h2><p>{locale === "cs" ? "Mechanici a týmová auta přiřazená k tomuto závodu." : "Mechanics and team vehicles assigned to this race."}</p></div><div className="race-logistics-summary"><span><strong>{plan?.mechanics.length ?? 0}</strong>{pluralForm(plan?.mechanics.length ?? 0, locale, MECHANIC_FORMS)}</span><span><strong>{plan?.vehicles.length ?? 0}</strong>{pluralForm(plan?.vehicles.length ?? 0, locale, VEHICLE_FORMS)}</span></div></header>
       <div className="race-logistics">
         <AssignmentStrip icon="M" title={l.mechanics} locale={locale} items={plan?.mechanics.map((item) => ({ id: item.id, label: item.mechanicName })) ?? []} options={unassignedMechanics.map((item) => ({ id: item.id, label: item.name }))} canManage={canManage} emptyText={l.noResources} onAdd={(id) => assign("mechanic", id)} onDelete={(id) => remove("mechanic", id)} />
         <AssignmentStrip icon="A" title={l.cars} locale={locale} items={plan?.vehicles.map((item) => { const vehicleRecord = catalog.vehicles.find((vehicle) => vehicle.id === item.vehicleId); const status = vehicleRecord ? vehicleServiceStatus(vehicleRecord) : "unknown"; const badge = status === "due" ? <span className="status-pill danger" key="svc">{locale === "cs" ? "Servis" : "Service"}</span> : status === "soon" ? <span className="status-pill warning-pill" key="svc">{locale === "cs" ? "Brzy servis" : "Service soon"}</span> : null; return { id: item.id, label: `${item.vehicleName}${item.licensePlate ? ` · ${item.licensePlate}` : ""}`, badge }; }) ?? []} options={unassignedVehicles.map((item) => ({ id: item.id, label: `${item.name}${item.licensePlate ? ` · ${item.licensePlate}` : ""}` }))} canManage={canManage} emptyText={l.noResources} onAdd={(id) => assign("vehicle", id)} onDelete={(id) => remove("vehicle", id)} />
@@ -853,7 +861,7 @@ function RaceWeather({ race, locale }: { race: RaceRecord; locale: Locale }) {
 
 function RaceEquipmentOverview({ race, plan, carburetors, locale }: { race: RaceRecord; plan: RacePlan; carburetors: CarburetorRecord[]; locale: Locale }) {
   return <section className="dash-panel race-equipment-overview">
-    <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE LOADOUT</span><h2>{locale === "cs" ? "Přehled pilotů a vybavení" : "Drivers and equipment"}</h2></div><div className="race-total-drivers"><strong>{plan.entries.length}</strong><span>{locale === "cs" ? "pilotů celkem" : "drivers total"}</span></div></header>
+    <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE LOADOUT</span><h2>{locale === "cs" ? "Přehled pilotů a vybavení" : "Drivers and equipment"}</h2></div><div className="race-total-drivers"><strong>{plan.entries.length}</strong><span>{pluralForm(plan.entries.length, locale, DRIVER_FORMS)} {locale === "cs" ? "celkem" : "total"}</span></div></header>
     <div className="race-category-overview-grid">{race.categories.map((category) => {
       const entries = plan.entries.filter((entry) => entry.category === category);
       const extras = plan.extras.filter((extra) => extra.category === category);
@@ -863,7 +871,7 @@ function RaceEquipmentOverview({ race, plan, carburetors, locale }: { race: Race
       const extraCarbIds = uniqueStrings(extras.filter((extra) => extra.resourceType === "carburetor").map((extra) => extra.resourceId));
       const carbBreakdown = carburetorBreakdown([...assignedCarbIds, ...extraCarbIds], carburetors);
       return <article className={`race-category-overview category-${category.toLowerCase().replaceAll(" ", "-")}`} key={category}>
-        <div className="race-category-overview-title"><strong>{category}</strong><span>{entries.length} {locale === "cs" ? "pilotů" : "drivers"}</span></div>
+        <div className="race-category-overview-title"><strong>{category}</strong><span>{formatCount(entries.length, locale, DRIVER_FORMS)}</span></div>
         <dl><div><dt>{locale === "cs" ? "Motory" : "Engines"}</dt><dd>{assignedEngineIds.length}<small>+ {extraEngineIds.length} extra</small></dd></div><div><dt>{locale === "cs" ? "Karburátory" : "Carburetors"}</dt><dd>{assignedCarbIds.length}<small>+ {extraCarbIds.length} extra</small></dd></div></dl>
         <div className="carb-breakdown">{carbBreakdown.length ? carbBreakdown.map((item) => <span key={item.label}><strong>{item.count}×</strong> {item.label}</span>) : <span>—</span>}</div>
       </article>;
@@ -871,11 +879,15 @@ function RaceEquipmentOverview({ race, plan, carburetors, locale }: { race: Race
   </section>;
 }
 
+function capitalize(word: string) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
 function CategoryLoadoutStats({ locale, pilotCount, engineCount, extraEngineCount, carburetorCount, extraCarburetorCount }: { locale: Locale; pilotCount: number; engineCount: number; extraEngineCount: number; carburetorCount: number; extraCarburetorCount: number }) {
   return <div className="category-loadout-stats" aria-label={locale === "cs" ? "Souhrn kategorie" : "Category summary"}>
-    <div><strong>{pilotCount}</strong><span>{locale === "cs" ? "Pilotů" : "Drivers"}</span></div>
-    <div><strong>{engineCount}<small>+ {extraEngineCount} extra</small></strong><span>{locale === "cs" ? "Motorů" : "Engines"}</span></div>
-    <div><strong>{carburetorCount}<small>+ {extraCarburetorCount} extra</small></strong><span>{locale === "cs" ? "Karburátorů" : "Carburetors"}</span></div>
+    <div><strong>{pilotCount}</strong><span>{capitalize(pluralForm(pilotCount, locale, DRIVER_FORMS))}</span></div>
+    <div><strong>{engineCount}<small>+ {extraEngineCount} extra</small></strong><span>{capitalize(pluralForm(engineCount, locale, ENGINE_FORMS))}</span></div>
+    <div><strong>{carburetorCount}<small>+ {extraCarburetorCount} extra</small></strong><span>{capitalize(pluralForm(carburetorCount, locale, CARBURETOR_FORMS))}</span></div>
   </div>;
 }
 

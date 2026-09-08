@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { countryFlag } from "./countries";
+import { formatCount, type PluralForms } from "./pluralize";
+
+const FILE_FORMS: PluralForms = { cs: ["příloha", "přílohy", "příloh"], en: ["file", "files"] };
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -100,7 +103,7 @@ function TravelRecordCard({ kind, record, locale, role, onOpen, onEdit, onDelete
       <header><span>{kindIcon(kind)}</span><div><small>{countryFlag(record.countryCode)} {record.raceName} · {record.raceTrack}</small><h3>{summary.title}</h3></div><StatusPill value={record.status} locale={locale} /></header>
       <p>{summary.place}</p><strong>{summary.time}</strong>
       {kind === "flight" && <div className="flight-passenger-line"><small>{locale === "cs" ? "Kdo letí" : "Passengers"}</small><strong>{passengerNames(record as FlightRecord, locale)}</strong></div>}
-      <div className="logistics-card-meta"><span>⌁ {kind === "flight" && (record as FlightRecord).direction === "roundtrip" ? [record.reservationCode, (record as FlightRecord).returnReservationCode].filter(Boolean).join(" / ") || (locale === "cs" ? "bez kódu" : "no code") : record.reservationCode || (locale === "cs" ? "bez kódu" : "no code")}</span><span className={record.attachments.length ? "has-files" : ""}>📎 {record.attachments.length} {locale === "cs" ? "příloh" : "files"}</span>{kind === "flight" && <span>👥 {(record as FlightRecord).passengers.length}</span>}</div>
+      <div className="logistics-card-meta"><span>⌁ {kind === "flight" && (record as FlightRecord).direction === "roundtrip" ? [record.reservationCode, (record as FlightRecord).returnReservationCode].filter(Boolean).join(" / ") || (locale === "cs" ? "bez kódu" : "no code") : record.reservationCode || (locale === "cs" ? "bez kódu" : "no code")}</span><span className={record.attachments.length ? "has-files" : ""}>📎 {formatCount(record.attachments.length, locale, FILE_FORMS)}</span>{kind === "flight" && <span>👥 {(record as FlightRecord).passengers.length}</span>}</div>
     </button>
     <footer><strong>{money(record.totalCents, record.currency, locale)}</strong>{role !== "mechanic" && <div><button type="button" onClick={onEdit}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={onDelete}>{locale === "cs" ? "Smazat" : "Delete"}</button>}</div>}</footer>
   </article>;

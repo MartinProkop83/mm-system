@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatCount, pluralForm, type PluralForms } from "./pluralize";
+
+const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
+const MORE_FORMS: PluralForms = { cs: ["další", "další", "dalších"], en: ["more", "more"] };
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -73,13 +77,13 @@ function ChecklistCard({ checklist, locale, canManage, role, onEdit, onDelete }:
   return <article className="checklist-card">
     <header>
       <h3>{checklist.name}</h3>
-      <span>{checklist.items.length} {locale === "cs" ? "položek" : "items"}</span>
+      <span>{formatCount(checklist.items.length, locale, ITEM_FORMS)}</span>
     </header>
     <p>{checklist.notes || (locale === "cs" ? "Bez poznámky" : "No notes")}</p>
     <ul className="checklist-card-items">
       {preview.map((item) => <li key={item.id}><b>{item.quantity}×</b> {item.name}{item.partNumber ? ` · ${item.partNumber}` : ""}</li>)}
     </ul>
-    {remaining > 0 && <small className="checklist-card-more">{locale === "cs" ? `+ ${remaining} dalších` : `+ ${remaining} more`}</small>}
+    {remaining > 0 && <small className="checklist-card-more">{`+ ${remaining} ${pluralForm(remaining, locale, MORE_FORMS)}`}</small>}
     {canManage && <footer>
       <button className="secondary-compact" type="button" onClick={onEdit}>{locale === "cs" ? "Upravit" : "Edit"}</button>
       {role === "superadmin" && <button className="danger-compact" type="button" onClick={onDelete}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}

@@ -1,6 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatCount, type PluralForms } from "./pluralize";
+
+const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -128,7 +131,7 @@ export function RaceDeliveriesPanel({ race, locale, role, activeSection, previou
     <section className="dash-panel race-deliveries-print-page">
       <header className={`race-deliveries-heading ${activeSection === "notes" ? "screen-hidden" : ""}`}>
         <div className="delivery-print-brand"><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{locale === "cs" ? "Předávky a platby" : "Deliveries and payments"}</h2><p>{race.name} · {formatRaceDates(race.startDate, race.endDate, locale)} · {race.track}</p></div></div>
-        <div className="race-deliveries-summary"><span>{deliveries.length} {locale === "cs" ? "položek" : "items"}</span>{totals.map((item) => <strong key={item.currency}>{formatMoney(item.cents, item.currency, locale)}</strong>)}{undeliveredCount > 0 && <em>{undeliveredCount} {locale === "cs" ? "nepředáno" : "not delivered"}</em>}{unpaidCount > 0 && <em>{unpaidCount} {locale === "cs" ? "nezaplaceno" : "unpaid"}</em>}</div>
+        <div className="race-deliveries-summary"><span>{formatCount(deliveries.length, locale, ITEM_FORMS)}</span>{totals.map((item) => <strong key={item.currency}>{formatMoney(item.cents, item.currency, locale)}</strong>)}{undeliveredCount > 0 && <em>{undeliveredCount} {locale === "cs" ? "nepředáno" : "not delivered"}</em>}{unpaidCount > 0 && <em>{unpaidCount} {locale === "cs" ? "nezaplaceno" : "unpaid"}</em>}</div>
         {canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing(null)}>＋ {locale === "cs" ? "Přidat položku" : "Add item"}</button>}
       </header>
       <div className={`race-deliveries-table-wrap ${activeSection === "notes" ? "screen-hidden" : ""}`}>

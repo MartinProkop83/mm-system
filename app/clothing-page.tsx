@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
+import { pluralForm, type PluralForms } from "./pluralize";
+
+const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -124,7 +127,7 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
           <div className="clothing-selected-person">
             <span>{initials(selectedMechanic?.name ?? "MM")}</span>
             <div><small>{locale === "cs" ? "VYBRANÝ MECHANIK" : "SELECTED MECHANIC"}</small><strong>{selectedMechanic?.name}</strong></div>
-            <b>{selectedAssignments.length} / {data.items.length} {locale === "cs" ? "položek" : "items"}</b>
+            <b>{selectedAssignments.length} / {data.items.length} {pluralForm(data.items.length, locale, ITEM_FORMS)}</b>
           </div>
           <div className="clothing-assignment-grid">
             {data.items.map((item, index) => <AssignmentCard key={`${item.id}:${selectedMechanicId}`} item={item} index={index} assignment={selectedAssignments.find((assignment) => assignment.clothingItemId === item.id)} mechanicId={selectedMechanicId} canManage={canManage} locale={locale} onChanged={load} onPreview={setPhotoPreview} />)}

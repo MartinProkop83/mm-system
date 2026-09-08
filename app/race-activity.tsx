@@ -1,6 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatCount, type PluralForms } from "./pluralize";
+
+const RECORD_FORMS: PluralForms = { cs: ["záznam", "záznamy", "záznamů"], en: ["record", "records"] };
+const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
 
 type Locale = "cs" | "en";
 type RaceInfo = { id: string };
@@ -33,7 +37,7 @@ export function RaceActivityPanel({ race, locale, active }: { race: RaceInfo; lo
   return <section className="dash-panel race-activity-panel">
     <header>
       <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{locale === "cs" ? "Historie změn" : "Change history"}</h2><p>{locale === "cs" ? "Kdo a kdy co na tomto závodě změnil." : "Who changed what on this race, and when."}</p></div>
-      <span>{activity.length} {locale === "cs" ? "záznamů" : "records"}</span>
+      <span>{formatCount(activity.length, locale, RECORD_FORMS)}</span>
     </header>
     {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>
       : activity.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádná zaznamenaná aktivita." : "No recorded activity yet."}</p>
@@ -87,7 +91,9 @@ function describeActivity(entry: ActivityEntry, locale: Locale) {
     if (action === "remove_from_race") return cs ? `Odebrán pilot${driverName ? ` — ${driverName}` : ""}` : `Driver removed${driverName ? ` — ${driverName}` : ""}`;
     if (action === "confirm") return cs ? `Pilot potvrzen${driverName ? ` — ${driverName}` : ""}` : `Driver confirmed${driverName ? ` — ${driverName}` : ""}`;
     if (action === "unconfirm") return cs ? `Zrušeno potvrzení pilota${driverName ? ` — ${driverName}` : ""}` : `Driver confirmation removed${driverName ? ` — ${driverName}` : ""}`;
-    if (action === "confirm_all") return cs ? `Potvrzeno ${count ?? ""} pilotů najednou` : `${count ?? ""} drivers confirmed at once`;
+    if (action === "confirm_all") return cs
+      ? (count !== null ? `Potvrzeno ${formatCount(count, "cs", DRIVER_FORMS)} najednou` : "Potvrzeno pilotů najednou")
+      : (count !== null ? `${formatCount(count, "en", DRIVER_FORMS)} confirmed at once` : "Drivers confirmed at once");
   }
   if (entityType === "race_mechanic" || entityType === "mechanic") {
     if (action === "remove_from_race") return cs ? `Odebrán mechanik${mechanicName ? ` — ${mechanicName}` : ""}` : `Mechanic removed${mechanicName ? ` — ${mechanicName}` : ""}`;

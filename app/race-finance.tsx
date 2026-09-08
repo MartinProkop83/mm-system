@@ -3,6 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { countryFlag } from "./countries";
 import { RaceLogoBadge } from "./race-logo-badge";
+import { formatCount, type PluralForms } from "./pluralize";
+
+const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
+const SALE_FORMS: PluralForms = { cs: ["prodej", "prodeje", "prodejů"], en: ["sale", "sales"] };
+const DELIVERY_FORMS: PluralForms = { cs: ["předávka", "předávky", "předávek"], en: ["delivery", "deliveries"] };
+const RECORD_FORMS: PluralForms = { cs: ["záznam", "záznamy", "záznamů"], en: ["record", "records"] };
+const ORDER_FORMS: PluralForms = { cs: ["objednávka", "objednávky", "objednávek"], en: ["order", "orders"] };
 
 type Locale = "cs" | "en";
 type Currency = "CZK" | "EUR";
@@ -291,7 +298,7 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
 
     <div className="race-finance-summaries">
       {summaries.map((summary) => <article key={summary.currency}>
-        <header><strong>{summary.currency}</strong><span>{summary.count} {locale === "cs" ? "pilotů" : "drivers"} · {summary.saleCount} {locale === "cs" ? "prodejů" : "sales"} · {summary.deliveryCount} {locale === "cs" ? "předávek" : "deliveries"}</span></header>
+        <header><strong>{summary.currency}</strong><span>{formatCount(summary.count, locale, DRIVER_FORMS)} · {formatCount(summary.saleCount, locale, SALE_FORMS)} · {formatCount(summary.deliveryCount, locale, DELIVERY_FORMS)}</span></header>
         <div><span>{locale === "cs" ? "Před slevou" : "Before discount"}</span><b>{formatMoney(summary.base, summary.currency, locale)}</b></div>
         <div><span>{locale === "cs" ? "Slevy" : "Discounts"}</span><b>− {formatMoney(summary.discount, summary.currency, locale)}</b></div>
         <div><span>{locale === "cs" ? "Piloti po slevě" : "Drivers after discount"}</span><b>{formatMoney(summary.raceFees, summary.currency, locale)}</b></div>
@@ -327,7 +334,7 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
     {!loading && !loadError && <section className="race-finance-sales">
       <header>
         <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM SALES</span><h3>{locale === "cs" ? "Prodej dílů a servis" : "Parts and service sales"}</h3><p>{locale === "cs" ? "Kdo co koupil, kolik zaplatil a zda bylo zboží předáno." : "Who bought what, how much they paid and whether it was delivered."}</p></div>
-        <span>{raceSales.length} {locale === "cs" ? "objednávek" : "orders"}</span>
+        <span>{formatCount(raceSales.length, locale, ORDER_FORMS)}</span>
       </header>
       {raceSales.length > 0 ? <div className="race-finance-sales-table-wrap">
         <table className="race-finance-sales-table">
@@ -347,7 +354,7 @@ export function RaceFinancePanel({ race, locale, onOpenSales, onOpenVisits }: { 
     {!loading && !loadError && <section className="race-finance-sales race-finance-visits">
       <header>
         <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h3>{locale === "cs" ? "Jiné týmy" : "Other teams"}</h3><p>{locale === "cs" ? "Prodej a servis pro týmy, které si k nám přišly pro díl, servis nebo něco ze skladu." : "Sales and service for teams that stopped by our pit for a part, service, or stock item."}</p></div>
-        <span>{visits.length} {locale === "cs" ? "záznamů" : "records"}</span>
+        <span>{formatCount(visits.length, locale, RECORD_FORMS)}</span>
       </header>
       {visits.length > 0 ? <div className="race-finance-sales-table-wrap">
         <table className="race-finance-sales-table">
