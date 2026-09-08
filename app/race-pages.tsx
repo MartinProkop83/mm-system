@@ -778,7 +778,7 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     {canViewFinance && <div id="race-panel-activity" role="tabpanel" aria-labelledby="race-tab-activity" className={`race-plan-section no-print ${detailTab === "activity" ? "active" : "hidden"}`}>
     <RaceActivityPanel race={race} locale={locale} active={detailTab === "activity"} />
     </div>}
-    {logoPreview && <ClothingLightbox preview={logoPreview} onClose={() => setLogoPreview(null)} />}
+    {logoPreview && <ClothingLightbox preview={logoPreview} locale={locale} onClose={() => setLogoPreview(null)} />}
     {entryForm && <EntryForm locale={locale} raceId={race.id} category={entryForm.category} entry={entryForm.entry} drivers={catalog.drivers} assignedDriverIds={plan?.entries.map((item) => item.driverId) ?? []} onClose={() => setEntryForm(null)} onSaved={async () => { setEntryForm(null); await loadPlan(); await onRaceChanged(); }} />}
     {extraForm && <ExtraForm locale={locale} raceId={race.id} category={extraForm} engines={engines} carburetors={catalog.carburetors} onClose={() => setExtraForm(null)} onSaved={async () => { setExtraForm(null); await loadPlan(); }} />}
   </div>;
@@ -792,7 +792,7 @@ function RaceCircuitPanel({ race, locale }: { race: RaceRecord; locale: Locale }
     <div className={`race-circuit-image${race.circuitImageUrl ? " has-image" : ""}`}>
       {race.circuitImageUrl ? <button type="button" className="race-circuit-image-open no-print" onClick={() => setPreview({ imageUrl: race.circuitImageUrl, name: circuitLabel })} aria-label={locale === "cs" ? `Zvětšit mapu tratě: ${circuitLabel}` : `Enlarge circuit map: ${circuitLabel}`}><img src={race.circuitImageUrl} alt={`${circuitLabel} · circuit`} /><span aria-hidden="true">＋</span></button> : <span>⌁</span>}
     </div>
-    {preview && <ClothingLightbox preview={preview} onClose={() => setPreview(null)} />}
+    {preview && <ClothingLightbox preview={preview} locale={locale} onClose={() => setPreview(null)} />}
     <div className="race-circuit-copy">
       <span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM CIRCUIT DIRECTORY</span>
       <h2>{race.circuitName || race.track}</h2>

@@ -114,10 +114,10 @@ function ChecklistForm({ locale, checklist, onClose, onSaved }: { locale: Locale
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal checklist-modal" role="dialog" aria-modal="true" tabIndex={-1}>
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal checklist-modal" role="dialog" aria-modal="true" aria-labelledby="checklist-form-title" tabIndex={-1}>
       <div className="modal-header">
-        <div><span className="eyebrow">MM CHECKLISTS</span><h2>{checklist ? (locale === "cs" ? "Upravit checklist" : "Edit checklist") : (locale === "cs" ? "Nový checklist" : "New checklist")}</h2></div>
-        <button className="close-button" type="button" onClick={onClose}>×</button>
+        <div><span className="eyebrow">MM CHECKLISTS</span><h2 id="checklist-form-title">{checklist ? (locale === "cs" ? "Upravit checklist" : "Edit checklist") : (locale === "cs" ? "Nový checklist" : "New checklist")}</h2></div>
+        <button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button>
       </div>
       <form onSubmit={submit}>
         <div className="form-grid">

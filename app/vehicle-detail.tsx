@@ -115,8 +115,8 @@ function AddServiceForm({ vehicleId, entry, mechanics, locale, onClose, onSaved 
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" tabIndex={-1}>
-      <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{entry ? (locale === "cs" ? "Upravit servis" : "Edit service") : (locale === "cs" ? "Přidat servis" : "Add service")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="vehicle-service-form-title" tabIndex={-1}>
+      <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2 id="vehicle-service-form-title">{entry ? (locale === "cs" ? "Upravit servis" : "Edit service") : (locale === "cs" ? "Přidat servis" : "Add service")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid">
           <label><span>{locale === "cs" ? "Datum servisu" : "Service date"} *</span><input type="date" value={serviceDate} required onChange={(event) => setServiceDate(event.target.value)} /></label>

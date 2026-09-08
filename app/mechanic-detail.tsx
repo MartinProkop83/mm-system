@@ -121,7 +121,7 @@ export function MechanicDetail({ mechanicId, locale, role, onBack, onEdit }: { m
       {data.assignments.length ? <div className="table-wrap"><table className="engine-table mechanic-history-table race-logo-history-table"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Místo" : "Location"}</th><th>{locale === "cs" ? "Termín závodu" : "Race dates"}</th><th>{locale === "cs" ? "Cesta" : "Travel"}</th><th>{locale === "cs" ? "Auto" : "Car"}</th><th>{locale === "cs" ? "Stav" : "Status"}</th></tr></thead><tbody>{data.assignments.map((item) => <MechanicHistoryRows key={item.id} item={item} locale={locale} />)}</tbody></table></div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez závodu" : "No races yet"} description={locale === "cs" ? "Historie se vytvoří automaticky po přiřazení mechanika k závodu." : "History is created automatically after assigning the mechanic to a race."} />}
     </section>
     <p className="mechanic-print-footer">MM SYSTEM · MACHÁČ MOTORS · {locale === "cs" ? "Karta mechanika" : "Mechanic card"} · {new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB").format(new Date())}</p>
-    {photoPreview && <ClothingLightbox preview={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    {photoPreview && <ClothingLightbox preview={photoPreview} locale={locale} onClose={() => setPhotoPreview(null)} />}
   </div>;
 }
 

@@ -624,6 +624,7 @@ export default function Home() {
 
   return (
     <main className="app-shell">
+      <a className="skip-link" href="#main-content">{locale === "cs" ? "Přeskočit na obsah" : "Skip to content"}</a>
       <div className="sidebar-backdrop" hidden={!sidebarOpen} onClick={() => setSidebarOpen(false)} />
 
       <aside className={sidebarOpen ? "sidebar open" : "sidebar"}>
@@ -692,7 +693,7 @@ export default function Home() {
         </div>
       </aside>
 
-      <section className={view === "dashboard" || view === "calendar" || view === "races" ? "workspace wrc-scope" : "workspace"}>
+      <section id="main-content" tabIndex={-1} className={view === "dashboard" || view === "calendar" || view === "races" ? "workspace wrc-scope" : "workspace"}>
         <div className="util-bar">
           <button className="hamburger-btn" type="button" aria-label={locale === "cs" ? "Otevřít menu" : "Open menu"} onClick={() => setSidebarOpen(true)}>☰</button>
           <label className="util-search">
@@ -703,6 +704,7 @@ export default function Home() {
               onChange={(event) => setSearchQuery(event.target.value)}
               onBlur={() => window.setTimeout(() => setSearchQuery(""), 150)}
               placeholder={locale === "cs" ? "Hledat sekci…" : "Search a section…"}
+              aria-label={locale === "cs" ? "Hledat sekci nebo záznam" : "Search a section or record"}
             />
             {searchQuery.trim() && (
               <div className="util-search-results">
@@ -937,8 +939,8 @@ function QuickServiceForm({ locale, onClose, onSaved }: { locale: Locale; onClos
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" tabIndex={-1}>
-      <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{locale === "cs" ? "Zápis servisu auta" : "Log vehicle service"}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="quick-service-form-title" tabIndex={-1}>
+      <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2 id="quick-service-form-title">{locale === "cs" ? "Zápis servisu auta" : "Log vehicle service"}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
       {loading ? <LoadingState /> : !vehicles.length ? <p className="form-error">{locale === "cs" ? "Nejdřív přidej auto v katalogu." : "Add a vehicle to the catalog first."}</p> : <form onSubmit={submit}>
         <div className="form-grid">
           <label className="full-field"><span>{locale === "cs" ? "Auto" : "Vehicle"} *</span><select value={vehicleId} required onChange={(event) => setVehicleId(event.target.value)}>{vehicles.map((item) => <option key={item.id} value={item.id}>{item.name}{item.licensePlate ? ` · ${item.licensePlate}` : ""}</option>)}</select></label>

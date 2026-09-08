@@ -40,8 +40,8 @@ export function CountrySelect({ name, defaultValue = "", value, onChange, locale
       <span>{selected ? `${selected.flag} ${selected.name} · ${selected.code}` : (locale === "cs" ? "Vyber zemi…" : "Select country…")}</span><b>⌄</b>
     </button>
     {open && <div className="country-select-menu" role="listbox" aria-label={locale === "cs" ? "Země" : "Country"}>
-      <input type="text" className="country-select-search" autoFocus placeholder={locale === "cs" ? "Hledat zemi…" : "Search country…"} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
-        if (event.key === "Escape") { setOpen(false); setQuery(""); }
+      <input type="text" className="country-select-search" autoFocus aria-label={locale === "cs" ? "Hledat zemi" : "Search country"} placeholder={locale === "cs" ? "Hledat zemi…" : "Search country…"} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery(""); }
         if (event.key === "Enter") { event.preventDefault(); if (filtered.length > 0) commit(filtered[0].code); }
       }} />
       <div className="country-select-options">

@@ -153,7 +153,7 @@ export function ClothingPage({ locale, role }: { locale: Locale; role: Role }) {
     </section>}
 
     {itemForm && <ItemModal locale={locale} role={role} item={itemForm === "new" ? null : itemForm} onClose={() => setItemForm(null)} onSaved={async () => { setItemForm(null); await load(); }} />}
-    {photoPreview && <ClothingLightbox preview={photoPreview} onClose={() => setPhotoPreview(null)} />}
+    {photoPreview && <ClothingLightbox preview={photoPreview} locale={locale} onClose={() => setPhotoPreview(null)} />}
   </div>;
 }
 
@@ -246,8 +246,8 @@ function ItemModal({ locale, role, item, onClose, onSaved }: { locale: Locale; r
     finally { setSaving(false); }
   }
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form ref={dialogRef as React.RefObject<HTMLFormElement>} className="modal clothing-item-modal" role="dialog" aria-modal="true" tabIndex={-1} onSubmit={submit}>
-    <header className="modal-header"><div><span className="eyebrow">CLOTHING CATALOG</span><h2>{item ? (locale === "cs" ? "Upravit oblečení" : "Edit clothing") : (locale === "cs" ? "Nový typ oblečení" : "New clothing item")}</h2><p>{locale === "cs" ? "Velikosti odděluj čárkou. Jejich pořadí se zachová v nabídce." : "Separate sizes with commas. Their order is preserved."}</p></div><button className="modal-close" type="button" onClick={onClose}>×</button></header>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form ref={dialogRef as React.RefObject<HTMLFormElement>} className="modal clothing-item-modal" role="dialog" aria-modal="true" aria-labelledby="clothing-item-form-title" tabIndex={-1} onSubmit={submit}>
+    <header className="modal-header"><div><span className="eyebrow">CLOTHING CATALOG</span><h2 id="clothing-item-form-title">{item ? (locale === "cs" ? "Upravit oblečení" : "Edit clothing") : (locale === "cs" ? "Nový typ oblečení" : "New clothing item")}</h2><p>{locale === "cs" ? "Velikosti odděluj čárkou. Jejich pořadí se zachová v nabídce." : "Separate sizes with commas. Their order is preserved."}</p></div><button className="modal-close" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></header>
     <div className="form-grid">
       <label><span>{locale === "cs" ? "Název položky" : "Item name"}</span><input autoFocus required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder={locale === "cs" ? "Např. Týmová bunda" : "E.g. Team jacket"} /></label>
       <label><span>{locale === "cs" ? "Výchozí počet kusů" : "Default quantity"}</span><input required type="number" min="1" max="20" value={defaultQuantity} onChange={(event) => setDefaultQuantity(Number(event.target.value) || 1)} /></label>

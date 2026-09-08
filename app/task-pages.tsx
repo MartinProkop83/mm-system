@@ -191,7 +191,7 @@ function TaskForm({ locale, task, races, mechanics, currentUser, onClose, onSave
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal task-modal" role="dialog" aria-modal="true" aria-labelledby="task-form-title" tabIndex={-1}>
-      <div className="modal-header"><div><span className="eyebrow">MM WORKFLOW</span><h2 id="task-form-title">{task ? (locale === "cs" ? "Upravit úkol" : "Edit task") : (locale === "cs" ? "Nový úkol nebo připomínka" : "New task or reminder")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
+      <div className="modal-header"><div><span className="eyebrow">MM WORKFLOW</span><h2 id="task-form-title">{task ? (locale === "cs" ? "Upravit úkol" : "Edit task") : (locale === "cs" ? "Nový úkol nebo připomínka" : "New task or reminder")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid">
           <label><span>{locale === "cs" ? "Typ" : "Type"} *</span><select name="kind" defaultValue={task?.kind ?? "task"}><option value="task">{locale === "cs" ? "Úkol" : "Task"}</option><option value="reminder">{locale === "cs" ? "Připomínka" : "Reminder"}</option></select></label>

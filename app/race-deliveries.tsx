@@ -240,8 +240,8 @@ function DeliveryForm({ raceId, delivery, locale, onClose, onSaved }: { raceId: 
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal race-modal" role="dialog" aria-modal="true" tabIndex={-1}>
-      <div className="modal-header"><div><span className="eyebrow">MM RACE CONTROL</span><h2>{delivery ? (locale === "cs" ? "Upravit předávku" : "Edit delivery") : (locale === "cs" ? "Nová předávka" : "New delivery")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal race-modal" role="dialog" aria-modal="true" aria-labelledby="delivery-form-title" tabIndex={-1}>
+      <div className="modal-header"><div><span className="eyebrow">MM RACE CONTROL</span><h2 id="delivery-form-title">{delivery ? (locale === "cs" ? "Upravit předávku" : "Edit delivery") : (locale === "cs" ? "Nová předávka" : "New delivery")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid delivery-form-grid">
           <label><span>{locale === "cs" ? "Zákazník / komu" : "Customer"} *</span><input name="customerName" defaultValue={delivery?.customerName ?? ""} required autoFocus /></label>

@@ -39,12 +39,7 @@ export function useModalA11y(onClose: () => void) {
       (focusable[0] ?? container).focus();
     }
 
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        onCloseRef.current();
-        return;
-      }
+    function handleTabKeyDown(event: KeyboardEvent) {
       if (event.key !== "Tab" || !container) return;
       const focusable = focusableElements(container);
       if (focusable.length === 0) {
@@ -65,9 +60,28 @@ export function useModalA11y(onClose: () => void) {
       }
     }
 
-    document.addEventListener("keydown", handleKeyDown, true);
+    // Escape is handled on the BUBBLE phase (not capture, unlike the Tab trap above), and
+    // defers to event.defaultPrevented: a popup nested inside the modal (e.g. a country-code
+    // dropdown) may want to consume its own Escape press to close just itself. Its own
+    // keydown handler runs first (it's on the actual target, closer to the event source) and
+    // calls preventDefault() when it does — checked here instead of relying on
+    // stopPropagation(), because React's synthetic stopPropagation() does not reliably stop
+    // a *native* document-level listener like this one from still firing (verified: it does
+    // NOT cross that boundary in this app's React/event-delegation setup, so a capture-phase
+    // or naive bubble-phase listener here would close the whole modal instead of just the
+    // nested popup). event.defaultPrevented is a plain flag on the shared native event and
+    // reads correctly regardless of that boundary.
+    function handleEscapeKeyDown(event: KeyboardEvent) {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      event.stopPropagation();
+      onCloseRef.current();
+    }
+
+    document.addEventListener("keydown", handleTabKeyDown, true);
+    document.addEventListener("keydown", handleEscapeKeyDown);
     return () => {
-      document.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("keydown", handleTabKeyDown, true);
+      document.removeEventListener("keydown", handleEscapeKeyDown);
       previouslyFocused?.focus?.();
     };
     // Mount/unmount only — see onCloseRef above for why onClose is intentionally not a dep.

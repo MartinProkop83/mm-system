@@ -41,8 +41,8 @@ export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { na
       <span><i className="calendar-color-swatch-dot" style={dotStyle(selected)} />{locale === "cs" ? selected.labelCs : selected.labelEn}</span><b>⌄</b>
     </button>
     {open && <div className="country-select-menu" role="listbox" aria-label={locale === "cs" ? "Barva v kalendáři" : "Calendar color"}>
-      <input type="text" className="country-select-search" autoFocus placeholder={locale === "cs" ? "Hledat barvu…" : "Search color…"} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
-        if (event.key === "Escape") { setOpen(false); setQuery(""); }
+      <input type="text" className="country-select-search" autoFocus aria-label={locale === "cs" ? "Hledat barvu" : "Search color"} placeholder={locale === "cs" ? "Hledat barvu…" : "Search color…"} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setOpen(false); setQuery(""); }
         if (event.key === "Enter") { event.preventDefault(); if (filtered.length > 0) commit(filtered[0].id); }
       }} />
       <div className="country-select-options">

@@ -380,9 +380,9 @@ function UserFormModal({ t, editingUser, form, setForm, sessionUserId, formError
   const dialogRef = useModalA11y(onClose);
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form ref={dialogRef as React.RefObject<HTMLFormElement>} className="modal settings-user-modal" role="dialog" aria-modal="true" tabIndex={-1} onSubmit={onSubmit}>
+      <form ref={dialogRef as React.RefObject<HTMLFormElement>} className="modal settings-user-modal" role="dialog" aria-modal="true" aria-labelledby="settings-user-form-title" tabIndex={-1} onSubmit={onSubmit}>
         <header className="modal-header">
-          <div><span className="settings-kicker">MM SYSTEM · ACCESS</span><h2>{editingUser ? t.editTitle : t.addTitle}</h2></div>
+          <div><span className="settings-kicker">MM SYSTEM · ACCESS</span><h2 id="settings-user-form-title">{editingUser ? t.editTitle : t.addTitle}</h2></div>
           <button className="modal-close" type="button" onClick={onClose} aria-label={t.cancel}>×</button>
         </header>
         <div className="form-grid">
