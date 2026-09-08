@@ -1,0 +1,23 @@
+{
+  // Separate TS project for Cloudflare Worker / D1 / R2 code (db/**, worker/**, app/api/**).
+  //
+  // Why this is a SEPARATE tsconfig instead of adding "@cloudflare/workers-types" to the main
+  // one: workers-types is a pure ambient global .d.ts (no module exports to import
+  // selectively), so including it anywhere in a TS program redefines globals like `Response`
+  // and `fetch` for the WHOLE program. The main tsconfig.json also type-checks browser
+  // ("use client") code that uses the real DOM `fetch`/`Response` — merging the two global
+  // definitions into one program produced false type errors in unrelated client components
+  // (e.g. `Response.json()` narrowing from `Promise<any>` to `Promise<unknown>`).
+  //
+  // Keeping this as its own project means db/**, worker/**, and app/api/** get real
+  // Cloudflare types (D1Database, R2Bucket, the `env` bindings from cloudflare-env.d.ts) when
+  // checked via `npx tsc --noEmit -p tsconfig.server.json`, without ever touching the DOM lib
+  // used by the rest of the app under `npx tsc --noEmit -p .`.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext"],
+    "types": ["@cloudflare/workers-types"]
+  },
+  "include": ["db/**/*.ts", "worker/**/*.ts", "worker/cloudflare-env.d.ts", "app/api/**/*.ts"],
+  "exclude": ["node_modules"]
+}

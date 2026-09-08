@@ -150,7 +150,7 @@ export const mechanicClothingAssignments = sqliteTable("mechanic_clothing_assign
   clothingItemId: text("clothing_item_id").notNull(),
   size: text("size").notNull(),
   quantity: integer("quantity").notNull().default(1),
-  assignedAt: integer("assigned_at", { mode: "timestamp_ms" }).notNull().default(0),
+  assignedAt: integer("assigned_at", { mode: "timestamp_ms" }).notNull(),
   notes: text("notes").notNull().default(""),
   createdBy: text("created_by").notNull(),
   updatedBy: text("updated_by").notNull(),
