@@ -133,6 +133,63 @@ async function createRuntimeSchema() {
       )
     `),
     d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_technical_layout (
+        family TEXT PRIMARY KEY NOT NULL,
+        column_count INTEGER NOT NULL DEFAULT 3,
+        updated_by TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_technical_sections (
+        id TEXT PRIMARY KEY NOT NULL,
+        family TEXT NOT NULL,
+        label_cs TEXT NOT NULL,
+        label_en TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_technical_fields (
+        id TEXT PRIMARY KEY NOT NULL,
+        section_id TEXT NOT NULL,
+        label_cs TEXT NOT NULL,
+        label_en TEXT NOT NULL,
+        field_type TEXT NOT NULL,
+        show_on_overview INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_technical_field_options (
+        id TEXT PRIMARY KEY NOT NULL,
+        field_id TEXT NOT NULL,
+        value_cs TEXT NOT NULL,
+        value_en TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_technical_values (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        field_id TEXT NOT NULL,
+        value TEXT NOT NULL DEFAULT '',
+        updated_by TEXT NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
       CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
@@ -811,6 +868,11 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_part_catalog_family_key_idx ON engine_service_part_catalog (family, part_key) WHERE archived_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_part_catalog_family_idx ON engine_service_part_catalog (family, sort_order) WHERE archived_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_loans_engine_idx ON engine_loans (engine_id, actual_return_date)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_sections_family_idx ON engine_technical_sections (family, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_fields_section_idx ON engine_technical_fields (section_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_field_options_field_idx ON engine_technical_field_options (field_id, sort_order)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_technical_values_unique_idx ON engine_technical_values (engine_id, field_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_values_field_idx ON engine_technical_values (field_id)"),
   ]);
 
   const columns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();
@@ -854,6 +916,11 @@ async function createRuntimeSchema() {
 
   await ensureEngineCodeCategoryIndex(d1);
   await ensureArchivedScopedUniqueness(d1);
+
+  const technicalFieldColumns = await d1.prepare("PRAGMA table_info(engine_technical_fields)").all<{ name: string }>();
+  if (!technicalFieldColumns.results.some((column: { name: string }) => column.name === "legacy_key")) {
+    await d1.prepare("ALTER TABLE engine_technical_fields ADD COLUMN legacy_key TEXT").run();
+  }
 
   const raceColumns = await d1.prepare("PRAGMA table_info(races)").all<{ name: string }>();
   const existingRaceColumns = new Set(raceColumns.results.map((column: { name: string }) => column.name));

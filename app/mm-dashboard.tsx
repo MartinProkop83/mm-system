@@ -19,6 +19,7 @@ import { ChecklistsPage } from "./checklist-pages";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
 import { EngineServicePartCatalogPanel } from "./engine-service-part-catalog-panel";
+import { EngineTechnicalStructurePanel } from "./engine-technical-structure-panel";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
@@ -97,6 +98,22 @@ type EngineLocation =
   | { kind: "race"; raceName: string }
   | { kind: "loan"; recipientName: string; expectedReturnDate: string; overdue: boolean }
   | { kind: "workshop" };
+
+// The configurable per-family technical-data structure (see engine-technical-structure-panel.tsx),
+// loaded once alongside the engine list. `sections`/`fields`/`options` only ever contain non-archived
+// rows (the API already filters archived ones out of this display payload), so a section/field/option
+// missing here simply doesn't render — no archived-check needed on this side.
+type TechnicalLayoutDef = { family: string; columnCount: number };
+type TechnicalSectionDef = { id: string; family: string; labelCs: string; labelEn: string; sortOrder: number };
+type TechnicalFieldDef = { id: string; sectionId: string; labelCs: string; labelEn: string; fieldType: "select" | "text"; showOnOverview: boolean; sortOrder: number; legacyKey: string | null };
+type TechnicalOptionDef = { id: string; fieldId: string; valueCs: string; valueEn: string; sortOrder: number };
+type TechnicalStructureData = {
+  layout: TechnicalLayoutDef[];
+  sections: TechnicalSectionDef[];
+  fields: TechnicalFieldDef[];
+  options: TechnicalOptionDef[];
+};
+const EMPTY_TECHNICAL_STRUCTURE: TechnicalStructureData = { layout: [], sections: [], fields: [], options: [] };
 
 const engineLabelPalette = [
   "#FFFFFF", "#F2F4F7", "#D0D5DD", "#98A2B3", "#667085", "#475467", "#101828", "#000000",
@@ -466,6 +483,8 @@ export default function Home() {
   const noticeTimer = useRef<number | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
   const [engineRows, setEngineRows] = useState<EngineRecord[]>([]);
+  const [technicalStructure, setTechnicalStructure] = useState<TechnicalStructureData>(EMPTY_TECHNICAL_STRUCTURE);
+  const [technicalValues, setTechnicalValues] = useState<Record<string, Record<string, string>>>({});
   const [vehicleRows, setVehicleRows] = useState<VehicleRecord[]>([]);
   const [enginesLoading, setEnginesLoading] = useState(true);
   const [enginesError, setEnginesError] = useState(false);
@@ -567,11 +586,13 @@ export default function Home() {
         ]);
         if (!sessionResponse.ok || !enginesResponse.ok || !catalogResponse.ok) throw new Error("load failed");
         const sessionData = (await sessionResponse.json()) as { user: AppSession };
-        const enginesData = (await enginesResponse.json()) as { engines: EngineRecord[] };
+        const enginesData = (await enginesResponse.json()) as { engines: EngineRecord[]; technicalStructure?: TechnicalStructureData; technicalValues?: Record<string, Record<string, string>> };
         const catalogData = (await catalogResponse.json()) as { vehicles: VehicleRecord[] };
         if (!active) return;
         setSession(sessionData.user);
         setEngineRows(enginesData.engines);
+        setTechnicalStructure(enginesData.technicalStructure ?? EMPTY_TECHNICAL_STRUCTURE);
+        setTechnicalValues(enginesData.technicalValues ?? {});
         setVehicleRows(catalogData.vehicles);
         setEnginesError(false);
       } catch {
@@ -626,6 +647,11 @@ export default function Home() {
       const next = exists ? current.map((item) => item.id === engine.id ? { ...item, ...engine } : item) : [...current, engine];
       return next.sort((a, b) => a.code.localeCompare(b.code));
     });
+  }
+
+  function mergeTechnicalValues(engineId: string, values: Record<string, string>) {
+    if (!Object.keys(values).length) return;
+    setTechnicalValues((current) => ({ ...current, [engineId]: { ...current[engineId], ...values } }));
   }
 
   function handleEngineSaved(engine: EngineRecord) {
@@ -849,6 +875,9 @@ export default function Home() {
           <EngineDetail
             locale={locale}
             engine={detailEngine}
+            technicalStructure={technicalStructure}
+            technicalValues={technicalValues[detailEngine.id] ?? {}}
+            onTechnicalValuesSaved={mergeTechnicalValues}
             canManage={session ? session.role !== "mechanic" : false}
             role={session?.role ?? "mechanic"}
             currentUserName={session?.fullName ?? ""}
@@ -1307,6 +1336,7 @@ function Engines({
   const [filter, setFilter] = useState<EngineFilter>("ALL");
   const [page, setPage] = useState(1);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [technicalStructureOpen, setTechnicalStructureOpen] = useState(false);
   const [loansOverviewOpen, setLoansOverviewOpen] = useState(false);
   const pageSize = 15;
   const activeEngines = useMemo(() => engines.filter((engine) => !isSold(engine.soldAt)), [engines]);
@@ -1347,8 +1377,9 @@ function Engines({
         </div>
       )}
       <section className="dash-panel data-panel latest-carb-panel">
-        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{canManage && <button className="secondary-compact" type="button" onClick={() => setLoansOverviewOpen(true)}>{locale === "cs" ? "Zápůjčky" : "Loans"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setCatalogOpen(true)}>{locale === "cs" ? "Sada dílů" : "Parts catalog"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
+        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{canManage && <button className="secondary-compact" type="button" onClick={() => setLoansOverviewOpen(true)}>{locale === "cs" ? "Zápůjčky" : "Loans"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setCatalogOpen(true)}>{locale === "cs" ? "Sada dílů" : "Parts catalog"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setTechnicalStructureOpen(true)}>{locale === "cs" ? "Struktura technických údajů" : "Technical structure"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
         {catalogOpen && <EngineServicePartCatalogPanel locale={locale} onClose={() => setCatalogOpen(false)} />}
+        {technicalStructureOpen && <EngineTechnicalStructurePanel locale={locale} onClose={() => setTechnicalStructureOpen(false)} />}
         {loansOverviewOpen && <EngineLoansOverviewPanel locale={locale} onClose={() => setLoansOverviewOpen(false)} onOpenEngine={(engineId) => { setLoansOverviewOpen(false); const target = engines.find((item) => item.id === engineId); if (target) onOpen(target); }} />}
         {loading && <LoadingState label={t.loading} />}
         {!loading && error && <EmptyState variant="error" icon="!" title={t.databaseError} />}
@@ -1467,9 +1498,12 @@ function EngineLoansOverviewPanel({ locale, onClose, onOpenEngine }: { locale: L
   );
 }
 
-function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack, onEdit, onSaved, showNotice }: {
+function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, onBack, onEdit, onSaved, showNotice }: {
   locale: Locale;
   engine: EngineRecord;
+  technicalStructure: TechnicalStructureData;
+  technicalValues: Record<string, string>;
+  onTechnicalValuesSaved: (engineId: string, values: Record<string, string>) => void;
   canManage: boolean;
   role: AppSession["role"];
   currentUserName: string;
@@ -1516,6 +1550,29 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
   }, [usesHours, tab]);
   const variant = engine.family === "KZ" ? engine.kzGeneration : engine.family === "MINI" ? engine.currentConfiguration : null;
   const noValue = t.notEntered;
+
+  // A family renders dynamically the moment it has at least one non-archived section — a family that
+  // never confirmed the migration draft (or explicitly started empty) has none, so it keeps the fixed
+  // legacy layout below untouched, per the Krok 3 request ("musí fungovat jako dnes").
+  const technicalSections = technicalStructure.sections.filter((section) => section.family === engine.family).sort((a, b) => a.sortOrder - b.sortOrder);
+  const hasTechnicalStructure = technicalSections.length > 0;
+  const technicalColumnCount = technicalStructure.layout.find((item) => item.family === engine.family)?.columnCount ?? 3;
+  function fieldsForTechnicalSection(sectionId: string) {
+    return technicalStructure.fields.filter((field) => field.sectionId === sectionId).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+  function technicalFieldLabel(field: TechnicalFieldDef) {
+    return locale === "cs" ? field.labelCs : field.labelEn;
+  }
+  function technicalFieldDisplayValue(field: TechnicalFieldDef) {
+    const raw = technicalValues[field.id] ?? "";
+    if (!raw) return "";
+    if (field.fieldType !== "select") return raw;
+    // Select values are stored as the chosen option's id (not its label) so a later locale switch, or a
+    // rename of the option, redisplays correctly. If the option was since archived, the id no longer
+    // resolves — the field is then treated as empty rather than showing a stale/blank id.
+    const option = technicalStructure.options.find((item) => item.id === raw && item.fieldId === field.id);
+    return option ? (locale === "cs" ? option.valueCs : option.valueEn) : "";
+  }
 
   useEffect(() => {
     let active = true;
@@ -1731,14 +1788,28 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
 
           <section className="dash-panel detail-card technical-preview">
             <div className="panel-heading"><span>{t.technicalTab}</span>{canManage && <button type="button" onClick={() => setTechnicalOpen(true)}>{t.edit}</button>}</div>
-            <div className="detail-field-grid compact">
-              <DetailField label={locale === "cs" ? "Píst" : "Piston"} value={engine.pistonSpec || noValue} />
-              <DetailField label={locale === "cs" ? "Válec" : "Cylinder"} value={engine.cylinderCode || noValue} />
-              <DetailField label={locale === "cs" ? "Úprava válce" : "Cylinder upgrade"} value={engine.cylinderUpgrade || noValue} />
-              <DetailField label="Carter" value={engine.carter || noValue} />
-              <DetailField label="Squish" value={engine.squish || noValue} />
-              <DetailField label="Reeds" value={engine.reeds || noValue} />
-            </div>
+            {hasTechnicalStructure ? (() => {
+              const overviewFields = technicalStructure.fields
+                .filter((field) => field.showOnOverview && technicalSections.some((section) => section.id === field.sectionId))
+                .map((field) => ({ field, value: technicalFieldDisplayValue(field) }))
+                .filter((entry) => entry.value);
+              return overviewFields.length > 0 ? (
+                <div className="detail-field-grid compact">
+                  {overviewFields.map(({ field, value }) => <DetailField key={field.id} label={technicalFieldLabel(field)} value={value} />)}
+                </div>
+              ) : (
+                <p className="form-hint">{locale === "cs" ? "Zatím žádné vyplněné technické údaje." : "No technical data filled in yet."}</p>
+              );
+            })() : (
+              <div className="detail-field-grid compact">
+                <DetailField label={locale === "cs" ? "Píst" : "Piston"} value={engine.pistonSpec || noValue} />
+                <DetailField label={locale === "cs" ? "Válec" : "Cylinder"} value={engine.cylinderCode || noValue} />
+                <DetailField label={locale === "cs" ? "Úprava válce" : "Cylinder upgrade"} value={engine.cylinderUpgrade || noValue} />
+                <DetailField label="Carter" value={engine.carter || noValue} />
+                <DetailField label="Squish" value={engine.squish || noValue} />
+                <DetailField label="Reeds" value={engine.reeds || noValue} />
+              </div>
+            )}
           </section>
         </div>
       )}
@@ -1746,11 +1817,32 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
       {tab === "technical" && (
         <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">ENGINE CARD</span><h2>{t.technicalTab}</h2><p>{locale === "cs" ? "Digitální přepis údajů z fyzické karty motoru." : "Digital copy of the physical engine card."}</p></div>{canManage && <button className="primary-button" type="button" onClick={() => setTechnicalOpen(true)}>✎ {t.editTechnical}</button>}</div>
-          <div className="technical-section-grid">
-            <div className="technical-group"><h3>{locale === "cs" ? "Motor a píst" : "Engine and piston"}</h3><DetailField label={t.upgrade} value={engine.upgradeCode || noValue} /><DetailField label={locale === "cs" ? "Píst / rozměr / úhel" : "Piston / size / angle"} value={engine.pistonSpec || noValue} /><DetailField label={t.ignition} value={ignitionLabel(engine.ignition, locale)} /></div>
-            <div className="technical-group"><h3>{locale === "cs" ? "Válec" : "Cylinder"}</h3><DetailField label={locale === "cs" ? "Označení válce" : "Cylinder code"} value={engine.cylinderCode || noValue} /><DetailField label={locale === "cs" ? "Úprava válce" : "Cylinder upgrade"} value={engine.cylinderUpgrade || noValue} /><DetailField label="Liner" value={engine.liner || noValue} /><DetailField label="Degree" value={engine.degree || noValue} /><DetailField label="Timing" value={engine.timing || noValue} /></div>
-            <div className="technical-group"><h3>{locale === "cs" ? "Spodní část a sání" : "Bottom end and intake"}</h3><DetailField label="Carter" value={engine.carter || noValue} /><DetailField label="Reeds" value={engine.reeds || noValue} /><DetailField label="Spacer" value={engine.spacer || noValue} /><DetailField label="Squish" value={engine.squish || noValue} /></div>
-          </div>
+          {hasTechnicalStructure ? (() => {
+            const renderedSections = technicalSections
+              .map((section) => ({
+                section,
+                entries: fieldsForTechnicalSection(section.id).map((field) => ({ field, value: technicalFieldDisplayValue(field) })).filter((entry) => entry.value),
+              }))
+              .filter((group) => group.entries.length > 0);
+            return renderedSections.length > 0 ? (
+              <div className="technical-section-grid" style={{ gridTemplateColumns: `repeat(${technicalColumnCount}, minmax(0, 1fr))` }}>
+                {renderedSections.map(({ section, entries }) => (
+                  <div className="technical-group" key={section.id}>
+                    <h3>{locale === "cs" ? section.labelCs : section.labelEn}</h3>
+                    {entries.map(({ field, value }) => <DetailField key={field.id} label={technicalFieldLabel(field)} value={value} />)}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <EmptyState size="inline" title={locale === "cs" ? "Zatím žádné technické údaje" : "No technical data yet"} description={locale === "cs" ? "Vyplň kartu tlačítkem výše." : "Fill in the card using the button above."} />
+            );
+          })() : (
+            <div className="technical-section-grid">
+              <div className="technical-group"><h3>{locale === "cs" ? "Motor a píst" : "Engine and piston"}</h3><DetailField label={t.upgrade} value={engine.upgradeCode || noValue} /><DetailField label={locale === "cs" ? "Píst / rozměr / úhel" : "Piston / size / angle"} value={engine.pistonSpec || noValue} /><DetailField label={t.ignition} value={ignitionLabel(engine.ignition, locale)} /></div>
+              <div className="technical-group"><h3>{locale === "cs" ? "Válec" : "Cylinder"}</h3><DetailField label={locale === "cs" ? "Označení válce" : "Cylinder code"} value={engine.cylinderCode || noValue} /><DetailField label={locale === "cs" ? "Úprava válce" : "Cylinder upgrade"} value={engine.cylinderUpgrade || noValue} /><DetailField label="Liner" value={engine.liner || noValue} /><DetailField label="Degree" value={engine.degree || noValue} /><DetailField label="Timing" value={engine.timing || noValue} /></div>
+              <div className="technical-group"><h3>{locale === "cs" ? "Spodní část a sání" : "Bottom end and intake"}</h3><DetailField label="Carter" value={engine.carter || noValue} /><DetailField label="Reeds" value={engine.reeds || noValue} /><DetailField label="Spacer" value={engine.spacer || noValue} /><DetailField label="Squish" value={engine.squish || noValue} /></div>
+            </div>
+          )}
         </section>
       )}
 
@@ -1817,7 +1909,21 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
         </section>
       )}
 
-      {technicalOpen && <TechnicalForm locale={locale} engine={engine} onClose={() => setTechnicalOpen(false)} onSaved={(updated) => { onSaved(updated); setTechnicalOpen(false); showNotice(t.technicalSaved); }} />}
+      {technicalOpen && (
+        <TechnicalForm
+          locale={locale}
+          engine={engine}
+          technicalStructure={technicalStructure}
+          technicalValues={technicalValues}
+          onClose={() => setTechnicalOpen(false)}
+          onSaved={(updated, savedValues) => {
+            onSaved(updated);
+            if (savedValues) onTechnicalValuesSaved(engine.id, savedValues);
+            setTechnicalOpen(false);
+            showNotice(t.technicalSaved);
+          }}
+        />
+      )}
       {baselineOpen && <BaselineForm locale={locale} engine={engine} onClose={() => setBaselineOpen(false)} onSaved={(counters) => { applyCounters(counters); setBaselineOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Vstupní stav byl uložen a počítadla přepočítána." : "Starting state saved and counters recalculated."); }} />}
       {usageOpen && <UsageForm locale={locale} engine={engine} onClose={() => setUsageOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setUsageOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Motohodiny byly zapsány." : "Running hours logged."); }} />}
       {editingUsage && <UsageForm locale={locale} engine={engine} record={editingUsage} onClose={() => setEditingUsage(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingUsage(null); void reloadRecords(); showNotice(locale === "cs" ? "Záznam motohodin byl opraven." : "Running-hours record corrected."); }} />}
@@ -2207,12 +2313,29 @@ function UsageHistoryTable({ records, locale, canCorrect, onEdit, onDelete }: { 
   );
 }
 
-function TechnicalForm({ locale, engine, onClose, onSaved }: { locale: Locale; engine: EngineRecord; onClose: () => void; onSaved: (engine: EngineRecord) => void }) {
+function TechnicalForm({ locale, engine, technicalStructure, technicalValues, onClose, onSaved }: {
+  locale: Locale;
+  engine: EngineRecord;
+  technicalStructure: TechnicalStructureData;
+  technicalValues: Record<string, string>;
+  onClose: () => void;
+  onSaved: (engine: EngineRecord, technicalValues?: Record<string, string>) => void;
+}) {
   const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fields = [
+
+  const technicalSections = technicalStructure.sections.filter((section) => section.family === engine.family).sort((a, b) => a.sortOrder - b.sortOrder);
+  const hasTechnicalStructure = technicalSections.length > 0;
+  function fieldsForSection(sectionId: string) {
+    return technicalStructure.fields.filter((field) => field.sectionId === sectionId).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+  function optionsForField(fieldId: string) {
+    return technicalStructure.options.filter((option) => option.fieldId === fieldId).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  const legacyFields = [
     { name: "pistonSpec", label: locale === "cs" ? "Píst / rozměr / úhel" : "Piston / size / angle", value: engine.pistonSpec, placeholder: "83 4°" },
     { name: "cylinderCode", label: locale === "cs" ? "Označení válce" : "Cylinder code", value: engine.cylinderCode, placeholder: "N5" },
     { name: "cylinderUpgrade", label: locale === "cs" ? "Úprava válce" : "Cylinder upgrade", value: engine.cylinderUpgrade, placeholder: "N5 TUNED" },
@@ -2230,12 +2353,17 @@ function TechnicalForm({ locale, engine, onClose, onSaved }: { locale: Locale; e
     setSaving(true);
     setError(null);
     const formData = new FormData(event.currentTarget);
-    const technical = Object.fromEntries(fields.map((field) => [field.name, formData.get(field.name)]));
+    const body: Record<string, unknown> = { id: engine.id };
+    if (hasTechnicalStructure) {
+      body.technicalValues = Object.fromEntries(technicalSections.flatMap((section) => fieldsForSection(section.id)).map((field) => [field.id, formData.get(field.id) ?? ""]));
+    } else {
+      for (const field of legacyFields) body[field.name] = formData.get(field.name);
+    }
     try {
-      const response = await fetch("/api/engines", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: engine.id, ...technical }) });
-      const data = (await response.json()) as { technical?: Partial<EngineRecord>; updatedAt?: number; error?: string };
+      const response = await fetch("/api/engines", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      const data = (await response.json()) as { technical?: Partial<EngineRecord>; technicalValues?: Record<string, string>; updatedAt?: number; error?: string };
       if (!response.ok || !data.technical) throw new Error(data.error || "Save failed");
-      onSaved({ ...engine, ...data.technical, updatedAt: data.updatedAt ?? Date.now() });
+      onSaved({ ...engine, ...data.technical, updatedAt: data.updatedAt ?? Date.now() }, data.technicalValues);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "Save failed");
       setSaving(false);
@@ -2247,7 +2375,30 @@ function TechnicalForm({ locale, engine, onClose, onSaved }: { locale: Locale; e
       <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="technical-form-title" tabIndex={-1}>
         <div className="modal-header"><div><span className="eyebrow">ENGINE CARD · {engine.code}</span><h2 id="technical-form-title">{t.editTechnical}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button></div>
         <form onSubmit={submit}>
-          <div className="form-grid">{fields.map((field) => <label key={field.name}><span>{field.label}</span><input name={field.name} defaultValue={field.value} placeholder={field.placeholder} maxLength={100} /></label>)}</div>
+          {hasTechnicalStructure ? (
+            technicalSections.map((section) => (
+              <fieldset key={section.id} style={{ border: "none", padding: 0, margin: "0 0 var(--wrc-space-16) 0" }}>
+                <legend style={{ marginBottom: "var(--wrc-space-8)" }}><strong>{locale === "cs" ? section.labelCs : section.labelEn}</strong></legend>
+                <div className="form-grid">
+                  {fieldsForSection(section.id).map((field) => (
+                    <label key={field.id}>
+                      <span>{locale === "cs" ? field.labelCs : field.labelEn}</span>
+                      {field.fieldType === "select" ? (
+                        <select name={field.id} defaultValue={technicalValues[field.id] ?? ""}>
+                          <option value="">{locale === "cs" ? "— Nevybráno —" : "— Not selected —"}</option>
+                          {optionsForField(field.id).map((option) => <option key={option.id} value={option.id}>{locale === "cs" ? option.valueCs : option.valueEn}</option>)}
+                        </select>
+                      ) : (
+                        <input name={field.id} defaultValue={technicalValues[field.id] ?? ""} maxLength={100} />
+                      )}
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ))
+          ) : (
+            <div className="form-grid">{legacyFields.map((field) => <label key={field.name}><span>{field.label}</span><input name={field.name} defaultValue={field.value} placeholder={field.placeholder} maxLength={100} /></label>)}</div>
+          )}
           {error && <p className="form-error">{error}</p>}
           <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{t.cancel}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? t.saving : t.saveTechnical}</button></div>
         </form>

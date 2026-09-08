@@ -38,21 +38,16 @@ type EnginePayload = {
   reeds?: string;
   spacer?: string;
   squish?: string;
+  // Dynamic-structure edit, keyed by engine_technical_fields.id — sent by the generated "Upravit
+  // technické údaje" form once a family has a confirmed structure. Any of the 10 keys above that also
+  // have a legacyKey are folded in automatically server-side, so a caller only needs to send this.
+  technicalValues?: Record<string, string>;
 };
 
 const technicalFields = [
   "pistonSpec", "cylinderCode", "cylinderUpgrade", "liner", "degree",
   "timing", "carter", "reeds", "spacer", "squish",
 ] as const;
-
-function cleanTechnicalPayload(payload: EnginePayload) {
-  const result: Record<(typeof technicalFields)[number], string> = {
-    pistonSpec: "", cylinderCode: "", cylinderUpgrade: "", liner: "", degree: "",
-    timing: "", carter: "", reeds: "", spacer: "", squish: "",
-  };
-  for (const field of technicalFields) result[field] = payload[field]?.trim().slice(0, 100) ?? "";
-  return result;
-}
 
 function normalizeEnginePayload(payload: EnginePayload) {
   const code = payload.code?.trim().replace(/\s+/g, " ").toUpperCase() ?? "";
@@ -134,7 +129,7 @@ export async function GET() {
   await ensureRuntimeSchema();
   const d1 = getD1();
   await applyMiniAutoService(d1);
-  const [result, assignmentResult, loanResult] = await Promise.all([
+  const [result, assignmentResult, loanResult, layoutResult, sectionResult, fieldResult, optionResult, valueResult] = await Promise.all([
     d1.prepare(`
       SELECT id, code, category, family, ignition, kz_generation AS kzGeneration,
              current_configuration AS currentConfiguration, upgrade_code AS upgradeCode, label_color AS labelColor,
@@ -164,6 +159,15 @@ export async function GET() {
       SELECT engine_id AS engineId, recipient_name_snapshot AS recipientName, expected_return_date AS expectedReturnDate
       FROM engine_loans WHERE actual_return_date IS NULL
     `).all<EngineLoanRow>(),
+    // The configurable technical-data structure (see engine-technical-structure-panel.tsx). Loaded here,
+    // alongside the engines list, so the engine card can render dynamically for a migrated family and
+    // fall back to the fixed legacy layout for a family that hasn't gone through the migration draft yet.
+    // Archived rows are excluded here on purpose — this is the display path, not the admin CRUD panel.
+    d1.prepare("SELECT family, column_count AS columnCount FROM engine_technical_layout").all<{ family: string; columnCount: number }>(),
+    d1.prepare("SELECT id, family, label_cs AS labelCs, label_en AS labelEn, sort_order AS sortOrder FROM engine_technical_sections WHERE archived_at IS NULL ORDER BY family, sort_order").all<{ id: string; family: string; labelCs: string; labelEn: string; sortOrder: number }>(),
+    d1.prepare("SELECT id, section_id AS sectionId, label_cs AS labelCs, label_en AS labelEn, field_type AS fieldType, show_on_overview AS showOnOverview, sort_order AS sortOrder, legacy_key AS legacyKey FROM engine_technical_fields WHERE archived_at IS NULL ORDER BY section_id, sort_order").all<Record<string, unknown>>(),
+    d1.prepare("SELECT id, field_id AS fieldId, value_cs AS valueCs, value_en AS valueEn, sort_order AS sortOrder FROM engine_technical_field_options WHERE archived_at IS NULL ORDER BY field_id, sort_order").all<{ id: string; fieldId: string; valueCs: string; valueEn: string; sortOrder: number }>(),
+    d1.prepare("SELECT engine_id AS engineId, field_id AS fieldId, value FROM engine_technical_values").all<{ engineId: string; fieldId: string; value: string }>(),
   ]);
 
   const assignments = assignmentResult.results;
@@ -185,7 +189,21 @@ export async function GET() {
     };
   });
 
-  return Response.json({ engines });
+  const technicalValues: Record<string, Record<string, string>> = {};
+  for (const row of valueResult.results) {
+    (technicalValues[row.engineId] ??= {})[row.fieldId] = row.value;
+  }
+
+  return Response.json({
+    engines,
+    technicalStructure: {
+      layout: layoutResult.results,
+      sections: sectionResult.results,
+      fields: fieldResult.results.map((field) => ({ ...field, showOnOverview: Boolean(field.showOnOverview) })),
+      options: optionResult.results,
+    },
+    technicalValues,
+  });
 }
 
 export async function POST(request: Request) {
@@ -427,13 +445,47 @@ export async function PATCH(request: Request) {
   await ensureRuntimeSchema();
   const d1 = getD1();
   const existing = await d1.prepare(`
-    SELECT id, code FROM engines WHERE id = ? AND archived_at IS NULL
+    SELECT id, code, family, piston_spec AS pistonSpec, cylinder_code AS cylinderCode,
+           cylinder_upgrade AS cylinderUpgrade, liner, degree, timing, carter, reeds, spacer, squish
+    FROM engines WHERE id = ? AND archived_at IS NULL
   `).bind(payload.id).first<Record<string, unknown>>();
   if (!existing) return Response.json({ error: "Engine not found" }, { status: 404 });
 
-  const technical = cleanTechnicalPayload(payload);
+  // Partial merge, not a blanket overwrite: the dynamic form (Krok 3) only sends `technicalValues` for a
+  // migrated family, with none of the 10 legacy keys present — a naive "default missing keys to ''" here
+  // would silently blank out the `engines` columns on every dynamic-form save. Only a key explicitly
+  // present in the payload overwrites its column; everything else keeps its current value.
+  const technical = {} as Record<(typeof technicalFields)[number], string>;
+  for (const field of technicalFields) {
+    technical[field] = payload[field] !== undefined ? (payload[field]?.trim().slice(0, 100) ?? "") : String(existing[field] ?? "");
+  }
+
+  // Fields belonging to this engine's family with a confirmed (non-archived) structure — used both to
+  // fold `technicalValues` entries that have a legacyKey back into the flat columns above, and to
+  // validate/write every entry (legacy-keyed or fully custom, e.g. a hand-added field) into
+  // engine_technical_values. An id not in this set (wrong family, archived, or made up) is ignored rather
+  // than erroring, since the dynamic form only ever sends ids it just rendered from this same list.
+  const familyFields = await d1.prepare(`
+    SELECT f.id AS fieldId, f.legacy_key AS legacyKey
+    FROM engine_technical_fields f
+    JOIN engine_technical_sections s ON s.id = f.section_id
+    WHERE s.family = ? AND s.archived_at IS NULL AND f.archived_at IS NULL
+  `).bind(existing.family).all<{ fieldId: string; legacyKey: keyof typeof technical | null }>();
+
+  const valueWrites: Array<{ fieldId: string; value: string }> = [];
+  if (payload.technicalValues && typeof payload.technicalValues === "object") {
+    const validFields = new Map(familyFields.results.map((field) => [field.fieldId, field.legacyKey]));
+    for (const [fieldId, rawValue] of Object.entries(payload.technicalValues)) {
+      if (!validFields.has(fieldId)) continue;
+      const value = String(rawValue ?? "").trim().slice(0, 100);
+      valueWrites.push({ fieldId, value });
+      const legacyKey = validFields.get(fieldId);
+      if (legacyKey) technical[legacyKey] = value;
+    }
+  }
+
   const now = Date.now();
-  await d1.batch([
+  const statements = [
     d1.prepare(`
       UPDATE engines
       SET piston_spec = ?, cylinder_code = ?, cylinder_upgrade = ?, liner = ?, degree = ?,
@@ -448,9 +500,34 @@ export async function PATCH(request: Request) {
       INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, 'update_technical', 'engine', ?, ?, ?)
     `).bind(crypto.randomUUID(), user.email, payload.id, JSON.stringify(technical), now),
-  ]);
+  ];
 
-  return Response.json({ id: payload.id, technical, updatedAt: now });
+  // Mirror the save into the configurable technical-structure values table (see
+  // engine-technical-structure-panel.tsx): every legacy-keyed field gets the (possibly unchanged) merged
+  // value above, so a plain legacy-shaped PATCH still stays in sync even without `technicalValues`.
+  for (const field of familyFields.results) {
+    if (!field.legacyKey) continue;
+    statements.push(d1.prepare(`
+      INSERT INTO engine_technical_values (id, engine_id, field_id, value, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(engine_id, field_id) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+    `).bind(crypto.randomUUID(), payload.id, field.fieldId, technical[field.legacyKey] ?? "", user.email, now));
+  }
+  // Explicit `technicalValues` entries for fields with no legacyKey (hand-added, family-specific fields
+  // like MINI's own section) — the loop above never touches these since they have no flat column to mirror.
+  for (const write of valueWrites) {
+    if (familyFields.results.find((field) => field.fieldId === write.fieldId)?.legacyKey) continue;
+    statements.push(d1.prepare(`
+      INSERT INTO engine_technical_values (id, engine_id, field_id, value, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+      ON CONFLICT(engine_id, field_id) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+    `).bind(crypto.randomUUID(), payload.id, write.fieldId, write.value, user.email, now));
+  }
+
+  await d1.batch(statements);
+
+  const writtenValues = Object.fromEntries(valueWrites.map((write) => [write.fieldId, write.value]));
+  return Response.json({ id: payload.id, technical, technicalValues: writtenValues, updatedAt: now });
 }
 
 export async function DELETE(request: Request) {

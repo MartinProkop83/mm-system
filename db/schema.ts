@@ -108,6 +108,65 @@ export const engineServicePartCatalog = sqliteTable("engine_service_part_catalog
   uniqueIndex("engine_service_part_catalog_family_key_idx").on(table.family, table.partKey),
 ]);
 
+/** Per-family column count for the technical-data grid — one settings row per family, created on demand. */
+export const engineTechnicalLayout = sqliteTable("engine_technical_layout", {
+  family: text("family").primaryKey(),
+  columnCount: integer("column_count").notNull().default(3),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const engineTechnicalSections = sqliteTable("engine_technical_sections", {
+  id: text("id").primaryKey(),
+  family: text("family").notNull(),
+  labelCs: text("label_cs").notNull(),
+  labelEn: text("label_en").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const engineTechnicalFields = sqliteTable("engine_technical_fields", {
+  id: text("id").primaryKey(),
+  sectionId: text("section_id").notNull(),
+  labelCs: text("label_cs").notNull(),
+  labelEn: text("label_en").notNull(),
+  fieldType: text("field_type", { enum: ["select", "text"] }).notNull(),
+  showOnOverview: integer("show_on_overview", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  // Set only for fields created by the legacy-column migration draft — links the field back to its
+  // originating `engines` column (e.g. "pistonSpec") so PATCH /api/engines can find where to write.
+  // Null for any field created by hand.
+  legacyKey: text("legacy_key"),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const engineTechnicalFieldOptions = sqliteTable("engine_technical_field_options", {
+  id: text("id").primaryKey(),
+  fieldId: text("field_id").notNull(),
+  valueCs: text("value_cs").notNull(),
+  valueEn: text("value_en").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
+
+export const engineTechnicalValues = sqliteTable("engine_technical_values", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull(),
+  fieldId: text("field_id").notNull(),
+  value: text("value").notNull().default(""),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("engine_technical_values_unique_idx").on(table.engineId, table.fieldId),
+]);
+
 export const engineAutoServiceLog = sqliteTable("engine_auto_service_log", {
   id: text("id").primaryKey(),
   engineId: text("engine_id").notNull(),
