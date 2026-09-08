@@ -118,6 +118,22 @@ export const engineAutoServiceLog = sqliteTable("engine_auto_service_log", {
   uniqueIndex("engine_auto_service_log_unique_idx").on(table.engineId, table.raceId),
 ]);
 
+/** Polymorphic recipient, same shape as sale_items.item_type/resource_id and race_extras.resource_type/resource_id. */
+export const engineLoans = sqliteTable("engine_loans", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull(),
+  recipientType: text("recipient_type", { enum: ["customer", "team", "driver"] }).notNull(),
+  recipientId: text("recipient_id").notNull(),
+  recipientNameSnapshot: text("recipient_name_snapshot").notNull(),
+  startDate: text("start_date").notNull(),
+  expectedReturnDate: text("expected_return_date").notNull(),
+  actualReturnDate: text("actual_return_date"),
+  notes: text("notes").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const teams = sqliteTable("teams", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

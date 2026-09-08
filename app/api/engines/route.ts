@@ -99,6 +99,27 @@ type EngineAssignmentRow = {
   engine3Id: string | null;
 };
 
+type EngineLoanRow = {
+  engineId: string;
+  recipientName: string;
+  expectedReturnDate: string;
+};
+
+export type EngineLocation =
+  | { kind: "race"; raceName: string }
+  | { kind: "loan"; recipientName: string; expectedReturnDate: string; overdue: boolean }
+  | { kind: "workshop" };
+
+// If a race assignment and an active loan both exist for the same engine (should be prevented by the
+// collision checks in race-planning/engine-loans, but old/inconsistent data could still have both), the
+// race takes priority — the engine is physically needed at the track right now, which is more urgent
+// and more likely to be the operationally correct state than a stale loan row.
+function deriveEngineLocation(raceName: string | undefined, loan: EngineLoanRow | undefined, today: string): EngineLocation {
+  if (raceName) return { kind: "race", raceName };
+  if (loan) return { kind: "loan", recipientName: loan.recipientName, expectedReturnDate: loan.expectedReturnDate, overdue: loan.expectedReturnDate < today };
+  return { kind: "workshop" };
+}
+
 function localIsoDate(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -113,7 +134,7 @@ export async function GET() {
   await ensureRuntimeSchema();
   const d1 = getD1();
   await applyMiniAutoService(d1);
-  const [result, assignmentResult] = await Promise.all([
+  const [result, assignmentResult, loanResult] = await Promise.all([
     d1.prepare(`
       SELECT id, code, category, family, ignition, kz_generation AS kzGeneration,
              current_configuration AS currentConfiguration, upgrade_code AS upgradeCode, label_color AS labelColor,
@@ -139,9 +160,14 @@ export async function GET() {
       FROM race_entries e JOIN races r ON r.id = e.race_id
       WHERE r.status != 'archived'
     `).all<EngineAssignmentRow>(),
+    d1.prepare(`
+      SELECT engine_id AS engineId, recipient_name_snapshot AS recipientName, expected_return_date AS expectedReturnDate
+      FROM engine_loans WHERE actual_return_date IS NULL
+    `).all<EngineLoanRow>(),
   ]);
 
   const assignments = assignmentResult.results;
+  const loansByEngine = new Map(loanResult.results.map((loan) => [loan.engineId, loan]));
   const today = localIsoDate(new Date());
   const engines = result.results.map((engine) => {
     const engineId = String(engine.id);
@@ -155,6 +181,7 @@ export async function GET() {
       assignedDriver: latest?.driverName ?? "",
       assignedRace: latest?.raceName ?? "",
       assignmentStatus: current ? "assigned" : latest ? "history" : "none",
+      location: deriveEngineLocation(current?.raceName, loansByEngine.get(engineId), today),
     };
   });
 

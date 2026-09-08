@@ -88,9 +88,15 @@ type EngineRecord = {
   assignedDriver?: string;
   assignedRace?: string;
   assignmentStatus?: "assigned" | "history" | "none";
+  location?: EngineLocation;
   createdAt: number;
   updatedAt: number;
 };
+
+type EngineLocation =
+  | { kind: "race"; raceName: string }
+  | { kind: "loan"; recipientName: string; expectedReturnDate: string; overdue: boolean }
+  | { kind: "workshop" };
 
 const engineLabelPalette = [
   "#FFFFFF", "#F2F4F7", "#D0D5DD", "#98A2B3", "#667085", "#475467", "#101828", "#000000",
@@ -161,6 +167,24 @@ type EngineAssignment = {
   carburetorCode: string;
   position: number;
 };
+
+type EngineLoanRecord = {
+  id: string;
+  engineId: string;
+  engineCode?: string;
+  recipientType: "customer" | "team" | "driver";
+  recipientId: string;
+  recipientName: string;
+  startDate: string;
+  expectedReturnDate: string;
+  actualReturnDate: string | null;
+  notes: string;
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
+type LoanRecipientOption = { value: string; label: string; type: "customer" | "team" | "driver"; id: string };
 
 type DashboardRace = {
   id: string;
@@ -1283,6 +1307,7 @@ function Engines({
   const [filter, setFilter] = useState<EngineFilter>("ALL");
   const [page, setPage] = useState(1);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [loansOverviewOpen, setLoansOverviewOpen] = useState(false);
   const pageSize = 15;
   const activeEngines = useMemo(() => engines.filter((engine) => !isSold(engine.soldAt)), [engines]);
   const counts = useMemo(() => ({
@@ -1322,8 +1347,9 @@ function Engines({
         </div>
       )}
       <section className="dash-panel data-panel latest-carb-panel">
-        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setCatalogOpen(true)}>{locale === "cs" ? "Sada dílů" : "Parts catalog"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
+        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{canManage && <button className="secondary-compact" type="button" onClick={() => setLoansOverviewOpen(true)}>{locale === "cs" ? "Zápůjčky" : "Loans"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setCatalogOpen(true)}>{locale === "cs" ? "Sada dílů" : "Parts catalog"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
         {catalogOpen && <EngineServicePartCatalogPanel locale={locale} onClose={() => setCatalogOpen(false)} />}
+        {loansOverviewOpen && <EngineLoansOverviewPanel locale={locale} onClose={() => setLoansOverviewOpen(false)} onOpenEngine={(engineId) => { setLoansOverviewOpen(false); const target = engines.find((item) => item.id === engineId); if (target) onOpen(target); }} />}
         {loading && <LoadingState label={t.loading} />}
         {!loading && error && <EmptyState variant="error" icon="!" title={t.databaseError} />}
         {!loading && !error && activeEngines.length === 0 && (
@@ -1352,7 +1378,11 @@ function Engines({
                     <td><span className={`carb-category-badge tone-${familyTone.toLowerCase()}`}>{engine.family}</span>{variant && <small className="cell-note">{variant}</small>}</td>
                     <td>{ignitionLabel(engine.ignition, locale)}</td>
                     <td>{usesHours ? formatHours(engine.totalMinutes) : t.byRaces}</td>
-                    <td>{engine.assignedDriver ? <span className="carb-assignment-cell"><strong>{engine.assignedDriver}</strong><small>{engine.assignedRace || "—"}</small>{engine.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span> : "—"}</td>
+                    <td>{engine.location?.kind === "loan"
+                      ? <span className={`carb-assignment-cell loan${engine.location.overdue ? " overdue" : ""}`}><strong>{engine.location.recipientName}</strong><small>{locale === "cs" ? "do " : "until "}{formatDisplayDate(engine.location.expectedReturnDate, locale)}</small><em>{engine.location.overdue ? (locale === "cs" ? "Prošlá zápůjčka" : "Loan overdue") : (locale === "cs" ? "Zápůjčka" : "On loan")}</em></span>
+                      : engine.assignedDriver
+                      ? <span className="carb-assignment-cell"><strong>{engine.assignedDriver}</strong><small>{engine.assignedRace || "—"}</small>{engine.assignmentStatus === "assigned" && <em>{locale === "cs" ? "Přiřazeno" : "Assigned"}</em>}</span>
+                      : "—"}</td>
                     <td><span className={isSold(engine.soldAt) ? "status-pill neutral" : ready ? "status-pill success" : "status-pill warning-pill"}>{isSold(engine.soldAt) ? (locale === "cs" ? "Prodáno" : "Sold") : ready ? t.ready : t.due}</span></td>
                     {canManage && <td className="no-print action-column" onClick={(event) => event.stopPropagation()}><button className="table-action" type="button" onClick={() => onEdit(engine)}>{t.edit}{role === "superadmin" ? " ···" : ""}</button></td>}
                   </tr>
@@ -1367,6 +1397,72 @@ function Engines({
           <button type="button" disabled={currentPage >= totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>{locale === "cs" ? "Další" : "Next"} ›</button>
         </div>}
       </section>
+    </div>
+  );
+}
+
+function EngineLoansOverviewPanel({ locale, onClose, onOpenEngine }: { locale: Locale; onClose: () => void; onOpenEngine: (engineId: string) => void }) {
+  const dialogRef = useModalA11y(onClose);
+  const [loans, setLoans] = useState<EngineLoanRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [extendingLoan, setExtendingLoan] = useState<EngineLoanRecord | null>(null);
+  const [returningLoan, setReturningLoan] = useState<EngineLoanRecord | null>(null);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const response = await fetch("/api/engine-loans", { cache: "no-store" });
+      const data = (await response.json()) as { loans?: EngineLoanRecord[] };
+      if (!response.ok || !data.loans) throw new Error("load failed");
+      setLoans(data.loans);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => { void load(); }, []);
+
+  const today = todayInputValue();
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal service-modal" role="dialog" aria-modal="true" aria-labelledby="loans-overview-title" tabIndex={-1}>
+        <div className="modal-header">
+          <div><span className="eyebrow">SERVICE CARD</span><h2 id="loans-overview-title">{locale === "cs" ? "Aktivní zápůjčky" : "Active loans"}</h2><p>{locale === "cs" ? "Motory, které jsou právě zapůjčené. Prošlé zápůjčky jsou nahoře a zvýrazněné." : "Engines currently on loan. Overdue loans sort to the top and are highlighted."}</p></div>
+          <button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button>
+        </div>
+
+        {loading && <LoadingState size="inline" label={locale === "cs" ? "Načítám…" : "Loading…"} />}
+        {!loading && error && <EmptyState variant="error" size="inline" icon="!" title={locale === "cs" ? "Zápůjčky se nepodařilo načíst." : "Could not load loans."} />}
+        {!loading && !error && loans.length === 0 && (
+          <EmptyState size="inline" title={locale === "cs" ? "Žádná aktivní zápůjčka" : "No active loans"} description={locale === "cs" ? "Všechny motory jsou buď v dílně, nebo na závodě." : "Every engine is either in the workshop or at a race."} />
+        )}
+        {!loading && !error && loans.length > 0 && (
+          <div className="table-wrap">
+            <table className="records-table zebra">
+              <thead><tr><th>{locale === "cs" ? "Motor" : "Engine"}</th><th>{locale === "cs" ? "Příjemce" : "Recipient"}</th><th>{locale === "cs" ? "Od" : "From"}</th><th>{locale === "cs" ? "Očekávaný návrat" : "Expected return"}</th><th>{locale === "cs" ? "Akce" : "Actions"}</th></tr></thead>
+              <tbody>{loans.map((loan) => {
+                const overdue = loan.expectedReturnDate < today;
+                return (
+                  <tr key={loan.id}>
+                    <td><button type="button" className="table-action" onClick={() => onOpenEngine(loan.engineId)}>{loan.engineCode ?? loan.engineId}</button></td>
+                    <td>{loan.recipientName}</td>
+                    <td>{formatDisplayDate(loan.startDate, locale)}</td>
+                    <td><span className={overdue ? "status-pill danger" : ""}>{formatDisplayDate(loan.expectedReturnDate, locale)}{overdue && (locale === "cs" ? " · prošlá" : " · overdue")}</span></td>
+                    <td><div className="record-actions"><button type="button" onClick={() => setExtendingLoan(loan)}>{locale === "cs" ? "Prodloužit" : "Extend"}</button><button type="button" onClick={() => setReturningLoan(loan)}>{locale === "cs" ? "Vrátit" : "Return"}</button></div></td>
+                  </tr>
+                );
+              })}</tbody>
+            </table>
+          </div>
+        )}
+      </section>
+      {extendingLoan && <EngineLoanExtendForm locale={locale} loan={extendingLoan} onClose={() => setExtendingLoan(null)} onSaved={() => { setExtendingLoan(null); void load(); }} />}
+      {returningLoan && <EngineLoanReturnForm locale={locale} loan={returningLoan} onClose={() => setReturningLoan(null)} onSaved={() => { setReturningLoan(null); void load(); }} />}
     </div>
   );
 }
@@ -1396,6 +1492,11 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
   const [auditEntries, setAuditEntries] = useState<EngineAuditEntry[]>([]);
   const [serviceParts, setServiceParts] = useState<ServicePart[]>([]);
   const [mechanics, setMechanics] = useState<Array<{ id: string; name: string }>>([]);
+  const [loans, setLoans] = useState<EngineLoanRecord[]>([]);
+  const [recipientOptions, setRecipientOptions] = useState<LoanRecipientOption[]>([]);
+  const [loanFormOpen, setLoanFormOpen] = useState(false);
+  const [extendingLoan, setExtendingLoan] = useState<EngineLoanRecord | null>(null);
+  const [returningLoan, setReturningLoan] = useState<EngineLoanRecord | null>(null);
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [recordsError, setRecordsError] = useState(false);
   const usesHours = !NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
@@ -1451,6 +1552,37 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
       .catch(() => {});
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([
+      fetch("/api/customers", { cache: "no-store" }).then((response) => response.json()) as Promise<{ customers?: Array<{ id: string; name: string }> }>,
+      fetch("/api/catalog", { cache: "no-store" }).then((response) => response.json()) as Promise<{ teams?: Array<{ id: string; name: string }>; drivers?: Array<{ id: string; name: string }> }>,
+    ]).then(([customersData, catalogData]) => {
+      if (!active) return;
+      const options: LoanRecipientOption[] = [
+        ...(customersData.customers ?? []).map((item) => ({ value: `customer:${item.id}`, label: item.name, type: "customer" as const, id: item.id })),
+        ...(catalogData.teams ?? []).map((item) => ({ value: `team:${item.id}`, label: item.name, type: "team" as const, id: item.id })),
+        ...(catalogData.drivers ?? []).map((item) => ({ value: `driver:${item.id}`, label: item.name, type: "driver" as const, id: item.id })),
+      ];
+      setRecipientOptions(options);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  async function reloadLoans() {
+    try {
+      const response = await fetch(`/api/engine-loans?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
+      const data = (await response.json()) as { loans?: EngineLoanRecord[] };
+      if (response.ok && data.loans) setLoans(data.loans);
+    } catch {
+      // keep the previously loaded loans on a transient fetch failure
+    }
+  }
+
+  useEffect(() => { void reloadLoans(); }, [engine.id]);
+
+  const activeLoan = loans.find((loan) => !loan.actualReturnDate) ?? null;
 
   function applyCounters(counters: Partial<EngineRecord>) {
     onSaved({ ...engine, ...counters, updatedAt: Date.now() });
@@ -1508,6 +1640,7 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
       .filter((assignment) => assignment.raceStatus !== "completed" && assignment.endDate >= today)
       .sort((left, right) => left.startDate.localeCompare(right.startDate))[0] ?? null;
   }, [assignments]);
+  const locationKind = engine.location?.kind ?? "workshop";
 
   return (
     <div className={`engine-detail family-${familyTone}`} style={engine.labelColor ? { "--engine-accent": engine.labelColor } as React.CSSProperties : undefined}>
@@ -1556,16 +1689,38 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
             {usesHours && <button type="button" onClick={() => setUsageOpen(true)}><span>◷</span><span>{t.logHours}</span><b>›</b></button>}
           </section>
 
-          <section className={`dash-panel detail-card engine-current-assignment ${currentAssignment ? "assigned" : ""}`}>
-            <div className="panel-heading"><span>{locale === "cs" ? "Aktuální přiřazení" : "Current assignment"}</span>{currentAssignment && <b className="status-pill success">{locale === "cs" ? "Přiřazeno" : "Assigned"}</b>}</div>
-            {currentAssignment ? (
+          <section className={`dash-panel detail-card engine-current-assignment ${locationKind}`}>
+            <div className="panel-heading">
+              <span>{locale === "cs" ? "Poloha motoru" : "Engine location"}</span>
+              {locationKind === "race" && <b className="status-pill success">{locale === "cs" ? "Na závodě" : "At the race"}</b>}
+              {locationKind === "loan" && <b className={`status-pill ${engine.location?.kind === "loan" && engine.location.overdue ? "danger" : "info-pill"}`}>{engine.location?.kind === "loan" && engine.location.overdue ? (locale === "cs" ? "Prošlá zápůjčka" : "Loan overdue") : (locale === "cs" ? "Zápůjčka" : "On loan")}</b>}
+              {locationKind === "workshop" && <b className="status-pill neutral">{locale === "cs" ? "V dílně" : "In the workshop"}</b>}
+              {canManage && locationKind === "workshop" && <button className="secondary-compact" type="button" onClick={() => setLoanFormOpen(true)}>{locale === "cs" ? "Zapůjčit motor" : "Lend engine"}</button>}
+              {canManage && locationKind === "loan" && activeLoan && (
+                <div className="tab-actions">
+                  <button className="secondary-compact" type="button" onClick={() => setExtendingLoan(activeLoan)}>{locale === "cs" ? "Prodloužit" : "Extend"}</button>
+                  <button className="secondary-compact" type="button" onClick={() => setReturningLoan(activeLoan)}>{locale === "cs" ? "Označit vrácení" : "Mark returned"}</button>
+                </div>
+              )}
+            </div>
+            {locationKind === "race" && currentAssignment && (
               <div className="engine-assignment-summary">
                 <div className="assignment-driver"><strong>{currentAssignment.driverName}</strong><small>{[currentAssignment.teamName, currentAssignment.category].filter(Boolean).join(" · ")}</small></div>
                 <div className="engine-assignment-race"><RaceLogoBadge logoUrl={currentAssignment.logoUrl} name={currentAssignment.raceName} fallback={countryFlag(currentAssignment.countryCode)} size="default" /><span><strong>{currentAssignment.raceName}</strong><small>{countryFlag(currentAssignment.countryCode)} {currentAssignment.track} · {dashboardDateRange(currentAssignment.startDate, currentAssignment.endDate, locale)}</small></span></div>
                 <div className="engine-assignment-equipment"><span><small>{locale === "cs" ? "Pozice" : "Position"}</small><strong>{locale === "cs" ? "Motor" : "Engine"} {currentAssignment.position}</strong></span><span><small>{locale === "cs" ? "Spárovaný karburátor" : "Paired carburetor"}</small><strong>{currentAssignment.carburetorCode || "—"}</strong></span></div>
               </div>
-            ) : (
-              <EmptyState size="inline" title={locale === "cs" ? "Motor teď není přiřazený" : "Engine is not currently assigned"} description={locale === "cs" ? "Po přiřazení v plánu závodu se zde automaticky ukáže jezdec, závod a karburátor." : "Once assigned in a race plan, the driver, race and carburetor will appear here automatically."} />
+            )}
+            {locationKind === "loan" && engine.location?.kind === "loan" && (
+              <div className="engine-assignment-summary">
+                <div className="assignment-driver"><strong>{engine.location.recipientName}</strong><small>{locale === "cs" ? "Zápůjčka motoru" : "Engine on loan"}</small></div>
+                <div className="engine-assignment-equipment">
+                  <span><small>{locale === "cs" ? "Návrat do" : "Return by"}</small><strong>{formatDisplayDate(engine.location.expectedReturnDate, locale)}</strong></span>
+                </div>
+                {engine.location.overdue && <p className="form-hint">{locale === "cs" ? "Očekávané datum vrácení uplynulo, motor se ještě nevrátil." : "The expected return date has passed and the engine hasn't been returned yet."}</p>}
+              </div>
+            )}
+            {locationKind === "workshop" && (
+              <EmptyState size="inline" title={locale === "cs" ? "Motor je v dílně" : "Engine is in the workshop"} description={locale === "cs" ? "Po přiřazení v plánu závodu nebo zapůjčení se zde automaticky ukáže, kde motor je." : "Once assigned in a race plan or lent out, the engine's location will appear here automatically."} />
             )}
           </section>
 
@@ -1631,6 +1786,20 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
         <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">RACE HISTORY</span><h2>{t.historyTab}</h2><p>{locale === "cs" ? "Závody, piloti a spárované karburátory zůstávají trvale v kartě motoru." : "Races, drivers and paired carburetors remain permanently in the engine card."}</p></div></div>
           {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table zebra"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez závodu" : "No races yet"} description={locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."} />}
+          <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">LOANS</span><h3>{locale === "cs" ? "Zápůjčky" : "Loans"}</h3></div></div>
+          {loans.length > 0 ? (
+            <div className="history-list">{loans.map((loan) => {
+              const overdue = !loan.actualReturnDate && loan.expectedReturnDate < todayInputValue();
+              return <div key={loan.id}><i />
+                <span>
+                  <strong>{loan.recipientName}{!loan.actualReturnDate && <span className={`status-pill ${overdue ? "danger" : "info-pill"} audit-system-badge`}>{overdue ? (locale === "cs" ? "Prošlá" : "Overdue") : (locale === "cs" ? "Aktivní" : "Active")}</span>}</strong>
+                  <small>{formatDisplayDate(loan.startDate, locale)} – {formatDisplayDate(loan.actualReturnDate ?? loan.expectedReturnDate, locale)}{loan.actualReturnDate ? "" : locale === "cs" ? " (očekáváno)" : " (expected)"}</small>
+                </span>
+              </div>;
+            })}</div>
+          ) : (
+            <EmptyState size="inline" title={locale === "cs" ? "Zatím žádná zápůjčka" : "No loans yet"} description={locale === "cs" ? "Zápůjčky se zde objeví po zapůjčení motoru." : "Loans will appear here once the engine is lent out."} />
+          )}
           <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">AUDIT</span><h3>{locale === "cs" ? "Změny karty" : "Card changes"}</h3></div></div>
           <div className="history-list">{auditEntries.map((entry) => <div key={entry.id}><i />
             <span>
@@ -1654,6 +1823,9 @@ function EngineDetail({ locale, engine, canManage, role, currentUserName, onBack
       {editingUsage && <UsageForm locale={locale} engine={engine} record={editingUsage} onClose={() => setEditingUsage(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingUsage(null); void reloadRecords(); showNotice(locale === "cs" ? "Záznam motohodin byl opraven." : "Running-hours record corrected."); }} />}
       {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} serviceParts={serviceParts} mechanics={mechanics} currentUserName={role === "mechanic" ? currentUserName : ""} onClose={() => setServiceOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); }} />}
       {editingService && <ServiceEntryForm locale={locale} engine={engine} record={editingService} serviceParts={serviceParts} mechanics={mechanics} currentUserName="" onClose={() => setEditingService(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingService(null); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl opraven." : "Service record corrected."); }} />}
+      {loanFormOpen && <EngineLoanCreateForm locale={locale} engine={engine} recipientOptions={recipientOptions} onClose={() => setLoanFormOpen(false)} onSaved={(location) => { onSaved({ ...engine, location }); setLoanFormOpen(false); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla vytvořena." : "Loan created."); }} />}
+      {extendingLoan && <EngineLoanExtendForm locale={locale} loan={extendingLoan} onClose={() => setExtendingLoan(null)} onSaved={(location) => { onSaved({ ...engine, location }); setExtendingLoan(null); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla prodloužena." : "Loan extended."); }} />}
+      {returningLoan && <EngineLoanReturnForm locale={locale} loan={returningLoan} onClose={() => setReturningLoan(null)} onSaved={() => { onSaved({ ...engine, location: { kind: "workshop" } }); setReturningLoan(null); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla označena jako vrácená." : "Loan marked as returned."); }} />}
     </div>
   );
 }
@@ -1847,6 +2019,170 @@ function ServiceEntryForm({ locale, engine, record = null, serviceParts, mechani
           {autoReady && <p className="form-hint">{locale === "cs" ? "Po uložení se stav motoru automaticky přepne na Připraveno." : "Saving will automatically switch the engine status to Ready."}</p>}
           {error && <p className="form-error">{friendlyRecordError(error, locale)}</p>}
           <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{t.cancel}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? t.saving : editing ? (locale === "cs" ? "Uložit opravu" : "Save correction") : locale === "cs" ? "Uložit servis" : "Save service"}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function LoanRecipientSelect({ recipientOptions, locale, defaultValue }: { recipientOptions: LoanRecipientOption[]; locale: Locale; defaultValue?: string }) {
+  const customers = recipientOptions.filter((option) => option.type === "customer");
+  const teams = recipientOptions.filter((option) => option.type === "team");
+  const drivers = recipientOptions.filter((option) => option.type === "driver");
+  return (
+    <select name="recipient" defaultValue={defaultValue ?? ""} required>
+      <option value="" disabled>{locale === "cs" ? "Vyber příjemce" : "Select recipient"}</option>
+      {customers.length > 0 && <optgroup label={locale === "cs" ? "Zákazníci" : "Customers"}>{customers.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>}
+      {teams.length > 0 && <optgroup label={locale === "cs" ? "Týmy" : "Teams"}>{teams.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>}
+      {drivers.length > 0 && <optgroup label={locale === "cs" ? "Piloti" : "Drivers"}>{drivers.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</optgroup>}
+    </select>
+  );
+}
+
+function EngineLoanCreateForm({ locale, engine, recipientOptions, onClose, onSaved }: {
+  locale: Locale;
+  engine: EngineRecord;
+  recipientOptions: LoanRecipientOption[];
+  onClose: () => void;
+  onSaved: (location: EngineLocation) => void;
+}) {
+  const dialogRef = useModalA11y(onClose);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    const formData = new FormData(event.currentTarget);
+    const recipientValue = String(formData.get("recipient") ?? "");
+    const [recipientType, recipientId] = recipientValue.split(":");
+    const recipientLabel = recipientOptions.find((option) => option.value === recipientValue)?.label ?? "";
+    const startDate = String(formData.get("startDate") ?? "");
+    const expectedReturnDate = String(formData.get("expectedReturnDate") ?? "");
+    const notes = String(formData.get("notes") ?? "");
+    try {
+      const response = await fetch("/api/engine-loans", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ engineId: engine.id, recipientType, recipientId, startDate, expectedReturnDate, notes }),
+      });
+      const data = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !data.id) throw new Error(data.error || "Save failed");
+      onSaved({ kind: "loan", recipientName: recipientLabel, expectedReturnDate, overdue: expectedReturnDate < todayInputValue() });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Save failed");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal service-modal" role="dialog" aria-modal="true" aria-labelledby="loan-form-title" tabIndex={-1}>
+        <div className="modal-header"><div><span className="eyebrow">SERVICE CARD · {engine.code}</span><h2 id="loan-form-title">{locale === "cs" ? "Zapůjčit motor" : "Lend engine"}</h2><p>{locale === "cs" ? "Motor nepůjde přiřadit na závod, dokud se zápůjčka neoznačí jako vrácená." : "The engine can't be assigned to a race until the loan is marked as returned."}</p></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
+        <form onSubmit={submit}>
+          <div className="form-grid">
+            <label><span>{locale === "cs" ? "Příjemce" : "Recipient"} *</span><LoanRecipientSelect recipientOptions={recipientOptions} locale={locale} /></label>
+            <label><span>{locale === "cs" ? "Od" : "From"} *</span><input name="startDate" type="date" defaultValue={todayInputValue()} required /></label>
+            <label><span>{locale === "cs" ? "Očekávaný návrat do" : "Expected return by"} *</span><input name="expectedReturnDate" type="date" defaultValue={todayInputValue()} required /></label>
+          </div>
+          <label className="standalone-textarea"><span>{locale === "cs" ? "Poznámka" : "Notes"}</span><textarea name="notes" rows={3} placeholder={locale === "cs" ? "Například důvod zápůjčky…" : "For example the reason for the loan…"} /></label>
+          {error && <p className="form-error">{localizeLoanError(error, locale)}</p>}
+          <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Zapůjčit" : "Lend")}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function EngineLoanExtendForm({ locale, loan, onClose, onSaved }: {
+  locale: Locale;
+  loan: EngineLoanRecord;
+  onClose: () => void;
+  onSaved: (location: EngineLocation) => void;
+}) {
+  const dialogRef = useModalA11y(onClose);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    const formData = new FormData(event.currentTarget);
+    const expectedReturnDate = String(formData.get("expectedReturnDate") ?? "");
+    try {
+      const response = await fetch("/api/engine-loans", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: loan.id, expectedReturnDate }),
+      });
+      const data = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !data.id) throw new Error(data.error || "Save failed");
+      onSaved({ kind: "loan", recipientName: loan.recipientName, expectedReturnDate, overdue: expectedReturnDate < todayInputValue() });
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Save failed");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="loan-extend-title" tabIndex={-1}>
+        <div className="modal-header"><div><span className="eyebrow">SERVICE CARD</span><h2 id="loan-extend-title">{locale === "cs" ? "Prodloužit zápůjčku" : "Extend loan"}</h2><p>{locale === "cs" ? `Příjemce: ${loan.recipientName}` : `Recipient: ${loan.recipientName}`}</p></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
+        <form onSubmit={submit}>
+          <div className="form-grid">
+            <label><span>{locale === "cs" ? "Nový očekávaný návrat do" : "New expected return by"} *</span><input name="expectedReturnDate" type="date" defaultValue={loan.expectedReturnDate} required /></label>
+          </div>
+          {error && <p className="form-error">{localizeLoanError(error, locale)}</p>}
+          <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Prodloužit" : "Extend")}</button></div>
+        </form>
+      </section>
+    </div>
+  );
+}
+
+function EngineLoanReturnForm({ locale, loan, onClose, onSaved }: {
+  locale: Locale;
+  loan: EngineLoanRecord;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const dialogRef = useModalA11y(onClose);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    setError(null);
+    const formData = new FormData(event.currentTarget);
+    const actualReturnDate = String(formData.get("actualReturnDate") ?? "");
+    try {
+      const response = await fetch("/api/engine-loans", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: loan.id, actualReturnDate }),
+      });
+      const data = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !data.id) throw new Error(data.error || "Save failed");
+      onSaved();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : "Save failed");
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="loan-return-title" tabIndex={-1}>
+        <div className="modal-header"><div><span className="eyebrow">SERVICE CARD</span><h2 id="loan-return-title">{locale === "cs" ? "Označit vrácení" : "Mark returned"}</h2><p>{locale === "cs" ? `Příjemce: ${loan.recipientName}` : `Recipient: ${loan.recipientName}`}</p></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
+        <form onSubmit={submit}>
+          <div className="form-grid">
+            <label><span>{locale === "cs" ? "Datum vrácení" : "Return date"} *</span><input name="actualReturnDate" type="date" defaultValue={todayInputValue()} required /></label>
+          </div>
+          {error && <p className="form-error">{localizeLoanError(error, locale)}</p>}
+          <div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{locale === "cs" ? "Zrušit" : "Cancel"}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? (locale === "cs" ? "Ukládám…" : "Saving…") : (locale === "cs" ? "Motor se vrátil" : "Engine returned")}</button></div>
         </form>
       </section>
     </div>
@@ -2317,6 +2653,24 @@ function friendlyRecordError(error: string, locale: Locale) {
     "Total time cannot be lower than component counters": "Celkový čas motoru nemůže být nižší než čas pístu nebo ojnice.",
     "Record not found": "Záznam už nebyl nalezen. Obnov stránku a zkus to znovu.",
     "Delete failed": "Záznam se nepodařilo smazat.",
+  };
+  return errors[error] ?? error;
+}
+
+function localizeLoanError(error: string, locale: Locale) {
+  if (locale === "en") return error;
+  const alreadyAssigned = error.match(/^Engine is already assigned to (.+)$/);
+  if (alreadyAssigned) return `Motor je přiřazený na závod „${alreadyAssigned[1]}“ — nejde půjčit, dokud se ze závodu nesundá.`;
+  const onLoan = error.match(/^Engine is currently on loan to (.+) until (.+)$/);
+  if (onLoan) return `Motor je zapůjčený — ${onLoan[1]} do ${onLoan[2]}.`;
+  const errors: Record<string, string> = {
+    "Engine and valid start/return dates are required": "Vyber motor a platné datum od–do.",
+    "Recipient not found": "Vybraný příjemce nebyl nalezen.",
+    "Engine not found": "Motor už nebyl nalezen. Obnov stránku a zkus to znovu.",
+    "Loan not found": "Zápůjčka už nebyla nalezena. Obnov stránku a zkus to znovu.",
+    "Valid new return date is required": "Vyber platné nové datum vrácení.",
+    "Valid return date is required": "Vyber platné datum vrácení.",
+    "Forbidden": "Na tuhle akci nemáš oprávnění.",
   };
   return errors[error] ?? error;
 }

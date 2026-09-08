@@ -117,6 +117,22 @@ async function createRuntimeSchema() {
       )
     `),
     d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_loans (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        recipient_type TEXT NOT NULL,
+        recipient_id TEXT NOT NULL,
+        recipient_name_snapshot TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        expected_return_date TEXT NOT NULL,
+        actual_return_date TEXT,
+        notes TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
       CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY NOT NULL,
         name TEXT NOT NULL,
@@ -794,6 +810,7 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_auto_service_log_unique_idx ON engine_auto_service_log (engine_id, race_id)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_part_catalog_family_key_idx ON engine_service_part_catalog (family, part_key) WHERE archived_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_part_catalog_family_idx ON engine_service_part_catalog (family, sort_order) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_loans_engine_idx ON engine_loans (engine_id, actual_return_date)"),
   ]);
 
   const columns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();

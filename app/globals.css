@@ -1052,7 +1052,9 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .notes-card { grid-column: span 4; }
 .technical-preview { grid-column: span 8; }
 .engine-current-assignment { grid-column: span 12; min-height: 132px; border-top: 3px solid var(--wrc-line); }
-.engine-current-assignment.assigned { border-top-color: var(--wrc-green); }
+.engine-current-assignment.race { border-top-color: var(--wrc-green); }
+.engine-current-assignment.loan { border-top-color: var(--wrc-info-ink); }
+.engine-current-assignment.loan:has(.status-pill.danger) { border-top-color: var(--wrc-danger-ink); }
 .engine-assignment-summary { display: grid; grid-template-columns: 1fr 1.35fr 1fr; align-items: center; gap: var(--wrc-space-24); }
 .engine-assignment-summary .assignment-driver { margin: 0; }
 .engine-assignment-summary .assignment-driver strong { font-size: var(--wrc-text-lg); }
@@ -2262,6 +2264,8 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .carb-assignment-cell strong { font-size: var(--wrc-text-xs); }
 .carb-assignment-cell small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-micro); }
 .carb-assignment-cell em { position: absolute; top: 0; right: 0; padding: var(--wrc-space-4) var(--wrc-space-6); color: var(--wrc-green); border-radius: var(--wrc-radius-sm); background: var(--wrc-green-dim); font-size: var(--wrc-text-micro); font-style: normal; font-weight: 800; }
+.carb-assignment-cell.loan em { color: var(--wrc-info-ink); background: var(--wrc-blue-dim); }
+.carb-assignment-cell.loan.overdue em { color: var(--wrc-danger-ink); background: var(--wrc-red-dim); }
 .mechanic-race-cell { position: relative; display: grid; gap: var(--wrc-space-4); padding-right: 90px; }
 .mechanic-race-cell strong { font-size: var(--wrc-text-xs); }
 .mechanic-race-cell small { color: var(--wrc-ink-soft); font-size: var(--wrc-text-micro); }

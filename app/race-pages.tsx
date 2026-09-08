@@ -1269,6 +1269,10 @@ async function showApiError(response: Response, locale: Locale) {
 function localizeError(error: string, locale: Locale) {
   if (locale === "en") return error;
   if (error.includes("already assigned to")) return error.replace("Driver", "Pilot").replace("Engine", "Motor").replace("Carburetor", "Karburátor").replace("Mechanic", "Mechanik").replace("Vehicle", "Auto").replace("is already assigned to", "už je přiřazen k závodu");
+  if (error.includes("is currently on loan to")) {
+    const match = error.match(/^Engine is currently on loan to (.+) until (.+)$/);
+    if (match) return `Motor je zapůjčený — ${match[1]} do ${match[2]}.`;
+  }
   const translations: Record<string, string> = {
     "Race, track and country are required": "Vyber závod a zemi a vyplň trať.",
     "Race preset not found": "Vybraný závod už není v databázi. Vyber jej znovu.",

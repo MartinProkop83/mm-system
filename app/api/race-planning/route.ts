@@ -193,6 +193,8 @@ async function saveEntry(payload: PlanningPayload, race: RaceRow, user: AppUser,
     if (!engineMatchesCategory(engine.family, category)) return Response.json({ error: `${engine.code} is not compatible with ${category}` }, { status: 409 });
     const conflict = await findEquipmentConflict("engine", engine.id, race, existingId);
     if (conflict) return Response.json({ error: conflict }, { status: 409 });
+    const loanConflict = await findLoanConflict(engine.id, race);
+    if (loanConflict) return Response.json({ error: loanConflict }, { status: 409 });
     engines.set(engine.id, engine);
   }
   const carburetors = new Map<string, { id: string; code: string }>();
@@ -350,6 +352,10 @@ async function addExtra(payload: PlanningPayload, race: RaceRow, user: AppUser) 
   if (!matches) return Response.json({ error: `${resource.code} is not compatible with ${category}` }, { status: 409 });
   const conflict = await findEquipmentConflict(resourceType!, resource.id, race, "");
   if (conflict) return Response.json({ error: conflict }, { status: 409 });
+  if (resourceType === "engine") {
+    const loanConflict = await findLoanConflict(resource.id, race);
+    if (loanConflict) return Response.json({ error: loanConflict }, { status: 409 });
+  }
   const id = crypto.randomUUID();
   const now = Date.now();
   await d1.batch([
@@ -387,6 +393,15 @@ async function findEquipmentConflict(type: "engine" | "carburetor", resourceId: 
   const extras = await d1.prepare(`SELECT x.id, r.id AS raceId, r.name, r.start_date AS startDate, r.end_date AS endDate FROM race_extras x JOIN races r ON r.id = x.race_id WHERE x.resource_type = ? AND x.resource_id = ? AND r.status != 'archived'`).bind(type, resourceId).all<{ id: string; raceId: string; name: string; startDate: string; endDate: string }>();
   const conflict = [...rows.results, ...extras.results].find((row: { raceId: string; startDate: string; endDate: string }) => row.raceId === target.id || intervalsOverlap(row.startDate, row.endDate, target.startDate, target.endDate));
   return conflict ? `${type === "engine" ? "Engine" : "Carburetor"} is already assigned to ${conflict.name}` : "";
+}
+
+async function findLoanConflict(engineId: string, target: RaceRow) {
+  const rows = await getD1().prepare(`
+    SELECT recipient_name_snapshot AS recipientName, expected_return_date AS expectedReturnDate, start_date AS startDate
+    FROM engine_loans WHERE engine_id = ? AND actual_return_date IS NULL
+  `).bind(engineId).all<{ recipientName: string; expectedReturnDate: string; startDate: string }>();
+  const conflict = rows.results.find((row) => intervalsOverlap(row.startDate, row.expectedReturnDate, target.startDate, target.endDate));
+  return conflict ? `Engine is currently on loan to ${conflict.recipientName} until ${conflict.expectedReturnDate}` : "";
 }
 
 async function findTravelConflict(type: "mechanic" | "vehicle", resourceId: string, target: RaceRow) {
