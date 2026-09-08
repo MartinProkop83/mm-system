@@ -9,6 +9,7 @@ import { CalendarPage } from "./calendar-page";
 import { LogisticsPage } from "./logistics-pages";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { pluralForm, formatCount, type PluralForms } from "./pluralize";
+import { NO_HOUR_TRACKING_ENGINE_FAMILIES } from "./engine-family-rules";
 import { TaskPage, type WorkItem } from "./task-pages";
 import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
@@ -126,6 +127,14 @@ type ServiceRecord = {
   createdBy: string;
   createdAt: number;
 };
+
+type EngineAuditEntry =
+  | { id: string; action: "create"; isSystem: false; createdAt: number }
+  | { id: string; action: "archive"; isSystem: false; createdAt: number }
+  | { id: string; action: "update_technical"; isSystem: false; createdAt: number }
+  | { id: string; action: "set_engine_baseline"; isSystem: false; createdAt: number }
+  | { id: string; action: "status_change"; isSystem: false; createdAt: number; fromStatus: EngineRecord["status"]; toStatus: EngineRecord["status"] }
+  | { id: string; action: "engine_auto_service"; isSystem: true; createdAt: number; raceName: string };
 
 type EngineAssignment = {
   id: string;
@@ -1332,7 +1341,7 @@ function Engines({
             <table className="results zebra">
               <thead><tr><th>{t.code}</th><th>{t.engineFamily}</th><th>{t.ignition}</th><th>{t.hoursTracking}</th><th>{locale === "cs" ? "Přiřazení / poslední pilot" : "Assignment / last driver"}</th><th>{t.status}</th>{canManage && <th className="no-print action-column">{t.actions}</th>}</tr></thead>
               <tbody>{pageEngines.map((engine) => {
-                const usesHours = !["MINI", "OKJ"].includes(engine.family);
+                const usesHours = !NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
                 const ready = engine.status === "ready" && !isSold(engine.soldAt);
                 const variant = engine.family === "KZ" ? engine.kzGeneration : engine.family === "MINI" ? engine.currentConfiguration : null;
                 const familyTone = engine.family === "OKN-J" ? "OKN" : engine.family;
@@ -1382,19 +1391,24 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
   const [assignments, setAssignments] = useState<EngineAssignment[]>([]);
+  const [auditEntries, setAuditEntries] = useState<EngineAuditEntry[]>([]);
   const [recordsLoading, setRecordsLoading] = useState(true);
   const [recordsError, setRecordsError] = useState(false);
-  const usesHours = !["MINI", "OKJ"].includes(engine.family);
+  const usesHours = !NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family);
   const isSuperadmin = role === "superadmin";
   const familyTone = (engine.family === "OKN-J" ? "OKN" : engine.family).toLowerCase();
   const tabs: Array<{ id: EngineDetailTab; label: string }> = [
     { id: "overview", label: t.overviewTab },
     { id: "technical", label: t.technicalTab },
     { id: "service", label: t.serviceCard },
-    { id: "hours", label: t.usageTab },
+    ...(usesHours ? [{ id: "hours" as const, label: t.usageTab }] : []),
     { id: "history", label: t.historyTab },
     { id: "documents", label: t.documentsTab },
   ];
+
+  useEffect(() => {
+    if (!usesHours && tab === "hours") setTab("overview");
+  }, [usesHours, tab]);
   const variant = engine.family === "KZ" ? engine.kzGeneration : engine.family === "MINI" ? engine.currentConfiguration : null;
   const noValue = t.notEntered;
 
@@ -1404,12 +1418,13 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
       setRecordsLoading(true);
       try {
         const response = await fetch(`/api/engine-records?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
-        const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[] };
-        if (!response.ok || !data.usage || !data.service || !data.assignments) throw new Error("load failed");
+        const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[] };
+        if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit) throw new Error("load failed");
         if (!active) return;
         setUsageRecords(data.usage);
         setServiceRecords(data.service);
         setAssignments(data.assignments);
+        setAuditEntries(data.audit);
         setRecordsError(false);
       } catch {
         if (active) setRecordsError(true);
@@ -1435,11 +1450,12 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
     setRecordsLoading(true);
     try {
       const response = await fetch(`/api/engine-records?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
-      const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[] };
-      if (!response.ok || !data.usage || !data.service || !data.assignments) throw new Error("load failed");
+      const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[] };
+      if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit) throw new Error("load failed");
       setUsageRecords(data.usage);
       setServiceRecords(data.service);
       setAssignments(data.assignments);
+      setAuditEntries(data.audit);
       setRecordsError(false);
     } catch {
       setRecordsError(true);
@@ -1581,10 +1597,10 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
         </section>
       )}
 
-      {tab === "hours" && (
+      {tab === "hours" && usesHours && (
         <section className="dash-panel tab-panel">
-          <div className="tab-panel-header"><div><span className="eyebrow">OPPAMA</span><h2>{t.usageTab}</h2><p>{usesHours ? (locale === "cs" ? "Zápis po skončení závodu ve formátu HH:MM." : "Logged after each race in HH:MM format.") : (locale === "cs" ? "MINI a OKJ neevidují motohodiny." : "MINI and OKJ do not track running hours.")}</p></div>{usesHours && <div className="tab-actions">{isSuperadmin && <button className="secondary-compact" type="button" onClick={() => setBaselineOpen(true)}>⌁ {locale === "cs" ? "Vstupní stav" : "Starting state"}</button>}<button className="primary-button" type="button" onClick={() => setUsageOpen(true)}>＋ {t.logHours}</button></div>}</div>
-          <div className="hours-summary"><div><span>{locale === "cs" ? "Poslední Oppama" : "Last Oppama"}</span><strong>{usesHours ? formatHours(engine.lastOppamaMinutes) : "—"}</strong></div><div><span>{locale === "cs" ? "Píst od výměny" : "Piston since replacement"}</span><strong>{usesHours ? formatHours(engine.pistonMinutes) : "—"}</strong><small>{engine.currentPistonSize ? `${locale === "cs" ? "Rozměr" : "Size"}: ${engine.currentPistonSize}` : ""}</small></div><div><span>{locale === "cs" ? "Ojnice / klika" : "Rod / crank"}</span><strong>{usesHours ? formatHours(engine.rodMinutes) : "—"}</strong></div></div>
+          <div className="tab-panel-header"><div><span className="eyebrow">OPPAMA</span><h2>{t.usageTab}</h2><p>{locale === "cs" ? "Zápis po skončení závodu ve formátu HH:MM." : "Logged after each race in HH:MM format."}</p></div><div className="tab-actions">{isSuperadmin && <button className="secondary-compact" type="button" onClick={() => setBaselineOpen(true)}>⌁ {locale === "cs" ? "Vstupní stav" : "Starting state"}</button>}<button className="primary-button" type="button" onClick={() => setUsageOpen(true)}>＋ {t.logHours}</button></div></div>
+          <div className="hours-summary"><div><span>{locale === "cs" ? "Poslední Oppama" : "Last Oppama"}</span><strong>{formatHours(engine.lastOppamaMinutes)}</strong></div><div><span>{locale === "cs" ? "Píst od výměny" : "Piston since replacement"}</span><strong>{formatHours(engine.pistonMinutes)}</strong><small>{engine.currentPistonSize ? `${locale === "cs" ? "Rozměr" : "Size"}: ${engine.currentPistonSize}` : ""}</small></div><div><span>{locale === "cs" ? "Ojnice / klika" : "Rod / crank"}</span><strong>{formatHours(engine.rodMinutes)}</strong></div></div>
           {recordProblem()}
           {!recordsLoading && !recordsError && usageRecords.length === 0 && <EmptyState size="inline" title={locale === "cs" ? "Zatím bez záznamů provozu" : "No usage entries yet"} description={locale === "cs" ? "Po závodu zapiš stav Oppama; systém ho přičte k pístu i ojnici." : "After a race, log Oppama and the system will add it to both counters."} />}
           {!recordsLoading && !recordsError && usageRecords.length > 0 && <UsageHistoryTable records={usageRecords} locale={locale} canCorrect={isSuperadmin} onEdit={(record) => setEditingUsage(record)} onDelete={(recordId) => { void deleteRecord("usage", recordId); }} />}
@@ -1596,7 +1612,12 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
           <div className="tab-panel-header"><div><span className="eyebrow">RACE HISTORY</span><h2>{t.historyTab}</h2><p>{locale === "cs" ? "Závody, piloti a spárované karburátory zůstávají trvale v kartě motoru." : "Races, drivers and paired carburetors remain permanently in the engine card."}</p></div></div>
           {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table zebra"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez závodu" : "No races yet"} description={locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."} />}
           <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">AUDIT</span><h3>{locale === "cs" ? "Změny karty" : "Card changes"}</h3></div></div>
-          <div className="history-list"><div><i /><span><strong>{locale === "cs" ? "Motor založen v systému" : "Engine created in the system"}</strong><small>{formatTimestamp(engine.createdAt, locale)}</small></span></div>{engine.updatedAt !== engine.createdAt && <div><i /><span><strong>{locale === "cs" ? "Poslední změna údajů" : "Latest data update"}</strong><small>{formatTimestamp(engine.updatedAt, locale)}</small></span></div>}</div>
+          <div className="history-list">{auditEntries.map((entry) => <div key={entry.id}><i />
+            <span>
+              <strong>{auditEntryText(entry, locale)}{entry.isSystem && <span className="status-pill info-pill audit-system-badge">{locale === "cs" ? "Automaticky" : "Automatic"}</span>}</strong>
+              <small>{formatTimestamp(entry.createdAt, locale)}</small>
+            </span>
+          </div>)}</div>
         </section>
       )}
 
@@ -1960,7 +1981,7 @@ function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { loc
             <label><span>{t.upgrade}</span><input name="upgradeCode" placeholder="A12/LA4" defaultValue={engine?.upgradeCode ?? ""} maxLength={40} /><small className="field-help">{locale === "cs" ? "Např. A12/LA4, A5 + * nebo A11 + 2*vol." : "For example A12/LA4, A5 + * or A11 + 2*vol."}</small></label>
             <label><span>{t.purchaseDate}</span><input name="purchaseDate" type="date" defaultValue={engine?.purchaseDate ?? ""} /></label>
             {editing && <label><span>{t.status}</span><select name="status" defaultValue={engine?.status ?? "ready"}><option value="ready">{t.ready}</option><option value="service_soon">{t.due}</option><option value="service">{t.service}</option><option value="rebuild">{t.rebuild}</option><option value="storage">{t.storage}</option><option value="retired">{locale === "cs" ? "Vyřazen" : "Retired"}</option></select></label>}
-            <div className="form-readonly"><span>{t.hoursTracking}</span><strong>{["MINI", "OKJ"].includes(family) ? t.byRaces : t.byHours}</strong></div>
+            <div className="form-readonly"><span>{t.hoursTracking}</span><strong>{NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(family) ? t.byRaces : t.byHours}</strong></div>
             <div className="engine-color-field full-field">
               <div className="engine-color-field-heading"><span>{locale === "cs" ? "Barevné označení motoru" : "Engine colour label"}</span><div className="engine-color-preview">{labelColor && <i style={{ backgroundColor: labelColor }} />}<strong>{engine?.code || (locale === "cs" ? "Náhled motoru" : "Engine preview")}</strong>{engine?.upgradeCode && <small>· {engine.upgradeCode}</small>}</div></div>
               <div className="engine-color-picker" aria-label={locale === "cs" ? "Paleta barev motoru" : "Engine colour palette"}>
@@ -2176,6 +2197,20 @@ function engineStatusLabel(status: EngineRecord["status"], locale: Locale) {
     retired: ["Vyřazen", "Retired"],
   };
   return labels[status][locale === "cs" ? 0 : 1];
+}
+
+function auditEntryText(entry: EngineAuditEntry, locale: Locale) {
+  if (entry.action === "create") return locale === "cs" ? "Motor založen v systému" : "Engine created in the system";
+  if (entry.action === "archive") return locale === "cs" ? "Motor odstraněn" : "Engine removed";
+  if (entry.action === "update_technical") return locale === "cs" ? "Upravena technická karta" : "Technical data updated";
+  if (entry.action === "set_engine_baseline") return locale === "cs" ? "Nastaven výchozí stav motohodin" : "Engine hours baseline set";
+  if (entry.action === "status_change") {
+    const from = engineStatusLabel(entry.fromStatus, locale);
+    const to = engineStatusLabel(entry.toStatus, locale);
+    return locale === "cs" ? `Stav změněn z „${from}“ na „${to}“` : `Status changed from "${from}" to "${to}"`;
+  }
+  const raceName = entry.raceName || (locale === "cs" ? "neznámý závod" : "unknown race");
+  return locale === "cs" ? `Stav změněn na Servis — automaticky po závodě ${raceName}` : `Status changed to Service — automatically after the ${raceName} race`;
 }
 
 function formatDisplayDate(value: string | null, locale: Locale) {

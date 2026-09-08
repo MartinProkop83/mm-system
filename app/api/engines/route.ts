@@ -1,6 +1,7 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
+import { applyMiniAutoService } from "../../engine-auto-service";
 
 const allowedStatuses = new Set(["ready", "service_soon", "service", "rebuild", "storage", "retired"]);
 const allowedFamilies = new Set(["MINI", "OKJ", "OKN", "OKN-J", "OK", "KZ"]);
@@ -111,6 +112,7 @@ export async function GET() {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
+  await applyMiniAutoService(d1);
   const [result, assignmentResult] = await Promise.all([
     d1.prepare(`
       SELECT id, code, category, family, ignition, kz_generation AS kzGeneration,

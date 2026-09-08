@@ -2,6 +2,7 @@ import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getAppUser } from "../../server-auth";
 import { raceLogoUrl } from "../../race-logo";
+import { NO_HOUR_TRACKING_ENGINE_FAMILIES } from "../../engine-family-rules";
 
 const pistonSizes = new Set([
   "53.83", "53.85", "53.86", "53.87", "53.88", "53.89",
@@ -34,6 +35,7 @@ type EngineRow = {
   baselineLastOppamaMinutes: number;
   baselinePistonSize: string;
   status: string;
+  createdAt: number;
   updatedAt: number;
 };
 
@@ -62,6 +64,50 @@ type ServiceRow = {
   createdBy: string;
   createdAt: number;
 };
+
+type EngineAuditRow = {
+  id: string;
+  action: string;
+  details: string;
+  createdAt: number;
+};
+
+type EngineAuditEntry =
+  | { id: string; action: "create" | "archive" | "update_technical" | "set_engine_baseline"; isSystem: false; createdAt: number }
+  | { id: string; action: "status_change"; isSystem: false; createdAt: number; fromStatus: string; toStatus: string }
+  | { id: string; action: "engine_auto_service"; isSystem: true; createdAt: number; raceName: string };
+
+const AUDIT_ACTIONS_SHOWN = ["create", "archive", "update_technical", "set_engine_baseline", "engine_auto_service", "update"];
+
+function parseAuditDetails(raw: string): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function toEngineAuditEntry(row: EngineAuditRow): EngineAuditEntry | null {
+  if (row.action === "update") {
+    const details = parseAuditDetails(row.details);
+    const before = (details.before && typeof details.before === "object" ? details.before : {}) as Record<string, unknown>;
+    const after = (details.after && typeof details.after === "object" ? details.after : {}) as Record<string, unknown>;
+    const fromStatus = typeof before.status === "string" ? before.status : "";
+    const toStatus = typeof after.status === "string" ? after.status : "";
+    if (!fromStatus || !toStatus || fromStatus === toStatus) return null;
+    return { id: row.id, action: "status_change", isSystem: false, createdAt: row.createdAt, fromStatus, toStatus };
+  }
+  if (row.action === "engine_auto_service") {
+    const details = parseAuditDetails(row.details);
+    const raceName = typeof details.raceName === "string" ? details.raceName : "";
+    return { id: row.id, action: "engine_auto_service", isSystem: true, createdAt: row.createdAt, raceName };
+  }
+  if (row.action === "create" || row.action === "archive" || row.action === "update_technical" || row.action === "set_engine_baseline") {
+    return { id: row.id, action: row.action, isSystem: false, createdAt: row.createdAt };
+  }
+  return null;
+}
 
 type AssignmentRow = {
   id: string;
@@ -144,7 +190,7 @@ async function getEngine(engineId: string) {
            baseline_rod_minutes AS baselineRodMinutes,
            baseline_last_oppama_minutes AS baselineLastOppamaMinutes,
            baseline_piston_size AS baselinePistonSize,
-           status, updated_at AS updatedAt
+           status, created_at AS createdAt, updated_at AS updatedAt
     FROM engines
     WHERE id = ? AND archived_at IS NULL
   `).bind(engineId).first<EngineRow>();
@@ -260,7 +306,7 @@ export async function GET(request: Request) {
   if (!engine) return Response.json({ error: "Engine not found" }, { status: 404 });
 
   const d1 = getD1();
-  const [usage, service, assignments] = await Promise.all([
+  const [usage, service, assignments, audit] = await Promise.all([
     d1.prepare(`
       SELECT id, entry_date AS entryDate, oppama_minutes AS oppamaMinutes,
              race_name AS raceName, driver_name AS driverName, notes,
@@ -311,7 +357,24 @@ export async function GET(request: Request) {
       WHERE e.engine_3_id = ? AND r.status != 'archived'
       ORDER BY startDate DESC
     `).bind(engineId, engineId, engineId).all<AssignmentRow>(),
+    d1.prepare(`
+      SELECT id, action, details, created_at AS createdAt
+      FROM audit_logs
+      WHERE entity_type = 'engine' AND entity_id = ?
+        AND action IN (${AUDIT_ACTIONS_SHOWN.map(() => "?").join(", ")})
+      ORDER BY created_at DESC
+      LIMIT 100
+    `).bind(engineId, ...AUDIT_ACTIONS_SHOWN).all<EngineAuditRow>(),
   ]);
+
+  const auditEntries = audit.results
+    .map(toEngineAuditEntry)
+    .filter((entry): entry is EngineAuditEntry => entry !== null)
+    .slice(0, 50);
+  if (!auditEntries.some((entry) => entry.action === "create")) {
+    auditEntries.push({ id: "fallback-create", action: "create", isSystem: false, createdAt: engine.createdAt });
+    auditEntries.sort((left, right) => right.createdAt - left.createdAt);
+  }
 
   return Response.json({
     usage: usage.results,
@@ -320,6 +383,7 @@ export async function GET(request: Request) {
       ...assignment,
       logoUrl: raceLogoUrl(assignment.raceTemplateId, assignment.logoKey, assignment.logoUpdatedAt),
     })),
+    audit: auditEntries,
   });
 }
 
@@ -354,7 +418,7 @@ export async function POST(request: Request) {
 }
 
 async function saveBaseline(payload: RecordPayload, engine: EngineRow, actorEmail: string) {
-  if (["MINI", "OKJ"].includes(engine.family)) {
+  if (NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family)) {
     return Response.json({ error: "This engine family does not use Oppama tracking" }, { status: 400 });
   }
 
@@ -395,7 +459,7 @@ async function saveBaseline(payload: RecordPayload, engine: EngineRow, actorEmai
 }
 
 async function saveUsage(payload: RecordPayload, engine: EngineRow, actorEmail: string, date: string) {
-  if (["MINI", "OKJ"].includes(engine.family)) {
+  if (NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family)) {
     return Response.json({ error: "This engine family does not use Oppama tracking" }, { status: 400 });
   }
   const oppamaMinutes = parseTime(payload.oppama ?? "");
@@ -487,7 +551,7 @@ export async function PATCH(request: Request) {
 }
 
 async function updateUsage(payload: RecordPayload, engine: EngineRow, actorEmail: string, recordId: string, date: string) {
-  if (["MINI", "OKJ"].includes(engine.family)) return Response.json({ error: "This engine family does not use Oppama tracking" }, { status: 400 });
+  if (NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(engine.family)) return Response.json({ error: "This engine family does not use Oppama tracking" }, { status: 400 });
   const existing = await getUsage(recordId, engine.id);
   if (!existing) return Response.json({ error: "Record not found" }, { status: 404 });
   const oppamaMinutes = parseTime(payload.oppama ?? "");

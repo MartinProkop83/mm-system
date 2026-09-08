@@ -60,3 +60,26 @@ záplatu pro mezeru v typech `FormData.get()` v nainstalované verzi workers-typ
 protože musí vygenerovat `.d.ts` pro hlavní config). Nikdy nespouštěj jen
 `tsc --noEmit -p .` a nepovažuj to za kompletní kontrolu — přeskočí to celý
 `db/**`, `worker/**`, `app/api/**`.
+
+# Databáze — schéma se aplikuje přes runtime-schema.ts, ne přes drizzle migrace
+
+`db/schema.ts` + `drizzle/*.sql` (drizzle-kit) a skutečný běh appky jsou
+rozejité. `db/schema.ts` slouží jen jako deklarativní zápis pro konzistenci —
+`getDb()` (drizzle query builder) nemá v `app/**` jediné volání.
+
+Skutečné schéma se aplikuje přes **`db/runtime-schema.ts`** — `ensureRuntimeSchema()`
+běží idempotentně (`CREATE TABLE IF NOT EXISTS` + `PRAGMA table_info` →
+podmíněné `ALTER TABLE ADD COLUMN`) na začátku prakticky každého API route
+handleru. To je jediné místo, které v D1 (lokální i produkční) reálně
+vytváří/upravuje tabulky.
+
+- **Novou tabulku přidávej do `db/runtime-schema.ts`** (`CREATE TABLE IF NOT
+  EXISTS` + odpovídající `CREATE UNIQUE INDEX IF NOT EXISTS`/`CREATE INDEX IF
+  NOT EXISTS` do stejného `d1.batch([...])`), stejným raw-SQL stylem jako
+  ostatní tabulky tam. Zápis do `db/schema.ts` přidej taky, kvůli konzistenci,
+  ale sám o sobě nic nezaloží.
+- **Nespouštěj `npm run db:generate`** — vytvoří nepoužitelnou migraci, protože
+  drizzle snapshot a skutečné schéma jsou rozejité (drizzle neví o tabulkách,
+  které vznikly jen přes `runtime-schema.ts`).
+- **Přístup k datům jde přes `getD1()` a raw SQL** (`d1.prepare(...).bind(...)`,
+  `d1.batch([...])`), ne přes `getDb()`.

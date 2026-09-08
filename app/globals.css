@@ -231,6 +231,7 @@
 .status-pill.warning-pill { color: var(--wrc-warning-ink); background: var(--wrc-amber-dim); }
 .status-pill.danger { color: var(--wrc-danger-ink); background: var(--wrc-red-dim); }
 .status-pill.neutral { color: var(--wrc-ink-soft); background: var(--wrc-surface-2); }
+.audit-system-badge { margin-left: var(--wrc-space-8); }
 .logistics-card-meta { display: flex; flex-wrap: wrap; gap: var(--wrc-space-6); }
 .logistics-card-meta span {
   padding: var(--wrc-space-4) var(--wrc-space-6);

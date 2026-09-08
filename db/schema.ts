@@ -85,6 +85,16 @@ export const engineServiceEntries = sqliteTable("engine_service_entries", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const engineAutoServiceLog = sqliteTable("engine_auto_service_log", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull(),
+  raceId: text("race_id").notNull(),
+  raceNameSnapshot: text("race_name_snapshot").notNull().default(""),
+  appliedAt: integer("applied_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("engine_auto_service_log_unique_idx").on(table.engineId, table.raceId),
+]);
+
 export const teams = sqliteTable("teams", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),

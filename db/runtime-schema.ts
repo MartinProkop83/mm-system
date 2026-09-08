@@ -722,6 +722,15 @@ async function createRuntimeSchema() {
         sort_order INTEGER NOT NULL DEFAULT 0
       )
     `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_auto_service_log (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        race_id TEXT NOT NULL,
+        race_name_snapshot TEXT NOT NULL DEFAULT '',
+        applied_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare("CREATE INDEX IF NOT EXISTS engines_status_idx ON engines (status)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_usage_engine_idx ON engine_usage_logs (engine_id, entry_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_engine_idx ON engine_service_entries (engine_id, service_date)"),
@@ -765,6 +774,7 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS checklist_items_checklist_idx ON checklist_items (checklist_id, sort_order)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_checklists_race_idx ON race_checklists (race_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_checklist_items_checklist_idx ON race_checklist_items (race_checklist_id, sort_order)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_auto_service_log_unique_idx ON engine_auto_service_log (engine_id, race_id)"),
   ]);
 
   const columns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();
