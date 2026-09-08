@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -166,6 +167,7 @@ export function TaskPage({ locale, role, currentUser }: { locale: Locale; role: 
 }
 
 function TaskForm({ locale, task, races, mechanics, currentUser, onClose, onSaved }: { locale: Locale; task: WorkItem | null; races: RaceChoice[]; mechanics: MechanicChoice[]; currentUser: string; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -188,7 +190,7 @@ function TaskForm({ locale, task, races, mechanics, currentUser, onClose, onSave
   const assignees = Array.from(new Set([currentUser, ...mechanics.map((mechanic) => mechanic.name)].filter(Boolean))).sort((a, b) => a.localeCompare(b, locale === "cs" ? "cs" : "en"));
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal task-modal" role="dialog" aria-modal="true" aria-labelledby="task-form-title">
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal task-modal" role="dialog" aria-modal="true" aria-labelledby="task-form-title" tabIndex={-1}>
       <div className="modal-header"><div><span className="eyebrow">MM WORKFLOW</span><h2 id="task-form-title">{task ? (locale === "cs" ? "Upravit úkol" : "Edit task") : (locale === "cs" ? "Nový úkol nebo připomínka" : "New task or reminder")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid">

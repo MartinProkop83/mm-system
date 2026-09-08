@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CountrySelect } from "./country-select";
 import { countryFlag, localizedCountries } from "./countries";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -28,6 +29,7 @@ export function CircuitsPage({ locale, role }: { locale: Locale; role: Role }) {
 }
 
 function CircuitForm({locale,circuit,onClose,onSaved}:{locale:Locale;circuit:CircuitRecord|null;onClose:()=>void;onSaved:()=>void}){
+  const dialogRef=useModalA11y(onClose);
   const [saving,setSaving]=useState(false);
   const [locating,setLocating]=useState(false);
   const [error,setError]=useState("");
@@ -77,7 +79,7 @@ function CircuitForm({locale,circuit,onClose,onSaved}:{locale:Locale;circuit:Cir
     }catch(saveError){setError(saveError instanceof Error?saveError.message:"Save failed");setSaving(false);}
   }
 
-  return <div className="modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)onClose();}}><section className="modal circuit-modal" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">MM CIRCUIT DIRECTORY</span><h2>{circuit?(locale==="cs"?"Upravit trať":"Edit circuit"):(locale==="cs"?"Nová trať":"New circuit")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid">
+  return <div className="modal-backdrop" onMouseDown={(event)=>{if(event.target===event.currentTarget)onClose();}}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal circuit-modal" role="dialog" aria-modal="true" tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MM CIRCUIT DIRECTORY</span><h2>{circuit?(locale==="cs"?"Upravit trať":"Edit circuit"):(locale==="cs"?"Nová trať":"New circuit")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid">
     <label><span>{locale==="cs"?"Název":"Name"} *</span><input name="name" required autoFocus value={name} onChange={(event)=>{setName(event.target.value);invalidateAutoLocation();}}/></label>
     <label><span>{locale==="cs"?"Země":"Country"} *</span><CountrySelect name="countryCode" locale={locale} required value={countryCode} onChange={(event)=>{setCountryCode(event.target.value);invalidateAutoLocation();}}/></label>
     <label className="full-field"><span>{locale==="cs"?"Adresa":"Address"}</span><input name="address" value={address} onChange={(event)=>{setAddress(event.target.value);invalidateAutoLocation();}}/></label>

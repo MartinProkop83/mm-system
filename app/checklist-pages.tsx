@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatCount, pluralForm, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 const MORE_FORMS: PluralForms = { cs: ["další", "další", "dalších"], en: ["more", "more"] };
@@ -93,6 +94,7 @@ function ChecklistCard({ checklist, locale, canManage, role, onEdit, onDelete }:
 }
 
 function ChecklistForm({ locale, checklist, onClose, onSaved }: { locale: Locale; checklist: ChecklistRecord | null; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [name, setName] = useState(checklist?.name ?? "");
   const [notes, setNotes] = useState(checklist?.notes ?? "");
   const [items, setItems] = useState<ChecklistItemDraft[]>(checklist?.items.length ? checklist.items.map((item) => ({ section: item.section, partNumber: item.partNumber, name: item.name, quantity: item.quantity })) : [emptyItem()]);
@@ -112,7 +114,7 @@ function ChecklistForm({ locale, checklist, onClose, onSaved }: { locale: Locale
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal checklist-modal" role="dialog" aria-modal="true">
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal checklist-modal" role="dialog" aria-modal="true" tabIndex={-1}>
       <div className="modal-header">
         <div><span className="eyebrow">MM CHECKLISTS</span><h2>{checklist ? (locale === "cs" ? "Upravit checklist" : "Edit checklist") : (locale === "cs" ? "Nový checklist" : "New checklist")}</h2></div>
         <button className="close-button" type="button" onClick={onClose}>×</button>

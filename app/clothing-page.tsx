@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
 import { pluralForm, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
@@ -202,6 +203,7 @@ function AssignmentCard({ item, assignment, mechanicId, index, canManage, locale
 }
 
 function ItemModal({ locale, role, item, onClose, onSaved }: { locale: Locale; role: Role; item: ClothingItem | null; onClose: () => void; onSaved: () => Promise<void> }) {
+  const dialogRef = useModalA11y(onClose);
   const [name, setName] = useState(item?.name ?? "");
   const [sizes, setSizes] = useState(item?.sizes.join(", ") ?? "");
   const [defaultQuantity, setDefaultQuantity] = useState(item?.defaultQuantity ?? 1);
@@ -244,7 +246,7 @@ function ItemModal({ locale, role, item, onClose, onSaved }: { locale: Locale; r
     finally { setSaving(false); }
   }
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form className="modal clothing-item-modal" onSubmit={submit}>
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form ref={dialogRef as React.RefObject<HTMLFormElement>} className="modal clothing-item-modal" role="dialog" aria-modal="true" tabIndex={-1} onSubmit={submit}>
     <header className="modal-header"><div><span className="eyebrow">CLOTHING CATALOG</span><h2>{item ? (locale === "cs" ? "Upravit oblečení" : "Edit clothing") : (locale === "cs" ? "Nový typ oblečení" : "New clothing item")}</h2><p>{locale === "cs" ? "Velikosti odděluj čárkou. Jejich pořadí se zachová v nabídce." : "Separate sizes with commas. Their order is preserved."}</p></div><button className="modal-close" type="button" onClick={onClose}>×</button></header>
     <div className="form-grid">
       <label><span>{locale === "cs" ? "Název položky" : "Item name"}</span><input autoFocus required maxLength={100} value={name} onChange={(event) => setName(event.target.value)} placeholder={locale === "cs" ? "Např. Týmová bunda" : "E.g. Team jacket"} /></label>

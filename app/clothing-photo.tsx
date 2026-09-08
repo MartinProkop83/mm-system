@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { useModalA11y } from "./use-modal-a11y";
 
 export type ClothingPhotoPreview = { imageUrl: string; name: string };
 
@@ -15,13 +15,9 @@ export function ClothingPhoto({ imageUrl, name, fallback, className = "", onOpen
 }
 
 export function ClothingLightbox({ preview, onClose }: { preview: ClothingPhotoPreview; onClose: () => void }) {
-  useEffect(() => {
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
+  const dialogRef = useModalA11y(onClose);
 
-  return <div className="clothing-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+  return <div ref={dialogRef as React.RefObject<HTMLDivElement>} className="clothing-lightbox" role="dialog" aria-modal="true" aria-label={preview.name} tabIndex={-1} onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <div>
       <header><strong>{preview.name}</strong><button type="button" onClick={onClose} aria-label="Zavřít">×</button></header>
       {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { formatCount, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 const RECORD_FORMS: PluralForms = { cs: ["záznam", "záznamy", "záznamů"], en: ["record", "records"] };
 
@@ -149,6 +150,7 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
 const NEW_TEAM_VALUE = "__new__";
 
 function VisitForm({ raceId, visit, teams, drivers, mechanics, parts, services, locale, onClose, onSaved }: { raceId: string; visit: TeamVisit | null; teams: TeamOption[]; drivers: DriverOption[]; mechanics: MechanicOption[]; parts: InventoryPart[]; services: ServiceItem[]; locale: Locale; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [teamId, setTeamId] = useState(visit ? (visit.teamId ?? NEW_TEAM_VALUE) : (teams[0]?.id ?? NEW_TEAM_VALUE));
@@ -289,7 +291,7 @@ function VisitForm({ raceId, visit, teams, drivers, mechanics, parts, services, 
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal race-modal" role="dialog" aria-modal="true">
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal race-modal" role="dialog" aria-modal="true" tabIndex={-1}>
       <div className="modal-header"><div><span className="eyebrow">MM RACE CONTROL</span><h2>{visit ? (locale === "cs" ? "Upravit návštěvu" : "Edit visit") : (locale === "cs" ? "Nová návštěva" : "New visit")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid">

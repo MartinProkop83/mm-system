@@ -12,6 +12,7 @@ import { raceCalendarColorDefinition } from "./race-calendar-colors";
 import { CalendarColorSelect } from "./calendar-color-select";
 import type { CustomerRecord } from "./commerce-pages";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 export type CatalogKind = "raceType" | "team" | "driver" | "mechanic" | "vehicle" | "carburetor";
 type Locale = "cs" | "en";
@@ -190,6 +191,7 @@ function CatalogForm({ kind, locale, item, teams, carburetorTypes, onClose, onSa
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const editing = Boolean(item);
+  const dialogRef = useModalA11y(onClose);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -226,7 +228,7 @@ function CatalogForm({ kind, locale, item, teams, carburetorTypes, onClose, onSa
     }
   }
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{editing ? `${l.edit} · ${l[kind][1]}` : `${l.new} · ${l[kind][1]}`}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid"><CatalogFields kind={kind} locale={locale} item={item} teams={teams} carburetorTypes={carburetorTypes} /></div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{l.cancel}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? l.saving : l.save}</button></div></form></section></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{editing ? `${l.edit} · ${l[kind][1]}` : `${l.new} · ${l[kind][1]}`}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid"><CatalogFields kind={kind} locale={locale} item={item} teams={teams} carburetorTypes={carburetorTypes} /></div>{error && <p className="form-error">{error}</p>}<div className="modal-actions"><span className="modal-actions-spacer" /><button className="secondary-compact" type="button" onClick={onClose}>{l.cancel}</button><button className="primary-button" type="submit" disabled={saving}>{saving ? l.saving : l.save}</button></div></form></section></div>;
 }
 
 function CatalogFields({ kind, locale, item, teams, carburetorTypes }: { kind: CatalogKind; locale: Locale; item: CatalogItem | null; teams: TeamRecord[]; carburetorTypes: CarburetorTypeRecord[] }) {
@@ -383,6 +385,7 @@ function CarburetorTypesSection({ locale, role, items, carburetors, onChanged }:
 }
 
 function CarburetorTypeForm({ locale, item, onClose, onSaved }: { locale: Locale; item: CarburetorTypeRecord | null; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [selected, setSelected] = useState<string[]>(item?.categories ?? []);
   const [removePhoto, setRemovePhoto] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -414,7 +417,7 @@ function CarburetorTypeForm({ locale, item, onClose, onSaved }: { locale: Locale
       onSaved();
     } catch (saveError) { setError(typeError(saveError instanceof Error ? saveError.message : "Save failed", locale)); setSaving(false); }
   }
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal" role="dialog" aria-modal="true"><div className="modal-header"><div><span className="eyebrow">MASTER DATA</span><h2>{item ? (locale === "cs" ? "Upravit typ karburátoru" : "Edit carburetor type") : (locale === "cs" ? "Nový typ karburátoru" : "New carburetor type")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid">
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MASTER DATA</span><h2>{item ? (locale === "cs" ? "Upravit typ karburátoru" : "Edit carburetor type") : (locale === "cs" ? "Nový typ karburátoru" : "New carburetor type")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div><form onSubmit={submit}><div className="form-grid">
     <label><span>{locale === "cs" ? "Značka" : "Brand"} *</span><input name="brand" required autoFocus maxLength={80} defaultValue={item?.brand ?? ""} placeholder="Tillotson" /></label>
     <label><span>{locale === "cs" ? "Typ / model" : "Type / model"} *</span><input name="model" required maxLength={80} defaultValue={item?.model ?? ""} placeholder="HW-49A" /></label>
     <fieldset className="category-toggle-group full-field"><legend>{locale === "cs" ? "Pro kategorie" : "For categories"} *</legend><div>{categoryOrder.map((category) => <label key={category}><input type="checkbox" checked={selected.includes(category)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, category] : current.filter((value) => value !== category))} /><span>{category}</span></label>)}</div></fieldset>

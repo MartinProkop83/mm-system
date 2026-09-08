@@ -16,6 +16,7 @@ import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pages";
 import { ChecklistsPage } from "./checklist-pages";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
@@ -461,11 +462,22 @@ export default function Home() {
       .filter((group) => group.items.length > 0),
     [session?.role],
   );
-  const searchResults = useMemo(() => {
+  const searchSectionResults = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     if (!query) return [];
     return nav.filter((item) => item.id !== "settings" || session?.role === "superadmin").filter((item) => t[item.id].toLowerCase().includes(query)).slice(0, 8);
   }, [searchQuery, session?.role, t]);
+  const searchEngineResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return engineRows.filter((engine) => engine.code.toLowerCase().includes(query)).slice(0, 5);
+  }, [searchQuery, engineRows]);
+  const searchVehicleResults = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+    if (!query) return [];
+    return vehicleRows.filter((vehicle) => vehicle.name.toLowerCase().includes(query) || vehicle.licensePlate.toLowerCase().includes(query)).slice(0, 5);
+  }, [searchQuery, vehicleRows]);
+  const searchHasResults = searchSectionResults.length > 0 || searchEngineResults.length > 0 || searchVehicleResults.length > 0;
   const enginesNeedingService = useMemo(
     () => engineRows.filter((engine) => !isSold(engine.soldAt) && engine.status !== "retired" && (engine.status === "service_soon" || engine.status === "service")),
     [engineRows],
@@ -694,12 +706,32 @@ export default function Home() {
             />
             {searchQuery.trim() && (
               <div className="util-search-results">
-                {searchResults.length === 0 && <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Nic nenalezeno" : "Nothing found"} />}
-                {searchResults.map((item) => (
-                  <button key={item.id} type="button" onMouseDown={() => { setView(item.id); setSearchQuery(""); if (item.id !== "engines") setDetailEngineId(null); }}>
-                    <span aria-hidden="true">{item.mark}</span>{t[item.id]}
-                  </button>
-                ))}
+                {!searchHasResults && <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Nic nenalezeno" : "Nothing found"} />}
+                {(searchEngineResults.length > 0 || searchVehicleResults.length > 0) && (
+                  <div className="util-search-group">
+                    <small>{locale === "cs" ? "Nalezené záznamy" : "Matching records"}</small>
+                    {searchEngineResults.map((engine) => (
+                      <button key={engine.id} type="button" onMouseDown={() => { setView("engines"); setDetailEngineId(engine.id); setSearchQuery(""); }}>
+                        <span aria-hidden="true">◫</span>{engine.code}
+                      </button>
+                    ))}
+                    {searchVehicleResults.map((vehicle) => (
+                      <button key={vehicle.id} type="button" onMouseDown={() => { setView("vehicles"); setNotifiedVehicleId(vehicle.id); setSearchQuery(""); }}>
+                        <span aria-hidden="true">▰</span>{vehicle.name}{vehicle.licensePlate ? ` · ${vehicle.licensePlate}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {searchSectionResults.length > 0 && (
+                  <div className="util-search-group">
+                    <small>{locale === "cs" ? "Sekce" : "Sections"}</small>
+                    {searchSectionResults.map((item) => (
+                      <button key={item.id} type="button" onMouseDown={() => { setView(item.id); setSearchQuery(""); if (item.id !== "engines") setDetailEngineId(null); }}>
+                        <span aria-hidden="true">{item.mark}</span>{t[item.id]}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </label>
@@ -857,6 +889,7 @@ export default function Home() {
 }
 
 function QuickServiceForm({ locale, onClose, onSaved }: { locale: Locale; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [vehicles, setVehicles] = useState<VehicleRecord[]>([]);
   const [mechanics, setMechanics] = useState<Array<{ id: string; name: string }>>([]);
   const [loading, setLoading] = useState(true);
@@ -904,7 +937,7 @@ function QuickServiceForm({ locale, onClose, onSaved }: { locale: Locale; onClos
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal" role="dialog" aria-modal="true">
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" tabIndex={-1}>
       <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{locale === "cs" ? "Zápis servisu auta" : "Log vehicle service"}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
       {loading ? <LoadingState /> : !vehicles.length ? <p className="form-error">{locale === "cs" ? "Nejdřív přidej auto v katalogu." : "Add a vehicle to the catalog first."}</p> : <form onSubmit={submit}>
         <div className="form-grid">
@@ -1583,6 +1616,7 @@ function EngineDetail({ locale, engine, canManage, role, onBack, onEdit, onSaved
 }
 
 function BaselineForm({ locale, engine, onClose, onSaved }: { locale: Locale; engine: EngineRecord; onClose: () => void; onSaved: (counters: Partial<EngineRecord>) => void }) {
+  const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1618,7 +1652,7 @@ function BaselineForm({ locale, engine, onClose, onSaved }: { locale: Locale; en
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal record-modal" role="dialog" aria-modal="true" aria-labelledby="baseline-form-title">
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal record-modal" role="dialog" aria-modal="true" aria-labelledby="baseline-form-title" tabIndex={-1}>
         <div className="modal-header"><div><span className="eyebrow">ENGINE BASELINE · {engine.code}</span><h2 id="baseline-form-title">{locale === "cs" ? "Vstupní stav motoru" : "Engine starting state"}</h2><p>{locale === "cs" ? "Stav před prvním digitálním záznamem. Pozdější záznamy se k němu automaticky přepočítají." : "State before the first digital entry. Later records will be recalculated on top of it."}</p></div><button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button></div>
         <form onSubmit={submit}>
           <div className="form-grid">
@@ -1638,6 +1672,7 @@ function BaselineForm({ locale, engine, onClose, onSaved }: { locale: Locale; en
 }
 
 function UsageForm({ locale, engine, record = null, onClose, onSaved }: { locale: Locale; engine: EngineRecord; record?: UsageRecord | null; onClose: () => void; onSaved: (record: UsageRecord, counters: Partial<EngineRecord>) => void }) {
+  const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1671,7 +1706,7 @@ function UsageForm({ locale, engine, record = null, onClose, onSaved }: { locale
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal record-modal" role="dialog" aria-modal="true" aria-labelledby="usage-form-title">
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal record-modal" role="dialog" aria-modal="true" aria-labelledby="usage-form-title" tabIndex={-1}>
         <div className="modal-header"><div><span className="eyebrow">OPPAMA · {engine.code}</span><h2 id="usage-form-title">{editing ? (locale === "cs" ? "Opravit motohodiny" : "Correct running hours") : t.logHours}</h2><p>{locale === "cs" ? "Opiš stav z motohodin přesně, například 01:24." : "Copy the running meter exactly, for example 01:24."}</p></div><button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button></div>
         <form onSubmit={submit}>
           <div className="form-grid">
@@ -1691,6 +1726,7 @@ function UsageForm({ locale, engine, record = null, onClose, onSaved }: { locale
 }
 
 function ServiceEntryForm({ locale, engine, record = null, onClose, onSaved }: { locale: Locale; engine: EngineRecord; record?: ServiceRecord | null; onClose: () => void; onSaved: (record: ServiceRecord, counters: Partial<EngineRecord>) => void }) {
+  const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1731,7 +1767,7 @@ function ServiceEntryForm({ locale, engine, record = null, onClose, onSaved }: {
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal service-modal" role="dialog" aria-modal="true" aria-labelledby="service-form-title">
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal service-modal" role="dialog" aria-modal="true" aria-labelledby="service-form-title" tabIndex={-1}>
         <div className="modal-header"><div><span className="eyebrow">SERVICE CARD · {engine.code}</span><h2 id="service-form-title">{editing ? (locale === "cs" ? "Opravit servisní záznam" : "Correct service record") : t.addServiceEntry}</h2><p>{locale === "cs" ? "Zaškrtni skutečně vyměněné díly. Počítadla se resetují automaticky." : "Select the parts actually replaced. Counters reset automatically."}</p></div><button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button></div>
         <form onSubmit={submit}>
           <div className="form-grid">
@@ -1775,6 +1811,7 @@ function UsageHistoryTable({ records, locale, canCorrect, onEdit, onDelete }: { 
 }
 
 function TechnicalForm({ locale, engine, onClose, onSaved }: { locale: Locale; engine: EngineRecord; onClose: () => void; onSaved: (engine: EngineRecord) => void }) {
+  const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1810,7 +1847,7 @@ function TechnicalForm({ locale, engine, onClose, onSaved }: { locale: Locale; e
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="technical-form-title">
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="technical-form-title" tabIndex={-1}>
         <div className="modal-header"><div><span className="eyebrow">ENGINE CARD · {engine.code}</span><h2 id="technical-form-title">{t.editTechnical}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button></div>
         <form onSubmit={submit}>
           <div className="form-grid">{fields.map((field) => <label key={field.name}><span>{field.label}</span><input name={field.name} defaultValue={field.value} placeholder={field.placeholder} maxLength={100} /></label>)}</div>
@@ -1836,6 +1873,7 @@ function friendlyEngineError(error: string, locale: Locale) {
 }
 
 function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { locale: Locale; engine: EngineRecord | null; role: AppSession["role"]; onClose: () => void; onSaved: (engine: EngineRecord) => void; onDeleted: (engineId: string) => void }) {
+  const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -1905,7 +1943,7 @@ function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { loc
 
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="engine-form-title">
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="engine-form-title" tabIndex={-1}>
         <div className="modal-header">
           <div><span className="eyebrow">MM SYSTEM</span><h2 id="engine-form-title">{editing ? t.editEngine : t.newEngine}</h2></div>
           <button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button>

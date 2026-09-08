@@ -2,6 +2,7 @@
 
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 type Locale = "cs" | "en";
 type AppRole = "superadmin" | "boss" | "mechanic";
@@ -349,32 +350,59 @@ export function SettingsPage({
       </article>
 
       {modalOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeModal(); }}>
-          <form className="modal settings-user-modal" onSubmit={saveUser}>
-            <header className="modal-header">
-              <div><span className="settings-kicker">MM SYSTEM · ACCESS</span><h2>{editingUser ? t.editTitle : t.addTitle}</h2></div>
-              <button className="modal-close" type="button" onClick={closeModal} aria-label={t.cancel}>×</button>
-            </header>
-            <div className="form-grid">
-              <label>{t.name}<input required minLength={2} maxLength={120} value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} /></label>
-              <label>{t.email}<input required type="email" maxLength={254} disabled={Boolean(editingUser)} value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
-              <label>{t.role}<select value={form.role} disabled={editingUser?.id === sessionUserId} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value as AppRole }))}>{roleOrder.map((item) => <option value={item} key={item}>{t.roleNames[item]}</option>)}</select></label>
-              <label>{t.language}<select value={form.locale} onChange={(event) => setForm((current) => ({ ...current, locale: event.target.value as Locale }))}><option value="cs">Čeština</option><option value="en">English</option></select></label>
-              <label className="settings-active-field">
-                <span>{t.accountStatus}</span>
-                <span className="settings-check"><input type="checkbox" checked={form.isActive} disabled={editingUser?.id === sessionUserId} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />{t.enabled}</span>
-              </label>
-            </div>
-            {editingUser?.id === sessionUserId && <p className="settings-self-note">🔒 {t.selfProtection}</p>}
-            {formError && <p className="form-error" role="alert">{formError}</p>}
-            <footer className="modal-actions">
-              <button className="secondary-compact" type="button" onClick={closeModal}>{t.cancel}</button>
-              <button className="primary-button" type="submit" disabled={saving}>{saving ? t.saving : t.save}</button>
-            </footer>
-          </form>
-        </div>
+        <UserFormModal
+          t={t}
+          editingUser={editingUser}
+          form={form}
+          setForm={setForm}
+          sessionUserId={sessionUserId}
+          formError={formError}
+          saving={saving}
+          onClose={closeModal}
+          onSubmit={saveUser}
+        />
       )}
     </section>
+  );
+}
+
+function UserFormModal({ t, editingUser, form, setForm, sessionUserId, formError, saving, onClose, onSubmit }: {
+  t: (typeof content)[Locale];
+  editingUser: ManagedUser | null;
+  form: UserForm;
+  setForm: React.Dispatch<React.SetStateAction<UserForm>>;
+  sessionUserId: string;
+  formError: string;
+  saving: boolean;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const dialogRef = useModalA11y(onClose);
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form ref={dialogRef as React.RefObject<HTMLFormElement>} className="modal settings-user-modal" role="dialog" aria-modal="true" tabIndex={-1} onSubmit={onSubmit}>
+        <header className="modal-header">
+          <div><span className="settings-kicker">MM SYSTEM · ACCESS</span><h2>{editingUser ? t.editTitle : t.addTitle}</h2></div>
+          <button className="modal-close" type="button" onClick={onClose} aria-label={t.cancel}>×</button>
+        </header>
+        <div className="form-grid">
+          <label>{t.name}<input required minLength={2} maxLength={120} value={form.fullName} onChange={(event) => setForm((current) => ({ ...current, fullName: event.target.value }))} /></label>
+          <label>{t.email}<input required type="email" maxLength={254} disabled={Boolean(editingUser)} value={form.email} onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label>{t.role}<select value={form.role} disabled={editingUser?.id === sessionUserId} onChange={(event) => setForm((current) => ({ ...current, role: event.target.value as AppRole }))}>{roleOrder.map((item) => <option value={item} key={item}>{t.roleNames[item]}</option>)}</select></label>
+          <label>{t.language}<select value={form.locale} onChange={(event) => setForm((current) => ({ ...current, locale: event.target.value as Locale }))}><option value="cs">Čeština</option><option value="en">English</option></select></label>
+          <label className="settings-active-field">
+            <span>{t.accountStatus}</span>
+            <span className="settings-check"><input type="checkbox" checked={form.isActive} disabled={editingUser?.id === sessionUserId} onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.checked }))} />{t.enabled}</span>
+          </label>
+        </div>
+        {editingUser?.id === sessionUserId && <p className="settings-self-note">🔒 {t.selfProtection}</p>}
+        {formError && <p className="form-error" role="alert">{formError}</p>}
+        <footer className="modal-actions">
+          <button className="secondary-compact" type="button" onClick={onClose}>{t.cancel}</button>
+          <button className="primary-button" type="submit" disabled={saving}>{saving ? t.saving : t.save}</button>
+        </footer>
+      </form>
+    </div>
   );
 }
 

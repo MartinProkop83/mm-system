@@ -5,6 +5,7 @@ import { countryFlag } from "./countries";
 import { RaceLogoBadge } from "./race-logo-badge";
 import { vehicleServiceStatus, type VehicleRecord } from "./catalog-pages";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -81,6 +82,7 @@ export function VehicleDetail({ vehicleId, locale, role, onBack, onEdit }: { veh
 }
 
 function AddServiceForm({ vehicleId, entry, mechanics, locale, onClose, onSaved }: { vehicleId: string; entry: ServiceEntry | null; mechanics: Mechanic[]; locale: Locale; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [serviceDate, setServiceDate] = useState(() => {
     if (entry) return entry.serviceDate;
     const now = new Date();
@@ -113,7 +115,7 @@ function AddServiceForm({ vehicleId, entry, mechanics, locale, onClose, onSaved 
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal" role="dialog" aria-modal="true">
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" tabIndex={-1}>
       <div className="modal-header"><div><span className="eyebrow">MM DIRECTORY</span><h2>{entry ? (locale === "cs" ? "Upravit servis" : "Edit service") : (locale === "cs" ? "Přidat servis" : "Add service")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid">

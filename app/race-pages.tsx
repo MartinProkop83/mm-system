@@ -17,6 +17,7 @@ import { ClothingLightbox, type ClothingPhotoPreview } from "./clothing-photo";
 import type { CircuitRecord } from "./circuits-page";
 import { formatCount, pluralForm, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
 const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
@@ -1250,16 +1251,9 @@ function ExtraForm({ locale, raceId, category, engines, carburetors, onClose, on
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   const titleId = useId();
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useModalA11y(onClose);
 
-  useEffect(() => {
-    closeButtonRef.current?.focus();
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [onClose]);
-
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="modal race-modal" role="dialog" aria-modal="true" aria-labelledby={titleId}><div className="modal-header"><div><span className="eyebrow">MM RACE CONTROL</span><h2 id={titleId}>{title}</h2></div><button ref={closeButtonRef} className="close-button" type="button" onClick={onClose} aria-label={title ? `Zavřít: ${title}` : "Zavřít"}>×</button></div>{children}</section></div>;
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal race-modal" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MM RACE CONTROL</span><h2 id={titleId}>{title}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={title ? `Zavřít: ${title}` : "Zavřít"}>×</button></div>{children}</section></div>;
 }
 
 function ModalActions({ locale, saving, onClose }: { locale: Locale; saving: boolean; onClose: () => void }) {

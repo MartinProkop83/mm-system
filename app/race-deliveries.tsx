@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { formatCount, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
+import { useModalA11y } from "./use-modal-a11y";
 
 const ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
@@ -199,6 +200,7 @@ function FollowupField({ locale, label, value, field, canEdit, checkable = false
 }
 
 function DeliveryForm({ raceId, delivery, locale, onClose, onSaved }: { raceId: string; delivery: RaceDelivery | null; locale: Locale; onClose: () => void; onSaved: () => void }) {
+  const dialogRef = useModalA11y(onClose);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -238,7 +240,7 @@ function DeliveryForm({ raceId, delivery, locale, onClose, onSaved }: { raceId: 
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-    <section className="modal race-modal" role="dialog" aria-modal="true">
+    <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal race-modal" role="dialog" aria-modal="true" tabIndex={-1}>
       <div className="modal-header"><div><span className="eyebrow">MM RACE CONTROL</span><h2>{delivery ? (locale === "cs" ? "Upravit předávku" : "Edit delivery") : (locale === "cs" ? "Nová předávka" : "New delivery")}</h2></div><button className="close-button" type="button" onClick={onClose}>×</button></div>
       <form onSubmit={submit}>
         <div className="form-grid delivery-form-grid">
