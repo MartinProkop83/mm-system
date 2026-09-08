@@ -14,11 +14,18 @@ type ServiceFormState = { mode: "create" } | { mode: "edit"; service: Service };
 
 export function CarburetorDetail({ carburetorId, locale, role, onBack, onEdit }: { carburetorId: string; locale: Locale; role: Role; onBack: () => void; onEdit: (carburetor: CarburetorRecord) => void }) {
   const [data, setData] = useState<DetailData | null>(null);
+  const [error, setError] = useState(false);
   const [tab, setTab] = useState<"overview" | "history" | "service">("overview");
   const [serviceForm, setServiceForm] = useState<ServiceFormState | null>(null);
   async function load() {
-    const response = await fetch(`/api/carburetor-records?id=${encodeURIComponent(carburetorId)}`, { cache: "no-store" });
-    if (response.ok) setData(await response.json() as DetailData);
+    try {
+      const response = await fetch(`/api/carburetor-records?id=${encodeURIComponent(carburetorId)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("load failed");
+      setData(await response.json() as DetailData);
+      setError(false);
+    } catch {
+      setError(true);
+    }
   }
   useEffect(() => { void load(); }, [carburetorId]);
   const current = useMemo(() => {
@@ -26,6 +33,7 @@ export function CarburetorDetail({ carburetorId, locale, role, onBack, onEdit }:
     return active ?? data?.assignments.filter((item) => item.raceStatus === "planned").sort((a, b) => a.startDate.localeCompare(b.startDate))[0] ?? null;
   }, [data]);
 
+  if (error) return <section className="dash-panel empty-state error-state"><b>!</b><p>{locale === "cs" ? "Kartu karburátoru se nepodařilo načíst." : "Could not load the carburetor card."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></section>;
   if (!data) return <section className="dash-panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám kartu karburátoru…" : "Loading carburetor card…"}</p></section>;
   const carb = data.carburetor;
   const family = (carb.family || "").toLowerCase();

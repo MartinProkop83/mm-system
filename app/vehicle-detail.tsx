@@ -14,21 +14,23 @@ type DetailData = { vehicle: VehicleRecord; assignments: Assignment[]; serviceEn
 
 export function VehicleDetail({ vehicleId, locale, role, onBack, onEdit }: { vehicleId: string; locale: Locale; role: Role; onBack: () => void; onEdit: (vehicle: VehicleRecord) => void }) {
   const [data, setData] = useState<DetailData | null>(null);
+  const [error, setError] = useState(false);
   const [serviceForm, setServiceForm] = useState<{ mode: "create" } | { mode: "edit"; entry: ServiceEntry } | null>(null);
 
   async function load() {
-    const response = await fetch(`/api/vehicle-records?id=${encodeURIComponent(vehicleId)}`, { cache: "no-store" });
-    setData((await response.json()) as DetailData);
+    try {
+      const response = await fetch(`/api/vehicle-records?id=${encodeURIComponent(vehicleId)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("load failed");
+      setData((await response.json()) as DetailData);
+      setError(false);
+    } catch {
+      setError(true);
+    }
   }
 
-  useEffect(() => {
-    let active = true;
-    fetch(`/api/vehicle-records?id=${encodeURIComponent(vehicleId)}`, { cache: "no-store" })
-      .then((response) => response.json())
-      .then((result) => { if (active) setData(result as DetailData); });
-    return () => { active = false; };
-  }, [vehicleId]);
+  useEffect(() => { void load(); }, [vehicleId]);
 
+  if (error) return <section className="dash-panel empty-state error-state"><b>!</b><p>{locale === "cs" ? "Kartu auta se nepodařilo načíst." : "Could not load the vehicle card."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></section>;
   if (!data) return <section className="dash-panel empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám kartu auta…" : "Loading vehicle card…"}</p></section>;
   const vehicle = data.vehicle;
 

@@ -53,6 +53,7 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
   const [parts, setParts] = useState<InventoryPart[]>([]);
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [editing, setEditing] = useState<TeamVisit | null | undefined>(undefined);
   const canManage = role !== "mechanic" && (race.status !== "completed" || role === "superadmin");
 
@@ -65,7 +66,8 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
         fetch("/api/inventory", { cache: "no-store" }),
         fetch("/api/service-catalog", { cache: "no-store" }),
       ]);
-      if (visitsResponse.ok) setVisits(((await visitsResponse.json()) as { visits?: TeamVisit[] }).visits ?? []);
+      if (!visitsResponse.ok) throw new Error("load failed");
+      setVisits(((await visitsResponse.json()) as { visits?: TeamVisit[] }).visits ?? []);
       if (catalogResponse.ok) {
         const catalogData = await catalogResponse.json() as { teams?: Array<{ id: string; name: string; logoUrl?: string }>; drivers?: Array<{ id: string; name: string; teamId: string | null }>; mechanics?: Array<{ id: string; name: string }> };
         setTeams((catalogData.teams ?? []).map((team) => ({ id: team.id, name: team.name, logoUrl: team.logoUrl })));
@@ -74,6 +76,9 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
       }
       if (partsResponse.ok) setParts(((await partsResponse.json()) as { parts?: InventoryPart[] }).parts ?? []);
       if (servicesResponse.ok) setServices(((await servicesResponse.json()) as { services?: ServiceItem[] }).services ?? []);
+      setError(false);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -115,7 +120,7 @@ export function RaceTeamVisitsPanel({ race, locale, role }: { race: RaceInfo; lo
         <div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM RACE CONTROL</span><h2>{locale === "cs" ? "Jiné týmy" : "Other teams"}</h2><p>{locale === "cs" ? "Když k nám na place přijde někdo z jiného týmu pro díl, servis nebo něco ze skladu." : "When someone from another team stops by our pit for a part, service, or stock item."}</p></div>
         <div className="race-team-visits-summary"><span>{formatCount(visits.length, locale, RECORD_FORMS)}</span>{canManage && <button className="primary-button no-print" type="button" onClick={() => setEditing(null)}>＋ {locale === "cs" ? "Přidat návštěvu" : "Add visit"}</button>}</div>
       </header>
-      {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div> : groups.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádné návštěvy jiných týmů." : "No visits from other teams yet."}</p> : <div className="race-team-visits-groups">
+      {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div> : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Návštěvy se nepodařilo načíst." : "Could not load visits."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div> : groups.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádné návštěvy jiných týmů." : "No visits from other teams yet."}</p> : <div className="race-team-visits-groups">
         {groups.map((group) => <article className="race-team-visit-group" key={group.teamId ?? group.teamName}>
           <header><RaceLogoBadge logoUrl={group.logoUrl} name={group.teamName} fallback="♙" size="small" /><strong>{group.teamName}</strong><span>{group.items.length}</span></header>
           <div className="race-team-visit-rows">{group.items.map((visit) => <div className="race-team-visit-row" key={visit.id}>

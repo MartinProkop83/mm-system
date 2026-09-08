@@ -21,12 +21,17 @@ type ActivityEntry = {
 export function RaceActivityPanel({ race, locale, active }: { race: RaceInfo; locale: Locale; active: boolean }) {
   const [activity, setActivity] = useState<ActivityEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   async function load() {
     setLoading(true);
     try {
       const response = await fetch(`/api/race-activity?raceId=${encodeURIComponent(race.id)}`, { cache: "no-store" });
-      if (response.ok) setActivity(((await response.json()) as { activity?: ActivityEntry[] }).activity ?? []);
+      if (!response.ok) throw new Error("load failed");
+      setActivity(((await response.json()) as { activity?: ActivityEntry[] }).activity ?? []);
+      setError(false);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -40,6 +45,7 @@ export function RaceActivityPanel({ race, locale, active }: { race: RaceInfo; lo
       <span>{formatCount(activity.length, locale, RECORD_FORMS)}</span>
     </header>
     {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div>
+      : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Historii se nepodařilo načíst." : "Could not load the history."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div>
       : activity.length === 0 ? <p className="category-empty">{locale === "cs" ? "Zatím žádná zaznamenaná aktivita." : "No recorded activity yet."}</p>
         : <ul className="race-activity-list">{activity.map((entry) => <li className="race-activity-row" key={entry.id}>
           <span className={`race-activity-dot tone-${activityTone(entry.action)}`} />

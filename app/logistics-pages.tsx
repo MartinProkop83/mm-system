@@ -63,6 +63,7 @@ const emptyData: LogisticsData = { races: [], travelers: [], accommodations: [],
 export function LogisticsPage({ kind, locale, role }: { kind: LogisticsKind; locale: Locale; role: Role }) {
   const [data, setData] = useState<LogisticsData>(emptyData);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [form, setForm] = useState<TravelRecord | "new" | null>(null);
   const [detail, setDetail] = useState<TravelRecord | null>(null);
   const records = kind === "accommodation" ? data.accommodations : kind === "flight" ? data.flights : data.rentals;
@@ -74,6 +75,9 @@ export function LogisticsPage({ kind, locale, role }: { kind: LogisticsKind; loc
       const response = await fetch("/api/logistics", { cache: "no-store" });
       if (!response.ok) throw new Error("load failed");
       setData((await response.json()) as LogisticsData);
+      setError(false);
+    } catch {
+      setError(true);
     } finally { setLoading(false); }
   }
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, []);
@@ -89,7 +93,7 @@ export function LogisticsPage({ kind, locale, role }: { kind: LogisticsKind; loc
   return <div className="logistics-page">
     <section className="dash-panel logistics-header"><div><span className="eyebrow">MM TRAVEL</span><h2>{title}</h2><p>{kind === "accommodation" ? (locale === "cs" ? "Ubytování, adresy, termíny a všechny rezervační podklady." : "Accommodation, addresses, dates and all booking documents.") : kind === "flight" ? (locale === "cs" ? "Společné i samostatné lety, cestující, boarding passy a rezervace." : "Shared and individual flights, passengers, boarding passes and bookings.") : (locale === "cs" ? "Pronajatá auta, místa převzetí a vrácení včetně příloh." : "Rental cars, pickup and return locations including attachments.")}</p></div><div><strong>{records.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setForm("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
     <section className="dash-panel logistics-card-panel">
-      {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div> : records.length === 0 ? <div className="empty-state"><span className="empty-engine">{kindIcon(kind)}</span><h2>{locale === "cs" ? "Zatím bez záznamů" : "No records yet"}</h2><p>{locale === "cs" ? "První záznam můžeš vytvořit tady nebo přímo v detailu závodu." : "Create the first record here or directly in a race."}</p></div> : <div className="logistics-card-grid">{records.map((record) => <TravelRecordCard key={record.id} kind={kind} record={record} locale={locale} role={role} onOpen={() => setDetail(record)} onEdit={() => setForm(record)} onDelete={() => { void remove(record); }} />)}</div>}
+      {loading ? <div className="empty-state"><span className="spinner" /><p>{locale === "cs" ? "Načítám…" : "Loading…"}</p></div> : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Záznamy se nepodařilo načíst." : "Could not load records."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div> : records.length === 0 ? <div className="empty-state"><span className="empty-engine">{kindIcon(kind)}</span><h2>{locale === "cs" ? "Zatím bez záznamů" : "No records yet"}</h2><p>{locale === "cs" ? "První záznam můžeš vytvořit tady nebo přímo v detailu závodu." : "Create the first record here or directly in a race."}</p></div> : <div className="logistics-card-grid">{records.map((record) => <TravelRecordCard key={record.id} kind={kind} record={record} locale={locale} role={role} onOpen={() => setDetail(record)} onEdit={() => setForm(record)} onDelete={() => { void remove(record); }} />)}</div>}
     </section>
     {detail && <TravelDetailModal kind={kind} record={detail} locale={locale} canManage={canManage} onEdit={() => { setDetail(null); setForm(detail); }} onClose={() => setDetail(null)} />}
     {form && <LogisticsForm kind={kind} locale={locale} races={data.races} travelers={data.travelers} record={form === "new" ? null : form} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await load(); }} />}
@@ -236,12 +240,25 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
 
 export function RaceLogisticsPanel({ raceId, locale, role }: { raceId: string; locale: Locale; role: Role }) {
   const [data, setData] = useState<LogisticsData>(emptyData);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
   const [form, setForm] = useState<{ kind: LogisticsKind; record: TravelRecord | null } | null>(null);
   const [detail, setDetail] = useState<{ kind: LogisticsKind; record: TravelRecord } | null>(null);
   const canManage = role !== "mechanic";
-  async function load() { const response = await fetch(`/api/logistics?raceId=${encodeURIComponent(raceId)}`, { cache: "no-store" }); if (response.ok) setData((await response.json()) as LogisticsData); }
+  async function load() {
+    setLoading(true);
+    try {
+      const response = await fetch(`/api/logistics?raceId=${encodeURIComponent(raceId)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error("load failed");
+      setData((await response.json()) as LogisticsData);
+      setError(false);
+    } catch {
+      setError(true);
+    } finally { setLoading(false); }
+  }
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [raceId]);
-  return <section className="dash-panel race-travel-panel"><header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM TRAVEL</span><h3>{locale === "cs" ? "Cesta a ubytování" : "Travel & accommodation"}</h3><p>{locale === "cs" ? "Kliknutím otevřeš všechny časy, místa, cestující a přílohy." : "Click to open all times, locations, passengers and attachments."}</p></div>{canManage && <div><button className="secondary-compact" type="button" onClick={() => setForm({ kind: "accommodation", record: null })}>＋ {locale === "cs" ? "Ubytování" : "Accommodation"}</button><button className="secondary-compact" type="button" onClick={() => setForm({ kind: "flight", record: null })}>＋ {locale === "cs" ? "Letenka" : "Flight"}</button><button className="secondary-compact" type="button" onClick={() => setForm({ kind: "rental", record: null })}>＋ {locale === "cs" ? "Pronájem auta" : "Car rental"}</button></div>}</header><div className="race-travel-grid"><RaceTravelGroup kind="accommodation" records={data.accommodations} locale={locale} onOpen={(record) => setDetail({ kind: "accommodation", record })} /><RaceTravelGroup kind="flight" records={data.flights} locale={locale} onOpen={(record) => setDetail({ kind: "flight", record })} /><RaceTravelGroup kind="rental" records={data.rentals} locale={locale} onOpen={(record) => setDetail({ kind: "rental", record })} /></div>
+  return <section className="dash-panel race-travel-panel"><header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM TRAVEL</span><h3>{locale === "cs" ? "Cesta a ubytování" : "Travel & accommodation"}</h3><p>{locale === "cs" ? "Kliknutím otevřeš všechny časy, místa, cestující a přílohy." : "Click to open all times, locations, passengers and attachments."}</p></div>{canManage && <div><button className="secondary-compact" type="button" onClick={() => setForm({ kind: "accommodation", record: null })}>＋ {locale === "cs" ? "Ubytování" : "Accommodation"}</button><button className="secondary-compact" type="button" onClick={() => setForm({ kind: "flight", record: null })}>＋ {locale === "cs" ? "Letenka" : "Flight"}</button><button className="secondary-compact" type="button" onClick={() => setForm({ kind: "rental", record: null })}>＋ {locale === "cs" ? "Pronájem auta" : "Car rental"}</button></div>}</header>
+    {loading ? <div className="empty-state"><span className="spinner" /></div> : error ? <div className="empty-state error-state"><b>!</b><p>{locale === "cs" ? "Cestu a ubytování se nepodařilo načíst." : "Could not load travel & accommodation."}</p><button className="secondary-compact" type="button" onClick={() => { void load(); }}>{locale === "cs" ? "Zkusit znovu" : "Try again"}</button></div> : <div className="race-travel-grid"><RaceTravelGroup kind="accommodation" records={data.accommodations} locale={locale} onOpen={(record) => setDetail({ kind: "accommodation", record })} /><RaceTravelGroup kind="flight" records={data.flights} locale={locale} onOpen={(record) => setDetail({ kind: "flight", record })} /><RaceTravelGroup kind="rental" records={data.rentals} locale={locale} onOpen={(record) => setDetail({ kind: "rental", record })} /></div>}
     {detail && <TravelDetailModal kind={detail.kind} record={detail.record} locale={locale} canManage={canManage} onEdit={() => { setForm({ kind: detail.kind, record: detail.record }); setDetail(null); }} onClose={() => setDetail(null)} />}
     {form && <LogisticsForm kind={form.kind} locale={locale} races={data.races} travelers={data.travelers} record={form.record} lockedRaceId={raceId} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await load(); }} />}
   </section>;
