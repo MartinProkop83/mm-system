@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { EDIT_WINDOW_MS, SORT_STEP, type MaterialSnapshot } from "../../service-card-shared";
 
 /**
@@ -149,8 +149,9 @@ async function loadRecords(d1: ReturnType<typeof getD1>, engineId: string) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
 
   await ensureRuntimeSchema();
   const d1 = getD1();
@@ -352,13 +353,56 @@ async function reconcileTechnicalValues(
   return `Rozměry ponechány rozdílné (vědomě): ${divergences.join("; ")}`;
 }
 
+/**
+ * Uložený servis odbaví všechny otevřené položky fronty daného motoru.
+ *
+ * Nerozlišuje se, kterou položku mechanik „myslel" — když motor přijel ze dvou závodů po sobě
+ * a dostal jeden servis, je odservisovaný z obou. Zápis do fronty patří sem, a ne do
+ * `/api/service-queue`, aby se historie a fronta nemohly rozejít.
+ */
+async function resolveQueueForEngine(d1: ReturnType<typeof getD1>, engineId: string, serviceRecordId: string, actor: string, now: number) {
+  const open = await d1.prepare(`
+    SELECT 'race' AS sourceType, r.id AS sourceId
+    FROM race_entries re
+    JOIN races r ON r.id = re.race_id
+    WHERE r.status != 'archived' AND r.end_date < date('now')
+      AND ? IN (re.engine_1_id, re.engine_2_id, re.engine_3_id)
+      AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
+                      WHERE q.engine_id = ? AND q.source_type = 'race' AND q.source_id = r.id)
+    UNION
+    SELECT 'loan', l.id
+    FROM engine_loans l
+    WHERE l.engine_id = ? AND l.actual_return_date IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
+                      WHERE q.engine_id = ? AND q.source_type = 'loan' AND q.source_id = l.id)
+    UNION
+    SELECT 'manual', m.id
+    FROM engine_service_queue_manual m
+    WHERE m.engine_id = ?
+      AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
+                      WHERE q.engine_id = ? AND q.source_type = 'manual' AND q.source_id = m.id)
+  `).bind(engineId, engineId, engineId, engineId, engineId, engineId).all<{ sourceType: string; sourceId: string }>();
+  if (open.results.length === 0) return;
+
+  const statements = open.results.map((row) => d1.prepare(`
+    INSERT INTO engine_service_queue_resolutions (id, engine_id, source_type, source_id, resolution, service_record_id, resolved_by, resolved_at)
+    VALUES (?, ?, ?, ?, 'serviced', ?, ?, ?)
+    ON CONFLICT (engine_id, source_type, source_id) DO NOTHING
+  `).bind(crypto.randomUUID(), engineId, row.sourceType, row.sourceId, serviceRecordId, actor, now));
+
+  for (let offset = 0; offset < statements.length; offset += 50) {
+    await d1.batch(statements.slice(offset, offset + 50));
+  }
+}
+
 async function resolveMechanic(d1: ReturnType<typeof getD1>, mechanicId: string) {
   return d1.prepare("SELECT id, name FROM mechanics WHERE id = ? AND archived_at IS NULL").bind(mechanicId).first<{ id: string; name: string }>();
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const body = await readPayload(request);
   if (body.error) return body.error;
   const { payload } = body;
@@ -417,13 +461,16 @@ export async function POST(request: Request) {
     `).bind(crypto.randomUUID(), user.email, engine.id, JSON.stringify({ recordId: id, serviceDate, items: built.items.length }), now),
   ]);
 
+  await resolveQueueForEngine(d1, engine.id, id, user.email, now);
+
   return Response.json({ records: await loadRecords(d1, engine.id) }, { status: 201 });
 }
 
 /** Oprava záznamu — jen do 24 hodin od zápisu a jen pro autora nebo superadmina. */
 export async function PATCH(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const body = await readPayload(request);
   if (body.error) return body.error;
   const { payload } = body;
@@ -478,8 +525,9 @@ export async function PATCH(request: Request) {
 
 /** Storno s povinným důvodem. Záznam se nikdy nemaže — v historii zůstává přeškrtnutý. */
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const body = await readPayload(request);
   if (body.error) return body.error;
 

@@ -195,6 +195,38 @@ async function createRuntimeSchema() {
     // means the category has no running-hours counter at all: every interval / warning /
     // tile-colour rule is skipped for it, in the API and in the UI. Flipping it from NULL to
     // 'hours' later is a pure settings change, no migration.
+    // Fronta motorů čekajících na servis se nikam neukládá — dopočítává se ze skončených závodů
+    // a vrácených zápůjček. Ukládá se jen její OPAK: že už je daný pobyt ve frontě vyřízený.
+    // Stejný vzor jako engine_auto_service_log: unique klíč na (motor, zdroj) a ON CONFLICT
+    // DO NOTHING, takže opakované vyřízení téže položky nic nepokazí.
+    //
+    // `resolution` rozlišuje, jak se to stalo: 'serviced' = vznikl servisní záznam (jeho id je
+    // v service_record_id), 'skipped' = mechanik odklikl „Nejel / bez servisu". U obojího víme,
+    // kdo a kdy — právě kvůli tomu druhému případu, kde jinak nezůstane žádná stopa.
+    // Ruční zařazení motoru do fronty — mimo závod i zápůjčku. Mechanik nejčastěji pozná,
+    // že něco není v pořádku („divný zvuk", „kontrola po pádu"), proto to smí kdokoli přihlášený.
+    // Poznámka je povinná: bez ní by ostatní nevěděli, co na motoru hledat.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_service_queue_manual (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        note TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_service_queue_resolutions (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        source_type TEXT NOT NULL CHECK (source_type IN ('race', 'loan', 'manual')),
+        source_id TEXT NOT NULL,
+        resolution TEXT NOT NULL CHECK (resolution IN ('serviced', 'skipped')),
+        service_record_id TEXT,
+        resolved_by TEXT NOT NULL,
+        resolved_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS engine_categories (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1033,6 +1065,9 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_technical_values_unique_idx ON engine_technical_values (engine_id, field_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_values_field_idx ON engine_technical_values (field_id)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_categories_code_unique_idx ON engine_categories (code)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_queue_resolutions_unique_idx ON engine_service_queue_resolutions (engine_id, source_type, source_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_queue_resolutions_engine_idx ON engine_service_queue_resolutions (engine_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_queue_manual_engine_idx ON engine_service_queue_manual (engine_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS service_types_category_idx ON service_types (engine_category_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_types_category_code_unique_idx ON service_types (engine_category_id, code) WHERE archived_at IS NULL"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_type_default_items_unique_idx ON service_type_default_items (service_type_id, service_card_item_id)"),
@@ -1334,6 +1369,7 @@ async function createRuntimeSchema() {
   ].filter(([name]) => !existingVisitColumns.has(name));
   if (visitMechanicAdditions.length > 0) await d1.batch(visitMechanicAdditions.map(([, statement]) => d1.prepare(statement)));
   await ensureRaceTeamVisitsOilType(d1);
+  await ensureQueueResolutionManualSource(d1);
 
   const vehiclesNeedingServiceBackfill = await d1.prepare(`
     SELECT v.id, v.last_service_km AS lastServiceKm, v.last_service_note AS lastServiceNote, v.last_service_date AS lastServiceDate, v.updated_at AS updatedAt, v.created_by AS createdBy
@@ -1773,6 +1809,39 @@ async function ensureMiniServicePartCatalogSeed(d1: ReturnType<typeof getD1>) {
       VALUES (?, 'MINI', ?, ?, ?, ?, 'system', ?, ?)
     `).bind(crypto.randomUUID(), partKey, labelCs, labelEn, index, now, now)
   ));
+}
+
+/**
+ * `source_type` původně připouštěl jen 'race' a 'loan'. SQLite neumí CHECK změnit `ALTER`em,
+ * takže se tabulka přestaví — stejný postup jako `ensureRaceTeamVisitsOilType` níže.
+ */
+async function ensureQueueResolutionManualSource(d1: ReturnType<typeof getD1>) {
+  const table = await d1.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'engine_service_queue_resolutions'").first<{ sql: string }>();
+  if (!table || table.sql.includes("'manual'")) return;
+  await d1.batch([
+    d1.prepare("DROP TABLE IF EXISTS engine_service_queue_resolutions_migration"),
+    d1.prepare(`
+      CREATE TABLE engine_service_queue_resolutions_migration (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        source_type TEXT NOT NULL CHECK (source_type IN ('race', 'loan', 'manual')),
+        source_id TEXT NOT NULL,
+        resolution TEXT NOT NULL CHECK (resolution IN ('serviced', 'skipped')),
+        service_record_id TEXT,
+        resolved_by TEXT NOT NULL,
+        resolved_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      INSERT INTO engine_service_queue_resolutions_migration (id, engine_id, source_type, source_id, resolution, service_record_id, resolved_by, resolved_at)
+      SELECT id, engine_id, source_type, source_id, resolution, service_record_id, resolved_by, resolved_at
+      FROM engine_service_queue_resolutions
+    `),
+    d1.prepare("DROP TABLE engine_service_queue_resolutions"),
+    d1.prepare("ALTER TABLE engine_service_queue_resolutions_migration RENAME TO engine_service_queue_resolutions"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_queue_resolutions_unique_idx ON engine_service_queue_resolutions (engine_id, source_type, source_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_queue_resolutions_engine_idx ON engine_service_queue_resolutions (engine_id)"),
+  ]);
 }
 
 async function ensureRaceTeamVisitsOilType(d1: ReturnType<typeof getD1>) {

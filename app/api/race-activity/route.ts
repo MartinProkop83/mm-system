@@ -1,12 +1,13 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type ActivityRow = { id: string; actorEmail: string; action: string; entityType: string; entityId: string; details: string; createdAt: number };
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const raceId = new URL(request.url).searchParams.get("raceId")?.trim() ?? "";
   if (!raceId) return Response.json({ error: "Race id is required" }, { status: 400 });
   await ensureRuntimeSchema();

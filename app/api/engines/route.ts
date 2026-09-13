@@ -1,6 +1,7 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
+import { filterResponseForMechanic } from "../../api-access";
 import { applyMiniAutoService } from "../../engine-auto-service";
 
 const allowedStatuses = new Set(["ready", "service_soon", "service", "rebuild", "storage", "retired"]);
@@ -122,9 +123,10 @@ function localIsoDate(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
 
   await ensureRuntimeSchema();
   const d1 = getD1();
@@ -194,7 +196,9 @@ export async function GET() {
     (technicalValues[row.engineId] ??= {})[row.fieldId] = row.value;
   }
 
-  return Response.json({
+  // Mechanik vidí techniku motoru, ne obchod — datum nákupu, prodej, poznámky ani `location`
+  // (kde u zapůjčeného motoru figuruje jméno příjemce) se mu z odpovědi vyříznou.
+  return Response.json(filterResponseForMechanic(user.role, new URL(request.url).pathname, {
     engines,
     technicalStructure: {
       layout: layoutResult.results,
@@ -203,12 +207,13 @@ export async function GET() {
       options: optionResult.results,
     },
     technicalValues,
-  });
+  }));
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   let payload: EnginePayload;
@@ -317,8 +322,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   let payload: EnginePayload;
@@ -430,8 +436,9 @@ export async function PUT(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   let payload: EnginePayload;
@@ -531,8 +538,9 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   let payload: { id?: string };

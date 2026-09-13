@@ -1,14 +1,15 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { sniffFileType } from "../../file-signature";
 
 const allowedTypes = new Map([["image/png", "png"], ["image/jpeg", "jpg"], ["image/webp", "webp"]]);
 const maxBytes = 10 * 1024 * 1024;
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const id = new URL(request.url).searchParams.get("id")?.trim() ?? "";
   if (!id) return Response.json({ error: "Part id is required" }, { status: 400 });
@@ -23,8 +24,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   await ensureRuntimeSchema();
   const form = await request.formData().catch(() => null);
@@ -52,8 +54,9 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   await ensureRuntimeSchema();
   const payload = await request.json().catch(() => ({})) as { partId?: unknown }; const partId = String(payload.partId ?? "").trim();

@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type ActivityRow = {
   id: string;
@@ -47,9 +47,10 @@ function activitySubject(row: ActivityRow, details: Record<string, unknown>) {
   return cleanText(row.resolvedSubject);
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
 
   const result = await getD1().prepare(`

@@ -1,6 +1,7 @@
 import { getD1 } from "../db";
 import { ensureRuntimeSchema } from "../db/runtime-schema";
 import { getChatGPTUser } from "./chatgpt-auth";
+import { isApiAccessAllowed } from "./api-access";
 import { cookies } from "next/headers";
 
 export type AppRole = "superadmin" | "boss" | "mechanic";
@@ -125,4 +126,25 @@ function mapUser(row: UserRow): AppUser {
     role: row.role,
     locale: row.locale,
   };
+}
+
+/**
+ * Přihlášený uživatel pro API routu, včetně kontroly, jestli na ni vůbec smí.
+ *
+ * Tohle je jediné místo, kde se vynucuje politika z `api-access.ts` — proto ho volají všechny
+ * routy místo holého `getAppUser()`. Mechanik dostane 403 na všem, co není výslovně povolené;
+ * ostatní role projdou a případná další omezení si routa řeší sama.
+ *
+ * Vrací buď `{ user }`, nebo `{ error }` s hotovou odpovědí — stejný tvar, jaký už používají
+ * `requireSuperadmin()` helpery v jednotlivých routách.
+ */
+export async function getApiUser(request: Request) {
+  const user = await getAppUser();
+  if (!user) return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) } as const;
+
+  const { pathname } = new URL(request.url);
+  if (!isApiAccessAllowed(user.role, pathname, request.method)) {
+    return { error: Response.json({ error: "Forbidden" }, { status: 403 }) } as const;
+  }
+  return { user } as const;
 }

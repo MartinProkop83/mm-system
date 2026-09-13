@@ -1,14 +1,15 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type ServicePayload = { id?: string; name?: string; description?: string; descriptionCs?: string; descriptionEn?: string; priceCzkCents?: number; priceEurCents?: number };
 function clean(value: unknown, max = 300) { return String(value ?? "").trim().slice(0, max); }
 function price(value: unknown) { const number = Number(value); return Number.isInteger(number) && number >= 0 && number <= 1_000_000_000 ? number : null; }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const result = await getD1().prepare("SELECT id, name, description_cs AS descriptionCs, description_en AS descriptionEn, description_cs AS description, price_czk_cents AS priceCzkCents, price_eur_cents AS priceEurCents, created_at AS createdAt, updated_at AS updatedAt FROM service_catalog WHERE archived_at IS NULL ORDER BY name COLLATE NOCASE").all();
   return Response.json({ services: result.results });
@@ -18,8 +19,9 @@ export async function POST(request: Request) { return authorizeAndSave(request, 
 export async function PUT(request: Request) { return authorizeAndSave(request, true); }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   await ensureRuntimeSchema();
   let payload: ServicePayload;
@@ -30,8 +32,9 @@ export async function DELETE(request: Request) {
 }
 
 async function authorizeAndSave(request: Request, editing: boolean) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   let payload: ServicePayload;
   try { payload = await request.json() as ServicePayload; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }

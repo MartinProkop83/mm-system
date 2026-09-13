@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type ChecklistItemPayload = { section?: string; partNumber?: string; name?: string; quantity?: number };
 type ChecklistPayload = { id?: string; name?: string; notes?: string; items?: ChecklistItemPayload[] };
@@ -10,9 +10,10 @@ function clean(value: unknown, max = 300) {
   return String(value ?? "").trim().slice(0, max);
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const d1 = getD1();
   const checklists = await d1.prepare(
@@ -36,8 +37,9 @@ export async function POST(request: Request) { return authorizeAndSave(request, 
 export async function PUT(request: Request) { return authorizeAndSave(request, true); }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   await ensureRuntimeSchema();
   let payload: ChecklistPayload;
@@ -48,8 +50,9 @@ export async function DELETE(request: Request) {
 }
 
 async function authorizeAndSave(request: Request, editing: boolean) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   let payload: ChecklistPayload;
   try { payload = await request.json() as ChecklistPayload; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }

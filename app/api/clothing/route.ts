@@ -1,6 +1,6 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { clothingImageUrl } from "../../clothing-image-url";
 
 type Payload = {
@@ -65,9 +65,10 @@ async function readPayload(request: Request): Promise<Payload | Response> {
   catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const d1 = getD1();
   const [items, mechanics, assignments] = await Promise.all([
@@ -97,8 +98,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -125,8 +127,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -155,8 +158,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;

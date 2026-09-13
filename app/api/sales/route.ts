@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser, type AppUser } from "../../server-auth";
+import { getApiUser, type AppUser } from "../../server-auth";
 
 type ItemType = "engine" | "carburetor" | "part" | "service" | "other";
 type SaleItemPayload = { itemType?: ItemType; resourceId?: string | null; code?: string; description?: string; descriptionEn?: string; quantity?: number; unitPriceCents?: number };
@@ -28,8 +28,9 @@ type ExistingItem = { itemType: string; lineKind: string; resourceId: string; qu
 function clean(value: unknown, max = 300) { return String(value ?? "").trim().slice(0, max); }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const d1 = getD1();
   const raceId = clean(new URL(request.url).searchParams.get("raceId"), 80);
@@ -84,16 +85,18 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request); if (payload instanceof Response) return payload;
   await ensureRuntimeSchema(); return saveSale(payload, user, false);
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request); if (payload instanceof Response) return payload;
   if (!payload.id) return Response.json({ error: "Sale id is required" }, { status: 400 });
@@ -101,8 +104,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request); if (payload instanceof Response) return payload;
   if (!payload.id) return Response.json({ error: "Sale id is required" }, { status: 400 });

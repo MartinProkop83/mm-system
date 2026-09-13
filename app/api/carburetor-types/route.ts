@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { carburetorTypePhotoUrl } from "../../carburetor-type-photo";
 
 const categories = new Set(["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"]);
@@ -14,17 +14,19 @@ function parseCategories(value: unknown) {
   return [...new Set(values.map((item) => clean(item, 20).toUpperCase()).filter((item) => categories.has(item)))];
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const rows = await getD1().prepare(`SELECT id, brand, model, categories, notes, photo_key AS photoKey, photo_updated_at AS photoUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM carburetor_types WHERE archived_at IS NULL ORDER BY brand, model`).all<Record<string, unknown>>();
   return Response.json({ carburetorTypes: rows.results.map((row) => ({ ...row, categories: parseCategories(row.categories), photoUrl: carburetorTypePhotoUrl(row.id, row.photoKey, row.photoUpdatedAt) })) });
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -46,8 +48,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -69,8 +72,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;

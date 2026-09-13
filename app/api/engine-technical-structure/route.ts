@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type LayoutRow = { family: string; columnCount: number; updatedBy: string; updatedAt: number };
 type SectionRow = { id: string; family: string; labelCs: string; labelEn: string; sortOrder: number; archivedAt: number | null };
@@ -41,9 +41,10 @@ function clean(value: unknown, max = 160) {
   return String(value ?? "").trim().slice(0, max);
 }
 
-async function requireSuperadmin() {
-  const user = await getAppUser();
-  if (!user) return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) } as const;
+async function requireSuperadmin(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return { error: auth.error } as const;
+  const user = auth.user;
   if (user.role !== "superadmin") return { error: Response.json({ error: "Forbidden" }, { status: 403 }) } as const;
   return { user } as const;
 }
@@ -56,8 +57,10 @@ async function readPayload(request: Request): Promise<Payload | Response> {
   }
 }
 
-export async function GET() {
-  const auth = await requireSuperadmin();
+export async function GET(request: Request) {
+  // Čtení smí i mechanik — bez položek karty a katalogu materiálu nemá jak zapsat servis.
+  // Zápisy níž si dál hlídá requireSuperadmin.
+  const auth = await getApiUser(request);
   if (auth.error) return auth.error;
 
   await ensureRuntimeSchema();
@@ -152,7 +155,7 @@ async function copyStructure(d1: ReturnType<typeof getD1>, fromFamily: string, t
 }
 
 export async function POST(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -298,7 +301,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -373,7 +376,7 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;

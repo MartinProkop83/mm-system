@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { type AppRole, getAppUser } from "../../server-auth";
+import { type AppRole, getApiUser } from "../../server-auth";
 
 type UserPayload = {
   id?: unknown;
@@ -45,8 +45,10 @@ async function readPayload(request: Request) {
   }
 }
 
-async function requireSuperadmin() {
-  const user = await getAppUser();
+async function requireSuperadmin(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return { error: auth.error } as const;
+  const user = auth.user;
   if (!user) return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) };
   if (user.role !== "superadmin") return { error: Response.json({ error: "Forbidden" }, { status: 403 }) };
   return { user };
@@ -59,8 +61,8 @@ function mapUser(row: UserRow) {
   };
 }
 
-export async function GET() {
-  const auth = await requireSuperadmin();
+export async function GET(request: Request) {
+  const auth = await requireSuperadmin(request);
   if ("error" in auth) return auth.error;
 
   await ensureRuntimeSchema();
@@ -75,7 +77,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if ("error" in auth) return auth.error;
 
   const payload = await readPayload(request);
@@ -115,7 +117,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if ("error" in auth) return auth.error;
 
   const payload = await readPayload(request);

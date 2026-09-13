@@ -1,9 +1,10 @@
 import { resolveCircuitLocation, resolveCircuitTravel, type CircuitLocationInput } from "../../circuit-location";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await request.json().catch(() => null) as CircuitLocationInput | null;
   if (!payload) return Response.json({ error: "Invalid JSON" }, { status: 400 });
   const location = await resolveCircuitLocation(payload);

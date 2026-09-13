@@ -1,6 +1,6 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { inventoryImageUrl } from "../../inventory-image-url";
 
 type PartPayload = { id?: string; code?: string; name?: string; categories?: unknown; quantity?: number; unit?: string; priceCzkCents?: number; priceEurCents?: number; notes?: string };
@@ -17,9 +17,10 @@ function parseCategories(value: unknown) {
   return categories.includes("ALL") ? ["ALL"] : categories;
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const result = await getD1().prepare("SELECT id, code, name, categories, quantity, unit, price_czk_cents AS priceCzkCents, price_eur_cents AS priceEurCents, notes, image_key AS imageKey, image_updated_at AS imageUpdatedAt, created_at AS createdAt, updated_at AS updatedAt FROM inventory_parts WHERE archived_at IS NULL ORDER BY code COLLATE NOCASE").all<PartRow>();
   return Response.json({ parts: result.results.map((part) => ({ ...part, categories: parseCategories(part.categories), imageUrl: inventoryImageUrl(part.id, part.imageKey, part.imageUpdatedAt) })) });
@@ -29,8 +30,9 @@ export async function POST(request: Request) { return authorizeAndSave(request, 
 export async function PUT(request: Request) { return authorizeAndSave(request, true); }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   await ensureRuntimeSchema();
   let payload: PartPayload;
@@ -44,8 +46,9 @@ export async function DELETE(request: Request) {
 }
 
 async function authorizeAndSave(request: Request, editing: boolean) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   let payload: PartPayload;
   try { payload = await request.json() as PartPayload; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }

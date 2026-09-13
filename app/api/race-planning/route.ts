@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser, type AppUser } from "../../server-auth";
+import { getApiUser, type AppUser } from "../../server-auth";
 
 const categories = new Set(["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"]);
 type PlanningKind = "entry" | "mechanic" | "vehicle" | "extra" | "confirmation" | "reorder" | "confirmAll";
@@ -55,8 +55,9 @@ async function assertWritable(race: RaceRow, user: AppUser) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const raceId = new URL(request.url).searchParams.get("raceId")?.trim() ?? "";
   if (!raceId) return Response.json({ error: "Race id is required" }, { status: 400 });
   await ensureRuntimeSchema();
@@ -104,8 +105,9 @@ async function loadEquipmentAssignments() {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const raceId = clean(payload.raceId);
@@ -123,8 +125,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const idlessKinds = new Set(["reorder", "confirmAll"]);
@@ -142,8 +145,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const race = await getRace(clean(payload.raceId));

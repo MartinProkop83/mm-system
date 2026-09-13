@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type ServicePayload = { id?: string; vehicleId?: string; serviceDate?: string; km?: string | number; workDone?: string; mechanicId?: string };
 
@@ -37,8 +37,9 @@ async function resolveMechanic(d1: ReturnType<typeof getD1>, payload: ServicePay
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const vehicleId = clean(new URL(request.url).searchParams.get("vehicleId"), 80);
   if (!vehicleId) return Response.json({ error: "Vehicle id is required" }, { status: 400 });
@@ -51,8 +52,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: ServicePayload;
   try { payload = await request.json() as ServicePayload; }
   catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -79,8 +81,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: ServicePayload;
   try { payload = await request.json() as ServicePayload; }
   catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -108,8 +111,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   let payload: Pick<ServicePayload, "id" | "vehicleId">;
   try { payload = await request.json() as Pick<ServicePayload, "id" | "vehicleId">; }

@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type DevUserRow = {
   id: string;
@@ -14,10 +14,12 @@ function unavailable() {
   return Response.json({ error: "Not found" }, { status: 404 });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   if (process.env.NODE_ENV === "production") return unavailable();
 
-  const currentUser = await getAppUser();
+  const currentAuth = await getApiUser(request);
+  if (currentAuth.error) return currentAuth.error;
+  const currentUser = currentAuth.user;
   if (!currentUser) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   await ensureRuntimeSchema();
@@ -35,7 +37,9 @@ export async function GET() {
 export async function POST(request: Request) {
   if (process.env.NODE_ENV === "production") return unavailable();
 
-  const currentUser = await getAppUser();
+  const currentAuth = await getApiUser(request);
+  if (currentAuth.error) return currentAuth.error;
+  const currentUser = currentAuth.user;
   if (!currentUser) return Response.json({ error: "Unauthorized" }, { status: 401 });
 
   let payload: { userId?: unknown };

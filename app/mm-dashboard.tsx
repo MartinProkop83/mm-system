@@ -14,7 +14,8 @@ import { TaskPage, type WorkItem } from "./task-pages";
 import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
-import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pages";
+import { CustomersPage, InventoryPage } from "./commerce-pages";
+import { ServiceQueuePage } from "./service-queue-page";
 import { ChecklistsPage } from "./checklist-pages";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
@@ -489,6 +490,9 @@ export default function Home() {
   const [quickServiceOpen, setQuickServiceOpen] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<EngineRecord | null>(null);
   const [detailEngineId, setDetailEngineId] = useState<string | null>(null);
+  // Vstup z fronty na servis: karta se otevře rovnou v zápisu servisu a po uložení
+  // se mechanik vrátí zpátky do fronty, ne na detail motoru.
+  const [serviceEntryFromQueue, setServiceEntryFromQueue] = useState(false);
   const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
   const [raceDetailOpen, setRaceDetailOpen] = useState(false);
@@ -879,7 +883,15 @@ export default function Home() {
             canManage={session ? session.role !== "mechanic" : false}
             role={session?.role ?? "mechanic"}
             currentUserName={session?.fullName ?? ""}
-            onBack={() => setDetailEngineId(null)}
+            openServiceEntry={serviceEntryFromQueue}
+            onServiceEntryClosed={() => setServiceEntryFromQueue(false)}
+            onServiceSaved={() => {
+              if (!serviceEntryFromQueue) return;
+              setServiceEntryFromQueue(false);
+              setDetailEngineId(null);
+              setView("service");
+            }}
+            onBack={() => { setServiceEntryFromQueue(false); setDetailEngineId(null); }}
             onEdit={() => openEngineEdit(detailEngine)}
             onSaved={syncEngine}
             showNotice={showNotice}
@@ -899,7 +911,15 @@ export default function Home() {
         {view === "accommodation" && <LogisticsPage kind="accommodation" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "flights" && <LogisticsPage kind="flight" locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "rentals" && <LogisticsPage kind="rental" locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "service" && <ServiceCatalogPage locale={locale} role={session?.role ?? "mechanic"} />}
+        {/* Ceník se ze sekce Servis odpojil — tabulka `service_catalog` i její API zůstávají
+            a dál je používá Prodej. Servis = fronta motorů čekajících na vyřízení. */}
+        {view === "service" && (
+          <ServiceQueuePage
+            locale={locale}
+            fullscreenHref="/servis-fronta"
+            onOpenEngineService={(engineId) => { setServiceEntryFromQueue(true); setDetailEngineId(engineId); setView("engines"); }}
+          />
+        )}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
@@ -1496,7 +1516,7 @@ function EngineLoansOverviewPanel({ locale, onClose, onOpenEngine }: { locale: L
   );
 }
 
-function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, onBack, onEdit, onSaved, showNotice }: {
+function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, openServiceEntry = false, onServiceEntryClosed, onServiceSaved, onBack, onEdit, onSaved, showNotice }: {
   locale: Locale;
   engine: EngineRecord;
   technicalStructure: TechnicalStructureData;
@@ -1505,13 +1525,17 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   canManage: boolean;
   role: AppSession["role"];
   currentUserName: string;
+  /** Vstup z fronty na servis — karta se rovnou otevře v zápisu servisu. */
+  openServiceEntry?: boolean;
+  onServiceEntryClosed?: () => void;
+  onServiceSaved?: () => void;
   onBack: () => void;
   onEdit: () => void;
   onSaved: (engine: EngineRecord) => void;
   showNotice: (message: string) => void;
 }) {
   const t = copy[locale];
-  const [tab, setTab] = useState<EngineDetailTab>("overview");
+  const [tab, setTab] = useState<EngineDetailTab>(openServiceEntry ? "service" : "overview");
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const [serviceOpen, setServiceOpen] = useState(false);
   const [usageOpen, setUsageOpen] = useState(false);
@@ -1854,6 +1878,9 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
       {tab === "service" && (
         <EngineServiceCard
           engine={engine}
+          openEntryOnMount={openServiceEntry}
+          onEntryClosed={onServiceEntryClosed}
+          onSaved={onServiceSaved}
           locale={locale}
           currentUserName={role === "mechanic" ? currentUserName : ""}
           onOpenHours={() => setTab("hours")}

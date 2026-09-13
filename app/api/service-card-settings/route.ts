@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema, migrateLegacyServiceEntries, revertLegacyServiceImport, IMPORT_SOURCE_COUNTER_CARRYOVER } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { SORT_STEP } from "../../service-card-shared";
 
 /**
@@ -69,9 +69,10 @@ function clean(value: unknown, max = 160) {
   return String(value ?? "").trim().slice(0, max);
 }
 
-async function requireSuperadmin() {
-  const user = await getAppUser();
-  if (!user) return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) } as const;
+async function requireSuperadmin(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return { error: auth.error } as const;
+  const user = auth.user;
   if (user.role !== "superadmin") return { error: Response.json({ error: "Forbidden" }, { status: 403 }) } as const;
   return { user } as const;
 }
@@ -100,7 +101,9 @@ function parseJson<T>(value: string | null, fallback: T): T {
 }
 
 export async function GET(request: Request) {
-  const auth = await requireSuperadmin();
+  // Čtení smí i mechanik — bez položek karty a katalogu materiálu nemá jak zapsat servis.
+  // Zápisy níž si dál hlídá requireSuperadmin.
+  const auth = await getApiUser(request);
   if (auth.error) return auth.error;
 
   await ensureRuntimeSchema();
@@ -195,7 +198,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
   const body = await readPayload(request);
   if (body.error) return body.error;
@@ -291,7 +294,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
   const body = await readPayload(request);
   if (body.error) return body.error;
@@ -441,7 +444,7 @@ export async function PUT(request: Request) {
 
 /** Mazání je vždy archivace — položky a varianty použité v historii musí zůstat čitelné. */
 export async function DELETE(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
   const body = await readPayload(request);
   if (body.error) return body.error;

@@ -1,6 +1,7 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
+import { filterResponseForMechanic } from "../../api-access";
 import { isCountryCode } from "../../countries";
 import { raceLogoUrl } from "../../race-logo";
 import { normalizeRaceCalendarColor } from "../../race-calendar-colors";
@@ -136,9 +137,10 @@ async function resolveCircuit(race: ReturnType<typeof normalize>) {
   return { ...race, track: circuit.name, address: circuit.address };
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const d1 = getD1();
   const [races, categories, counts, entryResources, extraResources] = await Promise.all([
@@ -195,7 +197,7 @@ export async function GET() {
     row.carburetor3Id && { raceId: row.raceId, resourceType: "carburetor" as const, resourceId: row.carburetor3Id },
   ].filter((item): item is { raceId: string; resourceType: "engine" | "carburetor"; resourceId: string } => Boolean(item)));
   resourceRows.push(...extraResources.results as Array<{ raceId: string; resourceType: "engine" | "carburetor"; resourceId: string }>);
-  return Response.json({
+  const payload = {
     races: (races.results as Array<Record<string, unknown>>).map((race) => ({
       ...race,
       calendarColor: normalizeRaceCalendarColor(race.calendarColor),
@@ -206,12 +208,17 @@ export async function GET() {
       engineCount: new Set(resourceRows.filter((row) => row.raceId === race.id && row.resourceType === "engine").map((row) => row.resourceId)).size,
       carburetorCount: new Set(resourceRows.filter((row) => row.raceId === race.id && row.resourceType === "carburetor").map((row) => row.resourceId)).size,
     })),
-  });
+  };
+
+  // Mechanik tenhle endpoint smí, ale jen kvůli názvu a termínu závodu ve frontě na servis —
+  // adresy, organizátor a poznámky se mu z odpovědi vyříznou.
+  return Response.json(filterResponseForMechanic(user.role, new URL(request.url).pathname, payload));
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -245,8 +252,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
@@ -295,8 +303,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;

@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser, type AppUser } from "../../server-auth";
+import { getApiUser, type AppUser } from "../../server-auth";
 
 type RecipientType = "customer" | "team" | "driver";
 const recipientTables: Record<RecipientType, string> = { customer: "customers", team: "teams", driver: "drivers" };
@@ -81,8 +81,9 @@ async function resolveRecipient(recipientType: string, recipientId: string) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
 
   const engineId = new URL(request.url).searchParams.get("engineId")?.trim() ?? "";
@@ -105,8 +106,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const writeError = assertWritable(user);
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
 
@@ -152,8 +154,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const writeError = assertWritable(user);
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
 

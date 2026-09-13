@@ -1,7 +1,7 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { resolveCircuitLocation, resolveTravelBetween } from "../../circuit-location";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type DistancePayload = { raceId?: unknown; name?: unknown; address?: unknown };
 
@@ -10,8 +10,9 @@ function clean(value: unknown, max = 300) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await request.json().catch(() => null) as DistancePayload | null;
   if (!payload) return Response.json({ error: "Invalid JSON" }, { status: 400 });
   const raceId = clean(payload.raceId, 80);

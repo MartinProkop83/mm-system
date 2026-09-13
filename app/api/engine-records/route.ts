@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { raceLogoUrl } from "../../race-logo";
 import { NO_HOUR_TRACKING_ENGINE_FAMILIES, AUTO_READY_ON_SERVICE_ENGINE_FAMILIES, DB_BACKED_SERVICE_PART_FAMILIES } from "../../engine-family-rules";
 
@@ -358,8 +358,9 @@ async function recalculateEngine(engineId: string, now = Date.now()) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
 
   const engineId = new URL(request.url).searchParams.get("engineId")?.trim() ?? "";
   if (!engineId) return Response.json({ error: "Engine id is required" }, { status: 400 });
@@ -458,8 +459,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
 
   let payload: RecordPayload;
   try {
@@ -633,8 +635,9 @@ async function saveService(payload: RecordPayload, engine: EngineRow, actorEmail
 }
 
 export async function PATCH(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   let payload: RecordPayload;
@@ -731,8 +734,9 @@ async function updateService(payload: RecordPayload, engine: EngineRow, actorEma
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
   let payload: Pick<RecordPayload, "kind" | "engineId" | "recordId">;

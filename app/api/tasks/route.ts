@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type WorkItemPayload = {
   id?: string;
@@ -56,9 +56,10 @@ async function validRace(raceId: string | null) {
   return Boolean(row);
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const result = await getD1().prepare(`
     SELECT w.id, w.kind, w.title, w.description, w.priority, w.status,
@@ -80,8 +81,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (!payload) return Response.json({ error: "Invalid JSON" }, { status: 400 });
   const item = normalize(payload);
@@ -108,8 +110,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (!payload) return Response.json({ error: "Invalid JSON" }, { status: 400 });
   const id = clean(payload.id, 80);
@@ -138,8 +141,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await readPayload(request);
   if (!payload) return Response.json({ error: "Invalid JSON" }, { status: 400 });

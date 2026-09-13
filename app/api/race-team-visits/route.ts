@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser, type AppUser } from "../../server-auth";
+import { getApiUser, type AppUser } from "../../server-auth";
 
 type ItemType = "part" | "service" | "stock" | "oil" | "other";
 
@@ -56,8 +56,9 @@ function writeError(race: RaceRow, user: AppUser) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const raceId = new URL(request.url).searchParams.get("raceId")?.trim() ?? "";
   if (!raceId) return Response.json({ error: "Race id is required" }, { status: 400 });
   await ensureRuntimeSchema();
@@ -75,8 +76,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   await ensureRuntimeSchema();
@@ -84,8 +86,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   if (!clean(payload.id, 80)) return Response.json({ error: "Visit id is required" }, { status: 400 });
@@ -94,8 +97,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const payload = await readPayload(request);
   if (payload instanceof Response) return payload;
   const raceId = clean(payload.raceId, 80);

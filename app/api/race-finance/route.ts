@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type Currency = "CZK" | "EUR";
 type PaymentMethod = "" | "cash" | "card" | "bank_transfer";
@@ -39,8 +39,9 @@ async function readPayload(request: Request) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (!canAccessFinance(user.role)) return Response.json({ error: "Forbidden" }, { status: 403 });
 
   const raceId = clean(new URL(request.url).searchParams.get("raceId"), 100);
@@ -115,8 +116,9 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (!canAccessFinance(user.role)) return Response.json({ error: "Forbidden" }, { status: 403 });
 
   const payload = await readPayload(request);

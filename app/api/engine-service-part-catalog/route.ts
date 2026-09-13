@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { DB_BACKED_SERVICE_PART_FAMILIES } from "../../engine-family-rules";
 
 type PartRow = {
@@ -34,15 +34,16 @@ function slugify(value: string) {
     .slice(0, 60);
 }
 
-async function requireSuperadmin() {
-  const user = await getAppUser();
-  if (!user) return { error: Response.json({ error: "Unauthorized" }, { status: 401 }) } as const;
+async function requireSuperadmin(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return { error: auth.error } as const;
+  const user = auth.user;
   if (user.role !== "superadmin") return { error: Response.json({ error: "Forbidden" }, { status: 403 }) } as const;
   return { user } as const;
 }
 
-export async function GET() {
-  const auth = await requireSuperadmin();
+export async function GET(request: Request) {
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
 
   await ensureRuntimeSchema();
@@ -57,7 +58,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
 
   let payload: Payload;
@@ -98,7 +99,7 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
 
   let payload: Payload;
@@ -128,7 +129,7 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await requireSuperadmin();
+  const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
 
   let payload: Pick<Payload, "id">;

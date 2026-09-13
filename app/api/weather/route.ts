@@ -1,11 +1,13 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type Hourly = { time: string[]; temperature_2m: number[]; apparent_temperature: number[]; relative_humidity_2m: number[]; precipitation_probability: number[]; precipitation: number[]; rain: number[]; weather_code: number[]; wind_speed_10m: number[]; wind_gusts_10m: number[] };
 
 export async function GET(request: Request) {
-  const user = await getAppUser(); if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema(); const params = new URL(request.url).searchParams; const circuitId = params.get("circuitId")?.trim() ?? "";
   const startDate = params.get("startDate") ?? ""; const endDate = params.get("endDate") ?? "";
   const circuit = await getD1().prepare("SELECT latitude,longitude FROM circuits WHERE id=?").bind(circuitId).first<{latitude:number|null;longitude:number|null}>();

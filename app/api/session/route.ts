@@ -1,8 +1,9 @@
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   return Response.json({
     user: {
       ...user,

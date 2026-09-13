@@ -3820,3 +3820,101 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 
 /* Upozornění, že přepnutí typu atributu zahodí hodnoty výběru. */
 .sc-drop-warning { margin-top: var(--wrc-space-8); color: var(--wrc-warning-ink); }
+
+/* --- Servis: fronta motorů čekajících na vyřízení ------------------------------------- */
+/* Jedna stránka pro nástěnku na zdi, notebook, tablet i mobil — žádný samostatný TV režim.
+   Dotykové plochy drží 44 px, protože se to ovládá prstem v dílně. */
+.service-queue { display: flex; flex-direction: column; gap: var(--wrc-space-16); min-width: 0; }
+
+.queue-hero { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wrc-space-20); }
+.queue-hero h2 { margin: var(--wrc-space-4) 0; color: var(--wrc-ink); font-size: var(--wrc-text-xl); letter-spacing: var(--wrc-tracking-tight); }
+.queue-hero p { margin: 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); }
+.queue-total { display: flex; flex-direction: column; align-items: flex-end; gap: var(--wrc-space-2); }
+.queue-total strong { color: var(--wrc-red); font-size: var(--wrc-text-display-1); font-weight: var(--wrc-weight-black); line-height: 1; letter-spacing: var(--wrc-tracking-tight); }
+.queue-total small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+
+.queue-bulk { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wrc-space-12); }
+.queue-bulk-info { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--wrc-space-12); min-height: 24px; }
+.queue-bulk-info strong { color: var(--wrc-ink); font-size: var(--wrc-text-sm); }
+.queue-bulk-info small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); }
+.queue-bulk-actions { display: flex; flex-wrap: wrap; gap: var(--wrc-space-8); }
+.queue-bulk-actions button { min-height: 44px; }
+
+/* Kanban: jeden sloupec na kategorii, vedle sebe. Na mobilu se překlopí pod sebe. */
+.queue-board { display: grid; grid-template-columns: repeat(var(--queue-columns, 4), minmax(0, 1fr)); gap: var(--wrc-space-8); align-items: start; min-width: 0; }
+.queue-column { display: flex; flex-direction: column; gap: var(--wrc-space-6); min-width: 0; padding: var(--wrc-space-8); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-lg); background: var(--wrc-surface); }
+.queue-column > header { display: flex; align-items: center; justify-content: space-between; gap: var(--wrc-space-6); padding-bottom: var(--wrc-space-4); border-bottom: 2px solid var(--tile-accent, var(--wrc-red)); }
+.queue-column > header h3 { margin: 0; color: var(--wrc-ink); font-size: var(--wrc-text-base); font-weight: var(--wrc-weight-extrabold); letter-spacing: var(--wrc-tracking-wide); }
+.queue-column-count { min-width: 28px; padding: var(--wrc-space-2) var(--wrc-space-8); color: #fff; border-radius: var(--wrc-radius-pill); background: var(--tile-accent, var(--wrc-red)); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-bold); text-align: center; }
+.queue-column.tone-mini { --tile-accent: var(--wrc-red); }
+.queue-column.tone-okj { --tile-accent: var(--wrc-blue); }
+.queue-column.tone-okn { --tile-accent: var(--wrc-amber); }
+.queue-column.tone-ok { --tile-accent: var(--wrc-green); }
+.queue-column.tone-kz { --tile-accent: var(--wrc-ink); }
+.queue-column-items { display: grid; grid-template-columns: repeat(var(--queue-tiles-per-column, 1), minmax(0, 1fr)); gap: var(--wrc-space-6); min-width: 0; }
+
+.queue-card { position: relative; display: flex; flex-direction: column; min-width: 0; border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface-2); }
+.queue-card.selected { border-color: var(--wrc-red); background: var(--wrc-red-dim); }
+/* Motor s naplánovaným závodem se zvýrazní — a řadí se ve sloupci nahoru. */
+.queue-card.has-next-race { border-color: var(--wrc-amber); }
+.queue-card-select { position: absolute; top: 0; right: 0; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; cursor: pointer; }
+.queue-card-select input { position: absolute; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.queue-card-select > span { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: transparent; border: 1px solid var(--wrc-line-hi); border-radius: var(--wrc-radius-sm); background: var(--wrc-surface); font-size: var(--wrc-text-sm); }
+.queue-card-select input:checked + span { color: #fff; border-color: var(--wrc-red); background: var(--wrc-red); }
+.queue-card-select input:focus-visible + span { outline: 2px solid var(--wrc-focus-ring); outline-offset: 2px; }
+
+.queue-card-open { display: flex; flex-direction: column; gap: 1px; min-height: 44px; padding: var(--wrc-space-8) 44px var(--wrc-space-6) var(--wrc-space-8); border: 0; border-radius: var(--wrc-radius-md) var(--wrc-radius-md) 0 0; background: transparent; cursor: pointer; text-align: left; }
+.queue-card-code { color: var(--wrc-ink); font-size: var(--wrc-text-2xl); font-weight: var(--wrc-weight-black); line-height: 1.1; letter-spacing: var(--wrc-tracking-tight); word-break: break-word; }
+.queue-card-family { color: var(--wrc-ink-faint); font-size: var(--wrc-text-micro); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); }
+.queue-card-source, .queue-card-date { overflow: hidden; color: var(--wrc-ink-soft); font-size: var(--wrc-text-micro); text-overflow: ellipsis; white-space: nowrap; }
+.queue-card-next { margin-top: var(--wrc-space-2); padding: 1px var(--wrc-space-4); color: var(--wrc-warning-ink); border-radius: var(--wrc-radius-sm); background: var(--wrc-amber-dim); font-size: var(--wrc-text-micro); font-weight: var(--wrc-weight-bold); }
+.queue-card-open:hover .queue-card-code { color: var(--wrc-red); }
+.queue-card-skip { min-height: 44px; color: var(--wrc-ink-faint); border: 0; border-top: 1px solid var(--wrc-line); border-radius: 0 0 var(--wrc-radius-md) var(--wrc-radius-md); background: transparent; cursor: pointer; font-size: var(--wrc-text-micro); font-weight: var(--wrc-weight-semibold); }
+.queue-card-skip:hover:not(:disabled) { color: var(--wrc-danger-ink); background: var(--wrc-red-dim); }
+
+/* Nástěnka na zdi: čísla motorů čitelná z několika metrů. */
+@media (min-width: 1600px) {
+  .queue-card-code { font-size: var(--wrc-text-display-1); }
+  .queue-card-family, .queue-card-source, .queue-card-date, .queue-card-next { font-size: var(--wrc-text-xs); }
+  .queue-total strong { font-size: var(--wrc-text-display-2); }
+  .queue-column > header h3 { font-size: var(--wrc-text-lg); }
+}
+
+/* Mobil: sloupce pod sebe, ne vedle sebe — přepínač hustoty tu vyšší volby ani nenabídne. */
+@media (max-width: 600px) {
+  .queue-board, .queue-column-items { grid-template-columns: minmax(0, 1fr); }
+  .queue-hero { flex-direction: column; align-items: flex-start; }
+  .queue-hero-side { flex-direction: column-reverse; align-items: flex-start; width: 100%; }
+  .queue-add-button { width: 100%; }
+  .queue-total { align-items: flex-start; }
+  .queue-bulk-actions { width: 100%; }
+  .queue-bulk-actions button { flex: 1; }
+}
+
+.queue-hero-side { display: flex; align-items: center; gap: var(--wrc-space-20); }
+.queue-add-button { min-height: 44px; }
+
+/* Přepínač počtu dlaždic na řádek — dost velký na prst. */
+.queue-density { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wrc-space-12); }
+.queue-density > span { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+.queue-density-choices { display: flex; gap: var(--wrc-space-4); }
+.queue-density-choices button { min-width: 44px; min-height: 44px; color: var(--wrc-ink-soft); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface); cursor: pointer; font-size: var(--wrc-text-base); font-weight: var(--wrc-weight-bold); }
+.queue-density-choices button:hover:not(:disabled) { border-color: var(--wrc-red); }
+.queue-density-choices button.active { color: #fff; border-color: var(--wrc-red); background: var(--wrc-red); }
+.queue-density-choices button:disabled { opacity: .35; cursor: not-allowed; }
+
+/* Ručně zařazený motor se pozná na první pohled — nepřijel ze závodu ani ze zápůjčky. */
+.queue-card.is-manual { border-color: var(--wrc-purple); border-left-width: 4px; }
+.queue-card.is-manual .queue-card-source { color: var(--wrc-purple-ink); font-weight: var(--wrc-weight-bold); }
+.queue-card-note { margin-top: var(--wrc-space-2); padding: 1px var(--wrc-space-4); overflow: hidden; color: var(--wrc-purple-ink); border-radius: var(--wrc-radius-sm); background: var(--wrc-purple-dim); font-size: var(--wrc-text-micro); font-weight: var(--wrc-weight-semibold); text-overflow: ellipsis; }
+
+/* Režim bez menu — nástěnka v dílně a domovská obrazovka mechaniků. */
+.queue-screen { display: flex; flex-direction: column; min-height: 100vh; background: var(--wrc-bg); }
+.queue-screen-bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wrc-space-12); padding: var(--wrc-space-8) var(--wrc-space-16); border-bottom: 1px solid var(--wrc-line); background: var(--wrc-surface); }
+.queue-screen-bar img { height: 32px; width: auto; }
+.queue-screen-bar > a, .queue-screen-bar > button { min-height: 44px; }
+.queue-screen-engine { flex: 1; color: var(--wrc-ink); font-size: var(--wrc-text-lg); font-weight: var(--wrc-weight-black); letter-spacing: var(--wrc-tracking-tight); }
+.queue-screen-user { flex: 1; color: var(--wrc-ink-faint); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
+.queue-screen-bar .queue-screen-engine + .queue-screen-user { flex: 0; }
+.queue-screen-body { flex: 1; min-width: 0; padding: var(--wrc-space-16); }
+@media (max-width: 600px) { .queue-screen-body { padding: var(--wrc-space-8); } }

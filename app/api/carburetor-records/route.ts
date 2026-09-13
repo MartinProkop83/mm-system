@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { raceLogoUrl } from "../../race-logo";
 import { carburetorTypePhotoUrl } from "../../carburetor-type-photo";
 
@@ -9,8 +9,9 @@ type ServicePayload = { carburetorId?: string; serviceDate?: string; serviceType
 function clean(value: unknown, max = 500) { return String(value ?? "").trim().slice(0, max); }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const id = clean(new URL(request.url).searchParams.get("id"), 80);
   if (!id) return Response.json({ error: "Carburetor id is required" }, { status: 400 });
@@ -65,8 +66,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: ServicePayload;
   try { payload = await request.json() as ServicePayload; }
   catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
@@ -91,8 +93,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: ServicePayload & { id?: string };
   try { payload = await request.json() as ServicePayload & { id?: string }; }
   catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }

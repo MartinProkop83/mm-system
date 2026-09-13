@@ -198,10 +198,14 @@ function nowTimeInputValue() {
  * Dokud kategorie nemá `serviceCardMigrated`, vykreslí se `renderLegacy()` — dnešní karta beze
  * změny, včetně resetu počítadel píst/ojnice. Přepíná se to v Nastavení → Servisní karta.
  */
-export function EngineServiceCard({ engine, locale, currentUserName, onOpenHours, renderLegacy }: {
+export function EngineServiceCard({ engine, locale, currentUserName, openEntryOnMount = false, onEntryClosed, onSaved, onOpenHours, renderLegacy }: {
   engine: { id: string; code: string; family: string };
   locale: Locale;
   currentUserName: string;
+  /** Vstup z fronty na servis — formulář zápisu se otevře rovnou, bez dalšího kliknutí. */
+  openEntryOnMount?: boolean;
+  onEntryClosed?: () => void;
+  onSaved?: () => void;
   onOpenHours: () => void;
   renderLegacy: () => React.ReactNode;
 }) {
@@ -209,7 +213,7 @@ export function EngineServiceCard({ engine, locale, currentUserName, onOpenHours
   const [data, setData] = useState<CardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
-  const [formOpen, setFormOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(openEntryOnMount);
   const [editing, setEditing] = useState<ServiceRecord | null>(null);
   const [cancelling, setCancelling] = useState<ServiceRecord | null>(null);
   const [notice, setNotice] = useState("");
@@ -300,11 +304,14 @@ export function EngineServiceCard({ engine, locale, currentUserName, onOpenHours
         <ServiceRecordForm
           t={t} locale={locale} data={data} record={editing} currentUserName={currentUserName}
           onOpenHours={onOpenHours}
-          onClose={() => { setFormOpen(false); setEditing(null); }}
+          onClose={() => { setFormOpen(false); setEditing(null); onEntryClosed?.(); }}
           onSaved={(records) => {
             applyRecords(records, editing ? t.savedEdit : t.savedNew);
+            const wasNew = !editing;
             setFormOpen(false);
             setEditing(null);
+            // Zápis z fronty motor odbaví, takže volající se vrátí zpátky na frontu.
+            if (wasNew) onSaved?.();
           }}
         />
       )}

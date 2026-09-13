@@ -3,7 +3,7 @@ import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { circuitImageUrl } from "../../circuit-image";
 import { resolveCircuitLocation, resolveCircuitTravel } from "../../circuit-location";
 import { isCountryCode } from "../../countries";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type CircuitPayload = {
   id?: string;
@@ -49,9 +49,10 @@ function normalize(payload: CircuitPayload) {
   return { name, countryCode, address, websiteUrl, mapsUrl, latitude, longitude, distanceKm, driveMinutes: driveMinutes === null ? null : Math.round(driveMinutes), error };
 }
 
-export async function GET() {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request) {
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema();
   const rows = await getD1().prepare(`
     SELECT id, name, country_code AS countryCode, address, website_url AS websiteUrl, maps_url AS mapsUrl,
@@ -63,8 +64,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await request.json().catch(() => null) as CircuitPayload | null;
   if (!payload) return Response.json({ error: "Invalid JSON" }, { status: 400 });
@@ -98,8 +100,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await request.json().catch(() => null) as CircuitPayload | null;
   if (!payload?.id) return Response.json({ error: "Circuit id is required" }, { status: 400 });
@@ -135,8 +138,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
   const payload = await request.json().catch(() => ({})) as { id?: string };
   if (!payload.id) return Response.json({ error: "Circuit id is required" }, { status: 400 });

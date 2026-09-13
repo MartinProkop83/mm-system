@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser, type AppUser } from "../../server-auth";
+import { getApiUser, type AppUser } from "../../server-auth";
 
 type RaceRow = { id: string; name: string; status: string };
 type RaceChecklistRow = { id: string; raceId: string; checklistId: string | null; vehicleId: string | null; vehicleName: string; name: string; notes: string; createdAt: number; updatedAt: number };
@@ -21,8 +21,9 @@ function writeError(race: RaceRow, user: AppUser) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const raceId = new URL(request.url).searchParams.get("raceId")?.trim() ?? "";
   if (!raceId) return Response.json({ error: "Race id is required" }, { status: 400 });
   await ensureRuntimeSchema();
@@ -50,8 +51,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: { raceId?: string; checklistId?: string; vehicleId?: string | null };
   try { payload = await request.json() as typeof payload; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   const raceId = clean(payload.raceId, 80);
@@ -89,8 +91,9 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: { id?: string; isChecked?: boolean };
   try { payload = await request.json() as typeof payload; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   const itemId = clean(payload.id, 80);
@@ -110,8 +113,9 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: { id?: string };
   try { payload = await request.json() as typeof payload; } catch { return Response.json({ error: "Invalid JSON" }, { status: 400 }); }
   const id = clean(payload.id, 80);

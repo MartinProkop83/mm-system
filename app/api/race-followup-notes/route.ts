@@ -1,6 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 
 type FollowupPayload = {
   raceId?: string;
@@ -21,8 +21,9 @@ async function getRace(raceId: string) {
 }
 
 export async function GET(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   const raceId = clean(new URL(request.url).searchParams.get("raceId"), 80);
   if (!raceId) return Response.json({ error: "Race id is required" }, { status: 400 });
   await ensureRuntimeSchema();
@@ -36,8 +37,9 @@ export async function GET(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const user = await getAppUser();
-  if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   let payload: FollowupPayload;
   try {
     payload = await request.json() as FollowupPayload;

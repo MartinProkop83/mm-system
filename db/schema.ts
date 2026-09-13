@@ -953,3 +953,31 @@ export const serviceRecordItems = sqliteTable("service_record_items", {
 }, (table) => [
   index("service_record_items_record_idx").on(table.serviceRecordId, table.sortOrder),
 ]);
+
+/** Vyřízené položky fronty servisu. Fronta sama se dopočítává ze skončených závodů a vrácených
+ *  zápůjček — tady je jen její opak: (motor, zdroj), který už někdo odbavil. `serviced` vzniká
+ *  spolu se servisním záznamem, `skipped` kliknutím na „Nejel / bez servisu". */
+export const engineServiceQueueResolutions = sqliteTable("engine_service_queue_resolutions", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  sourceType: text("source_type", { enum: ["race", "loan", "manual"] }).notNull(),
+  sourceId: text("source_id").notNull(),
+  resolution: text("resolution", { enum: ["serviced", "skipped"] }).notNull(),
+  serviceRecordId: text("service_record_id").references(() => serviceRecords.id),
+  resolvedBy: text("resolved_by").notNull(),
+  resolvedAt: integer("resolved_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("engine_service_queue_resolutions_unique_idx").on(table.engineId, table.sourceType, table.sourceId),
+]);
+
+/** Motor poslaný do fronty ručně — mimo závod i zápůjčku. Poznámka je povinná, aby mechanik
+ *  věděl, co na něm hledat. */
+export const engineServiceQueueManual = sqliteTable("engine_service_queue_manual", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  note: text("note").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("engine_service_queue_manual_engine_idx").on(table.engineId, table.createdAt),
+]);

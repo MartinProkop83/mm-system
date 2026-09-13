@@ -1,11 +1,17 @@
-import { redirect } from "next/navigation";
-import { chatGPTSignInPath, chatGPTSignOutPath, getChatGPTUser } from "./chatgpt-auth";
-import MMDashboard from "./mm-dashboard";
-import { getAppUser } from "./server-auth";
+import { chatGPTSignInPath, chatGPTSignOutPath, getChatGPTUser } from "../chatgpt-auth";
+import { getAppUser } from "../server-auth";
+import { ServiceQueueScreen } from "../service-queue-screen";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page() {
+/**
+ * Fronta na servis na samostatné adrese, bez bočního menu.
+ *
+ * Slouží dvěma věcem naráz: nástěnce na zdi v dílně a mechanikům, které nemá co rozptylovat.
+ * Mechanik sem po přihlášení spadne rovnou (viz app/page.tsx) a zpět do zbytku aplikace se
+ * odsud nedostane; superadmin a vedení mají v rohu odkaz na návrat.
+ */
+export default async function ServiceQueuePage() {
   const authenticatedUser = await getChatGPTUser();
 
   if (process.env.NODE_ENV === "production" && !authenticatedUser) {
@@ -16,7 +22,7 @@ export default async function Page() {
           <span className="settings-kicker">MM SYSTEM · SECURE ACCESS</span>
           <h1>Přihlášení do systému</h1>
           <p>Přihlaste se ověřeným ChatGPT účtem. Do systému budou vpuštěni pouze uživatelé povolení superadminem.</p>
-          <a className="primary-button sign-in-button" href={chatGPTSignInPath("/")}>Přihlásit se přes ChatGPT</a>
+          <a className="primary-button sign-in-button" href={chatGPTSignInPath("/servis-fronta")}>Přihlásit se přes ChatGPT</a>
           <small>MM SYSTEM neukládá vaše heslo.</small>
         </section>
       </main>
@@ -32,15 +38,11 @@ export default async function Page() {
           <span className="settings-kicker">MM SYSTEM · ACCESS</span>
           <h1>Přístup není povolen</h1>
           <p>Váš účet zatím není mezi aktivními uživateli systému. Požádejte superadmina o přidání přístupu.</p>
-          <a className="secondary-compact" href={chatGPTSignOutPath("/")}>Přihlásit se jiným účtem</a>
+          <a className="secondary-compact" href={chatGPTSignOutPath("/servis-fronta")}>Přihlásit se jiným účtem</a>
         </section>
       </main>
     );
   }
 
-  // Mechanik má jako domovskou obrazovku frontu na servis — bez bočního menu a bez zbytku
-  // aplikace. Rozhoduje se na serveru, aby se sem nedalo dostat ani přímým zadáním adresy.
-  if (appUser.role === "mechanic") redirect("/servis-fronta");
-
-  return <MMDashboard />;
+  return <ServiceQueueScreen locale={appUser.locale} role={appUser.role} userName={appUser.fullName} />;
 }

@@ -1,13 +1,15 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
-import { getAppUser } from "../../server-auth";
+import { getApiUser } from "../../server-auth";
 import { sniffFileType } from "../../file-signature";
 
 const allowedTypes = new Map([["image/png", "png"], ["image/jpeg", "jpg"], ["image/webp", "webp"]]);
 const maxBytes = 10 * 1024 * 1024;
 
 export async function GET(request: Request) {
-  const user = await getAppUser(); if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   await ensureRuntimeSchema(); const id = new URL(request.url).searchParams.get("id")?.trim() ?? "";
   const circuit = await getD1().prepare("SELECT image_key AS imageKey,image_content_type AS contentType FROM circuits WHERE id=?").bind(id).first<{imageKey:string|null;contentType:string|null}>();
   if (!circuit?.imageKey) return Response.json({ error: "Image not found" }, { status: 404 });
@@ -17,7 +19,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const user = await getAppUser(); if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+  const auth = await getApiUser(request);
+  if (auth.error) return auth.error;
+  const user = auth.user;
   if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
   await ensureRuntimeSchema(); const form = await request.formData().catch(() => null); if (!form) return Response.json({ error: "Invalid upload" }, { status: 400 });
   const circuitId = String(form.get("circuitId") ?? "").trim(); const image = form.get("image");
