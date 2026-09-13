@@ -18,8 +18,7 @@ import { CustomersPage, InventoryPage, ServiceCatalogPage } from "./commerce-pag
 import { ChecklistsPage } from "./checklist-pages";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
-import { EngineServicePartCatalogPanel } from "./engine-service-part-catalog-panel";
-import { EngineTechnicalStructurePanel } from "./engine-technical-structure-panel";
+import { EngineServiceCard } from "./engine-service-card";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
@@ -223,8 +222,6 @@ type DashboardCatalog = {
   vehicles: Array<{ id: string; currentKm?: number | null; serviceIntervalKm?: number | null; lastServiceKm?: number | null }>;
 };
 
-
-const pistonSizeOptions = ["53.83", "53.85", "53.86", "53.87", "53.88", "53.89", "53.90", "53.91", "53.92", "53.93", "53.94", "53.95"];
 
 const copy = {
   cs: {
@@ -869,6 +866,7 @@ export default function Home() {
             onAdd={openNewEngine}
             onEdit={openEngineEdit}
             onOpen={(engine) => setDetailEngineId(engine.id)}
+            onOpenServiceCardSettings={() => setView("settings")}
           />
         )}
         {view === "engines" && detailEngine && (
@@ -1321,6 +1319,7 @@ function Engines({
   onAdd,
   onEdit,
   onOpen,
+  onOpenServiceCardSettings,
 }: {
   locale: Locale;
   engines: EngineRecord[];
@@ -1331,12 +1330,11 @@ function Engines({
   onAdd: () => void;
   onEdit: (engine: EngineRecord) => void;
   onOpen: (engine: EngineRecord) => void;
+  onOpenServiceCardSettings: () => void;
 }) {
   const t = copy[locale];
   const [filter, setFilter] = useState<EngineFilter>("ALL");
   const [page, setPage] = useState(1);
-  const [catalogOpen, setCatalogOpen] = useState(false);
-  const [technicalStructureOpen, setTechnicalStructureOpen] = useState(false);
   const [loansOverviewOpen, setLoansOverviewOpen] = useState(false);
   const pageSize = 15;
   const activeEngines = useMemo(() => engines.filter((engine) => !isSold(engine.soldAt)), [engines]);
@@ -1377,9 +1375,9 @@ function Engines({
         </div>
       )}
       <section className="dash-panel data-panel latest-carb-panel">
-        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{canManage && <button className="secondary-compact" type="button" onClick={() => setLoansOverviewOpen(true)}>{locale === "cs" ? "Zápůjčky" : "Loans"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setCatalogOpen(true)}>{locale === "cs" ? "Sada dílů" : "Parts catalog"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={() => setTechnicalStructureOpen(true)}>{locale === "cs" ? "Struktura technických údajů" : "Technical structure"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
-        {catalogOpen && <EngineServicePartCatalogPanel locale={locale} onClose={() => setCatalogOpen(false)} />}
-        {technicalStructureOpen && <EngineTechnicalStructurePanel locale={locale} onClose={() => setTechnicalStructureOpen(false)} />}
+        <header><div><span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span><h2>{filter === "ALL" ? t.engineStatus : `${t.engineStatus} · ${categories.find((item) => item.id === filter)?.label}`}</h2></div><div className="tab-actions">{canManage && <button className="secondary-compact" type="button" onClick={() => setLoansOverviewOpen(true)}>{locale === "cs" ? "Zápůjčky" : "Loans"}</button>}{/* Sada dílů se přestěhovala do Nastavení → Servisní karta → Položky karty. Odkaz tu zůstává,
+                aby superadmin neztratil cestu; po pár týdnech se dá smazat. */}
+            {role === "superadmin" && <button className="secondary-compact" type="button" onClick={onOpenServiceCardSettings}>{locale === "cs" ? "Sada dílů → Nastavení" : "Parts catalog → Settings"}</button>}{role === "superadmin" && <button className="secondary-compact" type="button" onClick={onOpenServiceCardSettings}>{locale === "cs" ? "Technické údaje → Nastavení" : "Technical data → Settings"}</button>}{canManage && <button className="primary-button" type="button" onClick={onAdd}>＋ {t.newEngine}</button>}</div></header>
         {loansOverviewOpen && <EngineLoansOverviewPanel locale={locale} onClose={() => setLoansOverviewOpen(false)} onOpenEngine={(engineId) => { setLoansOverviewOpen(false); const target = engines.find((item) => item.id === engineId); if (target) onOpen(target); }} />}
         {loading && <LoadingState label={t.loading} />}
         {!loading && error && <EmptyState variant="error" icon="!" title={t.databaseError} />}
@@ -1525,6 +1523,8 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   const [assignments, setAssignments] = useState<EngineAssignment[]>([]);
   const [auditEntries, setAuditEntries] = useState<EngineAuditEntry[]>([]);
   const [serviceParts, setServiceParts] = useState<ServicePart[]>([]);
+  // Rozměry pístu spravuje superadmin v katalogu materiálu; dřív to byl natvrdo psaný seznam tady.
+  const [pistonSizeOptions, setPistonSizeOptions] = useState<string[]>([]);
   const [mechanics, setMechanics] = useState<Array<{ id: string; name: string }>>([]);
   const [loans, setLoans] = useState<EngineLoanRecord[]>([]);
   const [recipientOptions, setRecipientOptions] = useState<LoanRecipientOption[]>([]);
@@ -1580,9 +1580,10 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
       setRecordsLoading(true);
       try {
         const response = await fetch(`/api/engine-records?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
-        const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[]; serviceParts?: ServicePart[] };
+        const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[]; serviceParts?: ServicePart[]; pistonSizes?: string[] };
         if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit || !data.serviceParts) throw new Error("load failed");
         if (!active) return;
+        setPistonSizeOptions(data.pistonSizes ?? []);
         setUsageRecords(data.usage);
         setServiceRecords(data.service);
         setAssignments(data.assignments);
@@ -1655,8 +1656,9 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
     setRecordsLoading(true);
     try {
       const response = await fetch(`/api/engine-records?engineId=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
-      const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[]; serviceParts?: ServicePart[] };
+      const data = (await response.json()) as { usage?: UsageRecord[]; service?: ServiceRecord[]; assignments?: EngineAssignment[]; audit?: EngineAuditEntry[]; serviceParts?: ServicePart[]; pistonSizes?: string[] };
       if (!response.ok || !data.usage || !data.service || !data.assignments || !data.audit || !data.serviceParts) throw new Error("load failed");
+      setPistonSizeOptions(data.pistonSizes ?? []);
       setUsageRecords(data.usage);
       setServiceRecords(data.service);
       setAssignments(data.assignments);
@@ -1846,7 +1848,16 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
         </section>
       )}
 
+      {/* Kategorie přepnuté na novou servisní kartu berou dlaždice i historii z `service_card_items`
+          / `service_records`; ostatní dostávají přes `renderLegacy` dnešní kartu beze změny,
+          včetně automatického resetu počítadel píst/ojnice. Přepíná se v Nastavení → Servisní karta. */}
       {tab === "service" && (
+        <EngineServiceCard
+          engine={engine}
+          locale={locale}
+          currentUserName={role === "mechanic" ? currentUserName : ""}
+          onOpenHours={() => setTab("hours")}
+          renderLegacy={() => (
         <section className="dash-panel tab-panel">
           <div className="tab-panel-header"><div><span className="eyebrow">SERVICE CARD</span><h2>{t.serviceCard}</h2><p>{locale === "cs" ? "Servisní záznamy, vyměněné díly a automatické resetování počítadel." : "Service entries, replaced parts and automatic counter resets."}</p></div><button className="primary-button" type="button" onClick={() => setServiceOpen(true)}>＋ {t.addServiceEntry}</button></div>
           <div className="service-checklist">
@@ -1862,6 +1873,8 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
           {!recordsLoading && !recordsError && serviceRecords.length === 0 && <EmptyState size="inline" title={locale === "cs" ? "Zatím bez historie servisu" : "No service history yet"} description={locale === "cs" ? "První zápis bude obsahovat datum, typ servisu a zaškrtnuté vyměněné díly." : "The first entry will include the date, service type and replaced parts."} />}
           {!recordsLoading && !recordsError && serviceRecords.length > 0 && <ServiceHistoryTable records={serviceRecords} locale={locale} canCorrect={isSuperadmin} onEdit={(record) => setEditingService(record)} onDelete={(recordId) => { void deleteRecord("service", recordId); }} />}
         </section>
+          )}
+        />
       )}
 
       {tab === "hours" && usesHours && (
@@ -1924,11 +1937,11 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
           }}
         />
       )}
-      {baselineOpen && <BaselineForm locale={locale} engine={engine} onClose={() => setBaselineOpen(false)} onSaved={(counters) => { applyCounters(counters); setBaselineOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Vstupní stav byl uložen a počítadla přepočítána." : "Starting state saved and counters recalculated."); }} />}
+      {baselineOpen && <BaselineForm locale={locale} engine={engine} pistonSizeOptions={pistonSizeOptions} onClose={() => setBaselineOpen(false)} onSaved={(counters) => { applyCounters(counters); setBaselineOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Vstupní stav byl uložen a počítadla přepočítána." : "Starting state saved and counters recalculated."); }} />}
       {usageOpen && <UsageForm locale={locale} engine={engine} onClose={() => setUsageOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setUsageOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Motohodiny byly zapsány." : "Running hours logged."); }} />}
       {editingUsage && <UsageForm locale={locale} engine={engine} record={editingUsage} onClose={() => setEditingUsage(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingUsage(null); void reloadRecords(); showNotice(locale === "cs" ? "Záznam motohodin byl opraven." : "Running-hours record corrected."); }} />}
-      {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} serviceParts={serviceParts} mechanics={mechanics} currentUserName={role === "mechanic" ? currentUserName : ""} onClose={() => setServiceOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); }} />}
-      {editingService && <ServiceEntryForm locale={locale} engine={engine} record={editingService} serviceParts={serviceParts} mechanics={mechanics} currentUserName="" onClose={() => setEditingService(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingService(null); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl opraven." : "Service record corrected."); }} />}
+      {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} serviceParts={serviceParts} pistonSizeOptions={pistonSizeOptions} mechanics={mechanics} currentUserName={role === "mechanic" ? currentUserName : ""} onClose={() => setServiceOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); }} />}
+      {editingService && <ServiceEntryForm locale={locale} engine={engine} record={editingService} serviceParts={serviceParts} pistonSizeOptions={pistonSizeOptions} mechanics={mechanics} currentUserName="" onClose={() => setEditingService(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingService(null); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl opraven." : "Service record corrected."); }} />}
       {loanFormOpen && <EngineLoanCreateForm locale={locale} engine={engine} recipientOptions={recipientOptions} onClose={() => setLoanFormOpen(false)} onSaved={(location) => { onSaved({ ...engine, location }); setLoanFormOpen(false); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla vytvořena." : "Loan created."); }} />}
       {extendingLoan && <EngineLoanExtendForm locale={locale} loan={extendingLoan} onClose={() => setExtendingLoan(null)} onSaved={(location) => { onSaved({ ...engine, location }); setExtendingLoan(null); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla prodloužena." : "Loan extended."); }} />}
       {returningLoan && <EngineLoanReturnForm locale={locale} loan={returningLoan} onClose={() => setReturningLoan(null)} onSaved={() => { onSaved({ ...engine, location: { kind: "workshop" } }); setReturningLoan(null); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla označena jako vrácená." : "Loan marked as returned."); }} />}
@@ -1936,7 +1949,7 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   );
 }
 
-function BaselineForm({ locale, engine, onClose, onSaved }: { locale: Locale; engine: EngineRecord; onClose: () => void; onSaved: (counters: Partial<EngineRecord>) => void }) {
+function BaselineForm({ locale, engine, pistonSizeOptions, onClose, onSaved }: { locale: Locale; engine: EngineRecord; pistonSizeOptions: string[]; onClose: () => void; onSaved: (counters: Partial<EngineRecord>) => void }) {
   const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
@@ -2046,11 +2059,12 @@ function UsageForm({ locale, engine, record = null, onClose, onSaved }: { locale
   );
 }
 
-function ServiceEntryForm({ locale, engine, record = null, serviceParts, mechanics, currentUserName, onClose, onSaved }: {
+function ServiceEntryForm({ locale, engine, record = null, serviceParts, pistonSizeOptions, mechanics, currentUserName, onClose, onSaved }: {
   locale: Locale;
   engine: EngineRecord;
   record?: ServiceRecord | null;
   serviceParts: ServicePart[];
+  pistonSizeOptions: string[];
   mechanics: Array<{ id: string; name: string }>;
   currentUserName: string;
   onClose: () => void;

@@ -785,3 +785,171 @@ export const workItems = sqliteTable("work_items", {
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+// --- Servisní karta (Nastavení → Servisní karta) --------------------------------------
+// Declarative mirror only — these tables are actually created by db/runtime-schema.ts.
+// See CLAUDE.md: drizzle migrations are not the mechanism here.
+
+/** Engine categories keyed by the `engines.family` code (MINI / OKJ / OKN / OKN-J / OK / KZ).
+ *  `counterUnit` null means the category tracks no counter at all — every interval, warning
+ *  threshold and tile colour is skipped for it. Flipping it to "hours" later needs no migration. */
+export const engineCategories = sqliteTable("engine_categories", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  counterUnit: text("counter_unit", { enum: ["hours", "days", "race_weekends"] }),
+  serviceCardMigrated: integer("service_card_migrated", { mode: "boolean" }).notNull().default(false),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("engine_categories_code_unique_idx").on(table.code),
+]);
+
+export const serviceTypes = sqliteTable("service_types", {
+  id: text("id").primaryKey(),
+  engineCategoryId: text("engine_category_id").notNull().references(() => engineCategories.id),
+  code: text("code").notNull(),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  descriptionCs: text("description_cs").notNull().default(""),
+  descriptionEn: text("description_en").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_types_category_idx").on(table.engineCategoryId, table.sortOrder),
+]);
+
+/** Which card items a service type pre-ticks. Flat link table — there is no inheritance
+ *  between types (1.D does not extend 1.C); each type carries its own full list. */
+export const serviceTypeDefaultItems = sqliteTable("service_type_default_items", {
+  id: text("id").primaryKey(),
+  serviceTypeId: text("service_type_id").notNull().references(() => serviceTypes.id),
+  serviceCardItemId: text("service_card_item_id").notNull().references(() => serviceCardItems.id),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("service_type_default_items_unique_idx").on(table.serviceTypeId, table.serviceCardItemId),
+]);
+
+/** One tile on an engine's service card. `materialCategoryId` set means the mechanic gets a
+ *  variant dropdown for it; empty means it is a plain tick box. `intervalMinutes` is stored in
+ *  minutes to match engines.total_minutes — the UI enters and shows it as HH:MM.
+ *  `legacyPartKey` carries the old engine_service_part_catalog.part_key so historic entries
+ *  (which reference parts by that key, not by id) still resolve to the item they became. */
+export const serviceCardItems = sqliteTable("service_card_items", {
+  id: text("id").primaryKey(),
+  engineCategoryId: text("engine_category_id").notNull().references(() => engineCategories.id),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  materialCategoryId: text("material_category_id").references(() => materialCategories.id),
+  intervalMinutes: integer("interval_minutes"),
+  warnPercent: integer("warn_percent").notNull().default(80),
+  legacyPartKey: text("legacy_part_key"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_card_items_category_idx").on(table.engineCategoryId, table.sortOrder),
+]);
+
+export const materialCategories = sqliteTable("material_categories", {
+  id: text("id").primaryKey(),
+  engineCategoryId: text("engine_category_id").notNull().references(() => engineCategories.id),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("material_categories_category_idx").on(table.engineCategoryId, table.sortOrder),
+]);
+
+/** Attributes are defined per material category, not globally — pistons carry a brand and a
+ *  size, gaskets a type and a thickness. `options` is a JSON string array, filled only for
+ *  attributeType "dropdown". */
+export const materialAttributes = sqliteTable("material_attributes", {
+  id: text("id").primaryKey(),
+  materialCategoryId: text("material_category_id").notNull().references(() => materialCategories.id),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  attributeType: text("attribute_type", { enum: ["dropdown", "number", "text"] }).notNull().default("text"),
+  unit: text("unit").notNull().default(""),
+  options: text("options").notNull().default("[]"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("material_attributes_category_idx").on(table.materialCategoryId, table.sortOrder),
+]);
+
+/** A ready-made catalogue entry — the only thing a mechanic ever picks. They never type
+ *  attribute values by hand, which keeps "0.3" / "0,3" / "0.30 mm" out of the data.
+ *  `attributeValues` is a JSON map of materialAttributes.id → value. */
+export const materialVariants = sqliteTable("material_variants", {
+  id: text("id").primaryKey(),
+  materialCategoryId: text("material_category_id").notNull().references(() => materialCategories.id),
+  name: text("name").notNull(),
+  attributeValues: text("attribute_values").notNull().default("{}"),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("material_variants_category_idx").on(table.materialCategoryId, table.name),
+]);
+
+/** `serviceDate` is when the work happened (the mechanic may backdate it); `createdAt` is when
+ *  it was typed in — deliberately separate, and history sorts by serviceDate. `counterMinutes`
+ *  snapshots engines.total_minutes at write time and stays null for categories without a
+ *  counter; such rows are skipped, not read as zero, when computing run-since-replacement.
+ *  Cancelled records keep `cancelledAt` set and are never deleted. */
+export const serviceRecords = sqliteTable("service_records", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  serviceTypeId: text("service_type_id").references(() => serviceTypes.id),
+  serviceTypeSnapshot: text("service_type_snapshot").notNull().default(""),
+  serviceDate: text("service_date").notNull(),
+  /** Volitelný čas HH:MM. Prázdný = neznámý; řadí se na začátek dne a nikde se nezobrazuje. */
+  serviceTime: text("service_time").notNull().default(""),
+  counterMinutes: integer("counter_minutes"),
+  mechanicId: text("mechanic_id").references(() => mechanics.id),
+  mechanicNameSnapshot: text("mechanic_name_snapshot").notNull().default(""),
+  note: text("note").notNull().default(""),
+  cancelledReason: text("cancelled_reason").notNull().default(""),
+  cancelledAt: integer("cancelled_at", { mode: "timestamp_ms" }),
+  cancelledBy: text("cancelled_by").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_records_engine_idx").on(table.engineId, table.serviceDate, table.serviceTime),
+]);
+
+/** Snapshots are mandatory: history reads `itemName*Snapshot` and `materialSnapshot` first, so
+ *  renaming an item or archiving a variant a year from now can neither rewrite nor break what
+ *  was recorded. The foreign keys stay only for live lookups. */
+export const serviceRecordItems = sqliteTable("service_record_items", {
+  id: text("id").primaryKey(),
+  serviceRecordId: text("service_record_id").notNull().references(() => serviceRecords.id),
+  serviceCardItemId: text("service_card_item_id").references(() => serviceCardItems.id),
+  itemNameCsSnapshot: text("item_name_cs_snapshot").notNull(),
+  itemNameEnSnapshot: text("item_name_en_snapshot").notNull(),
+  materialVariantId: text("material_variant_id").references(() => materialVariants.id),
+  materialSnapshot: text("material_snapshot"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_record_items_record_idx").on(table.serviceRecordId, table.sortOrder),
+]);

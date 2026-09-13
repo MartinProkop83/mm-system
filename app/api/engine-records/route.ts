@@ -4,10 +4,6 @@ import { getAppUser } from "../../server-auth";
 import { raceLogoUrl } from "../../race-logo";
 import { NO_HOUR_TRACKING_ENGINE_FAMILIES, AUTO_READY_ON_SERVICE_ENGINE_FAMILIES, DB_BACKED_SERVICE_PART_FAMILIES } from "../../engine-family-rules";
 
-const pistonSizes = new Set([
-  "53.83", "53.85", "53.86", "53.87", "53.88", "53.89",
-  "53.90", "53.91", "53.92", "53.93", "53.94", "53.95",
-]);
 const familiesWithPistonSizes = new Set(["OKJ", "OKN", "OKN-J", "OK"]);
 const serviceTypes = new Set(["inspection", "piston_service", "top_end", "full_service"]);
 
@@ -38,6 +34,25 @@ async function getServicePartsForFamily(d1: ReturnType<typeof getD1>, family: st
     ORDER BY sort_order ASC
   `).bind(family).all<ServicePart>();
   return catalog.results;
+}
+
+/**
+ * Nabídka rozměrů pístu pro danou rodinu. Dřív to byl natvrdo psaný seznam v tomhle souboru;
+ * teď jsou rozměry variantami v katalogu materiálu (kategorie „Písty"), takže je superadmin
+ * spravuje v Nastavení → Servisní karta → Materiál bez zásahu do kódu.
+ *
+ * Archivované varianty se nenabízejí, ale historie na ně dál odkazuje přes svůj snapshot.
+ */
+async function pistonSizesForFamily(d1: ReturnType<typeof getD1>, family: string): Promise<string[]> {
+  const rows = await d1.prepare(`
+    SELECT v.name
+    FROM material_variants v
+    JOIN material_categories m ON m.id = v.material_category_id
+    JOIN engine_categories c ON c.id = m.engine_category_id
+    WHERE c.code = ? AND m.name_en = 'Pistons' AND m.archived_at IS NULL AND v.archived_at IS NULL
+    ORDER BY v.name
+  `).bind(family).all<{ name: string }>();
+  return rows.results.map((row) => row.name);
 }
 
 async function resolveMechanic(d1: ReturnType<typeof getD1>, mechanicId: string) {
@@ -201,9 +216,10 @@ function cleanLegacyParts(parts: string[] | undefined) {
   return Array.from(new Set(parts ?? [])).filter((part) => LEGACY_SERVICE_PART_IDS.has(part));
 }
 
-function validatePistonSize(engine: EngineRow, replacedParts: string[], pistonSize: string) {
+async function validatePistonSize(engine: EngineRow, replacedParts: string[], pistonSize: string) {
   const resetsPiston = replacedParts.includes("piston") || replacedParts.includes("connecting_rod");
-  return !resetsPiston || !familiesWithPistonSizes.has(engine.family) || pistonSizes.has(pistonSize);
+  if (!resetsPiston || !familiesWithPistonSizes.has(engine.family)) return true;
+  return (await pistonSizesForFamily(getD1(), engine.family)).includes(pistonSize);
 }
 
 function deserializeService(row: ServiceRow) {
@@ -426,6 +442,7 @@ export async function GET(request: Request) {
   }
 
   const serviceParts = await getServicePartsForFamily(d1, engine.family);
+  const pistonSizes = await pistonSizesForFamily(d1, engine.family);
 
   return Response.json({
     usage: usage.results,
@@ -436,6 +453,7 @@ export async function GET(request: Request) {
     })),
     audit: auditEntries,
     serviceParts,
+    pistonSizes,
   });
 }
 
@@ -486,8 +504,9 @@ async function saveBaseline(payload: RecordPayload, engine: EngineRow, actorEmai
   }
 
   const pistonSize = payload.pistonSize?.trim() ?? "";
-  if (pistonSize && familiesWithPistonSizes.has(engine.family) && !pistonSizes.has(pistonSize)) {
-    return Response.json({ error: "Select a valid piston size" }, { status: 400 });
+  if (pistonSize && familiesWithPistonSizes.has(engine.family)) {
+    const allowed = await pistonSizesForFamily(getD1(), engine.family);
+    if (!allowed.includes(pistonSize)) return Response.json({ error: "Select a valid piston size" }, { status: 400 });
   }
 
   const d1 = getD1();
@@ -544,11 +563,26 @@ async function saveUsage(payload: RecordPayload, engine: EngineRow, actorEmail: 
   return Response.json({ usage, counters }, { status: 201 });
 }
 
+/**
+ * Kategorie přepnutá na novou servisní kartu (`engine_categories.service_card_migrated`) sem už
+ * zapisovat nesmí — nový záznam ve staré tabulce by při dalším běhu přenosu historie vypadal
+ * jako nepřenesený „starý" záznam a vznikl by duplikát. UI jí starý formulář nenabízí; tohle
+ * je pojistka pro přímé volání endpointu.
+ */
+async function usesLegacyServiceCard(d1: ReturnType<typeof getD1>, family: string) {
+  const category = await d1.prepare("SELECT service_card_migrated AS migrated FROM engine_categories WHERE code = ?")
+    .bind(family).first<{ migrated: number }>();
+  return !category?.migrated;
+}
+
 async function saveService(payload: RecordPayload, engine: EngineRow, actorEmail: string, date: string) {
   const serviceType = payload.serviceType?.trim() ?? "";
   if (!serviceTypes.has(serviceType)) return Response.json({ error: "Invalid service type" }, { status: 400 });
 
   const d1 = getD1();
+  if (!await usesLegacyServiceCard(d1, engine.family)) {
+    return Response.json({ error: "This category uses the new service card — use /api/service-records" }, { status: 400 });
+  }
 
   const mechanicId = payload.mechanicId?.trim() ?? "";
   if (!mechanicId) return Response.json({ error: "Mechanic is required" }, { status: 400 });
@@ -564,7 +598,7 @@ async function saveService(payload: RecordPayload, engine: EngineRow, actorEmail
   });
 
   const pistonSize = payload.pistonSize?.trim() ?? "";
-  if (!validatePistonSize(engine, replacedParts, pistonSize)) {
+  if (!await validatePistonSize(engine, replacedParts, pistonSize)) {
     return Response.json({ error: "Select a valid piston size" }, { status: 400 });
   }
 
@@ -673,7 +707,7 @@ async function updateService(payload: RecordPayload, engine: EngineRow, actorEma
   });
 
   const pistonSize = payload.pistonSize?.trim() ?? "";
-  if (!validatePistonSize(engine, replacedParts, pistonSize)) return Response.json({ error: "Select a valid piston size" }, { status: 400 });
+  if (!await validatePistonSize(engine, replacedParts, pistonSize)) return Response.json({ error: "Select a valid piston size" }, { status: 400 });
 
   const notes = payload.notes?.trim().slice(0, 1000) ?? "";
   const now = Date.now();

@@ -3694,3 +3694,129 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
   body[data-print-mode="pilots"] .confirmation-label { font-size: 6.5pt; }
   body[data-print-mode="pilots"] .extra-entry-card { break-inside: avoid; page-break-inside: avoid; background: #fff; border: 1px solid #cfcfcf; }
 }
+
+/* --- Nastavení → Servisní karta ------------------------------------------------------- */
+.service-card-settings { display: flex; flex-direction: column; gap: var(--wrc-space-16); min-width: 0; }
+.service-card-settings .carb-unit-filters { margin: 0; }
+.service-card-settings > .engine-tabs { border-radius: var(--wrc-radius-lg) var(--wrc-radius-lg) 0 0; }
+/* `.engine-tabs` má pod 760 px záporný `margin-inline` kvůli kontejneru detailu motoru.
+   V Nastavení jsou záložky v jiném kontejneru, kde by ten margin vytlačil stránku do
+   vodorovného scrollu — tady ho vracíme na nulu. */
+.settings-page > .engine-tabs, .service-card-settings > .engine-tabs { margin-inline: 0; }
+
+.sc-table { width: 100%; }
+.sc-table .sc-handle-cell { width: 32px; padding-right: 0; }
+.sc-drag-handle { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; color: var(--wrc-ink-faint); border-radius: var(--wrc-radius-sm); cursor: grab; font-size: var(--wrc-text-sm); line-height: 1; user-select: none; }
+.sc-drag-handle:hover { color: var(--wrc-ink); background: var(--wrc-surface-2); }
+.sc-drag-handle:active { cursor: grabbing; }
+.sc-table tr.sc-dragging, .sc-category-list li.sc-dragging { opacity: .45; }
+.sc-table-footer { display: flex; justify-content: flex-start; margin-top: var(--wrc-space-16); }
+
+.sc-chip-list { display: inline-flex; flex-wrap: wrap; gap: var(--wrc-space-4); }
+.sc-chip-list b { padding: var(--wrc-space-2) var(--wrc-space-6); color: var(--wrc-ink-soft); border-radius: var(--wrc-radius-pill); background: var(--wrc-surface-2); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-semibold); }
+
+/* Dvousloupcový layout záložky Materiál — vlevo kategorie, vpravo atributy a varianty. */
+.sc-material-grid { display: grid; grid-template-columns: minmax(0, 280px) minmax(0, 1fr); gap: var(--wrc-space-16); align-items: start; min-width: 0; }
+.sc-material-detail { display: flex; flex-direction: column; gap: var(--wrc-space-16); min-width: 0; }
+
+.sc-category-list { display: flex; flex-direction: column; gap: var(--wrc-space-4); margin: 0; padding: 0; list-style: none; }
+.sc-category-list li { display: flex; align-items: center; gap: var(--wrc-space-6); padding: var(--wrc-space-4) var(--wrc-space-6); border: 1px solid transparent; border-radius: var(--wrc-radius-md); }
+.sc-category-list li:hover { border-color: var(--wrc-line); }
+.sc-category-list li.active { border-color: var(--wrc-line-hi); background: var(--wrc-surface-2); }
+.sc-category-list li > button { flex: 1; min-width: 0; padding: var(--wrc-space-4) 0; color: var(--wrc-ink); border: 0; background: transparent; cursor: pointer; font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); text-align: left; }
+.sc-category-list li > button em { margin-left: var(--wrc-space-6); color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-style: normal; font-weight: var(--wrc-weight-medium); }
+.sc-category-list li.sc-archived > button { color: var(--wrc-ink-faint); }
+
+/* Chips editor — napiš hodnotu, Enter udělá štítek, křížek maže. */
+.sc-chips-field { margin-top: var(--wrc-space-12); }
+.sc-chips { display: flex; flex-wrap: wrap; gap: var(--wrc-space-6); align-items: center; min-height: 40px; padding: var(--wrc-space-6); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface); }
+.sc-chips > span { display: inline-flex; align-items: center; gap: var(--wrc-space-4); padding: var(--wrc-space-2) var(--wrc-space-4) var(--wrc-space-2) var(--wrc-space-8); color: var(--wrc-ink); border-radius: var(--wrc-radius-pill); background: var(--wrc-surface-2); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
+.sc-chips > span button { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; padding: 0; color: var(--wrc-ink-faint); border: 0; border-radius: var(--wrc-radius-circle); background: transparent; cursor: pointer; font-size: var(--wrc-text-sm); line-height: 1; }
+.sc-chips > span button:hover { color: var(--wrc-danger-ink); background: var(--wrc-red-dim); }
+.sc-chips input { flex: 1; min-width: 140px; padding: var(--wrc-space-4); color: var(--wrc-ink); border: 0; background: transparent; font-size: var(--wrc-text-sm); }
+.sc-chips input:focus { outline: 0; }
+
+.sc-take-from { display: flex; flex-direction: column; gap: var(--wrc-space-4); margin-top: var(--wrc-space-12); }
+.sc-take-from label { display: flex; flex-direction: column; gap: var(--wrc-space-4); }
+
+/* Kategorie, která ještě jede po staré servisní kartě. */
+.sc-legacy-panel { display: flex; align-items: center; gap: var(--wrc-space-16); }
+.sc-legacy-panel > div { flex: 1; min-width: 0; }
+.sc-legacy-panel h3 { margin: 0 0 var(--wrc-space-4); color: var(--wrc-ink); font-size: var(--wrc-text-base); }
+.sc-legacy-panel p { margin: 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); line-height: 1.5; }
+.sc-legacy-mark { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; color: var(--wrc-warning-ink); border-radius: var(--wrc-radius-circle); background: var(--wrc-amber-dim); font-size: var(--wrc-text-lg); }
+.sc-switch-summary { display: flex; flex-direction: column; gap: var(--wrc-space-12); margin: 0 0 var(--wrc-space-12); }
+.sc-switch-summary dt { margin-bottom: var(--wrc-space-4); color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+.sc-switch-summary dd { margin: 0; color: var(--wrc-ink); font-size: var(--wrc-text-sm); line-height: 1.5; }
+
+@media (max-width: 900px) {
+  .sc-material-grid { grid-template-columns: minmax(0, 1fr); }
+  .sc-legacy-panel { flex-wrap: wrap; }
+}
+
+.sc-history-panel { display: flex; flex-direction: column; gap: var(--wrc-space-16); }
+.sc-history-head { display: flex; align-items: flex-start; gap: var(--wrc-space-16); }
+.sc-history-head > div:first-of-type { flex: 1; min-width: 0; }
+.sc-history-head h3 { margin: 0 0 var(--wrc-space-4); color: var(--wrc-ink); font-size: var(--wrc-text-base); }
+.sc-history-head p { margin: 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); line-height: 1.5; }
+.sc-history-summary h4 { margin: 0 0 var(--wrc-space-6); color: var(--wrc-ink); font-size: var(--wrc-text-sm); }
+@media (max-width: 760px) { .sc-history-head { flex-wrap: wrap; } }
+
+/* --- Servisní karta motoru (dlaždice, zápis, historie) -------------------------------- */
+/* Stav dlaždice se počítá z intervalu a najetých motohodin. `none` (kategorie bez počítadla,
+   položka bez intervalu, žádný záznam) a `unmeasured` (jen záznamy z doby před počítadlem)
+   zůstávají na neutrálním vzhledu `.has-record` — prázdný barevný stav by nic neznamenal.
+   Selektory musí přebít `.service-checklist div.has-record` (0,2,1), proto ta délka. */
+.service-checklist.sc-tiles div.sc-tile-ok { color: var(--wrc-success-ink); border-color: var(--wrc-green); background: var(--wrc-green-dim); }
+.service-checklist.sc-tiles div.sc-tile-ok > span { color: var(--wrc-success-ink); }
+.service-checklist.sc-tiles div.sc-tile-warn { color: var(--wrc-warning-ink); border-color: var(--wrc-amber); background: var(--wrc-amber-dim); }
+.service-checklist.sc-tiles div.sc-tile-warn > span { color: var(--wrc-warning-ink); }
+.service-checklist.sc-tiles div.sc-tile-over { color: var(--wrc-danger-ink); border-color: var(--wrc-red); background: var(--wrc-red-dim); }
+.service-checklist.sc-tiles div.sc-tile-over > span { color: var(--wrc-danger-ink); }
+.service-checklist.sc-tiles div.sc-tile-warn strong, .service-checklist.sc-tiles div.sc-tile-over strong,
+.service-checklist.sc-tiles div.sc-tile-ok strong { color: inherit; }
+.sc-tile-run { display: block; margin-top: var(--wrc-space-2); font-size: var(--wrc-text-xs); font-style: normal; font-weight: var(--wrc-weight-bold); }
+/* U kategorie S počítadlem znamená zelená „v pořádku vůči intervalu". Položka, která se neměří
+   (bez intervalu) nebo zatím nemá čím měřit (jen záznamy z doby před počítadlem), proto zelená
+   být nesmí — zůstává neutrální, i když záznam má. U kategorií bez počítadla se tohle pravidlo
+   neuplatní a `.has-record` si drží dnešní zelenou. */
+.service-checklist.sc-tiles-counter div.sc-tile-none,
+.service-checklist.sc-tiles-counter div.sc-tile-unmeasured { border-color: var(--wrc-line); background: var(--wrc-surface-2); }
+.service-checklist.sc-tiles-counter div.sc-tile-none > span,
+.service-checklist.sc-tiles-counter div.sc-tile-unmeasured > span { color: var(--wrc-ink-faint); }
+
+.sc-record-items { display: flex; flex-direction: column; gap: var(--wrc-space-2); margin: 0; padding: 0; list-style: none; }
+.sc-record-items li { color: var(--wrc-ink); font-size: var(--wrc-text-sm); }
+.sc-record-items li small { display: block; color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); }
+
+/* Stornovaný záznam se nemaže — zůstává přeškrtnutý i s důvodem. */
+.sc-record-cancelled td { color: var(--wrc-ink-faint); text-decoration: line-through; }
+.sc-record-cancelled .sc-cancel-reason { color: var(--wrc-danger-ink); text-decoration: none; }
+
+.sc-record-item-list { display: flex; flex-direction: column; gap: var(--wrc-space-6); }
+.sc-record-item { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wrc-space-12); padding: var(--wrc-space-6); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); }
+.sc-record-item.selected { border-color: var(--wrc-red); background: var(--wrc-surface-2); }
+.sc-record-item > label { display: flex; flex: 1; align-items: center; gap: var(--wrc-space-8); min-width: 200px; cursor: pointer; }
+.sc-record-item > label strong { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
+.sc-record-variant { display: flex; align-items: center; gap: var(--wrc-space-8); min-width: 0; }
+.sc-record-variant > span { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+
+.sc-inline-link { padding: 0; color: var(--wrc-red); border: 0; background: transparent; cursor: pointer; font-size: inherit; font-weight: var(--wrc-weight-semibold); text-decoration: underline; }
+
+/* --- Nastavení → Technické údaje ------------------------------------------------------- */
+.sc-structure-toolbar { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: var(--wrc-space-16); }
+.sc-structure-toolbar > label { display: flex; flex-direction: column; gap: var(--wrc-space-4); max-width: 260px; }
+.sc-structure-toolbar > label > span { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+.sc-structure-toolbar small { color: var(--wrc-ink-soft); font-size: var(--wrc-text-xs); }
+/* Název pole je zároveň přepínač, který dole vymění seznam možností. */
+.sc-linklike { padding: 0; color: inherit; border: 0; background: transparent; cursor: pointer; font: inherit; text-align: left; }
+.sc-linklike:hover strong { color: var(--wrc-red); text-decoration: underline; }
+
+/* Rozchod mezi materiálem vybraným v servisu a technickými údaji motoru (varianta C). */
+.sc-divergence { display: flex; flex-direction: column; gap: var(--wrc-space-6); margin-top: var(--wrc-space-12); padding: var(--wrc-space-12); color: var(--wrc-warning-ink); border: 1px solid var(--wrc-amber); border-radius: var(--wrc-radius-md); background: var(--wrc-amber-dim); }
+.sc-divergence ul { margin: 0; padding-left: var(--wrc-space-16); font-size: var(--wrc-text-sm); }
+.sc-divergence small { color: var(--wrc-ink-soft); font-size: var(--wrc-text-xs); }
+.sc-divergence-note { display: block; margin-top: var(--wrc-space-2); color: var(--wrc-warning-ink); }
+
+/* Upozornění, že přepnutí typu atributu zahodí hodnoty výběru. */
+.sc-drop-warning { margin-top: var(--wrc-space-8); color: var(--wrc-warning-ink); }

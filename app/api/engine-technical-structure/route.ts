@@ -18,7 +18,10 @@ type DraftField = { labelCs?: string; labelEn?: string; showOnOverview?: boolean
 type DraftSection = { labelCs?: string; labelEn?: string; fields?: DraftField[] };
 
 type Payload = {
-  kind?: "layout" | "section" | "field" | "option" | "confirmMigration";
+  kind?: "layout" | "section" | "field" | "option" | "confirmMigration" | "reorder" | "copyStructure";
+  resource?: string;
+  ids?: string[];
+  toFamilies?: string[];
   id?: string;
   family?: string;
   sectionId?: string;
@@ -71,6 +74,83 @@ export async function GET() {
   return Response.json({ layout: layout.results, sections: sections.results, fields: normalizedFields, options: options.results });
 }
 
+/** sort_order po desítkách — stejný krok jako u servisní karty. */
+const SORT_STEP = 10;
+
+/**
+ * Jednorázová kopie struktury do dalších rodin. Žádná trvalá vazba — pozdější změna zdrojové
+ * rodiny se do cílových nepromítne, stejný vzor jako „Převzít z…" u typů servisu.
+ *
+ * Kopírují se jen neaarchivované sekce, pole a možnosti. Cílová rodina, která už nějakou sekci
+ * má, se přeskočí — kopie nikdy nepřepíše strukturu, kterou někdo postavil ručně.
+ */
+async function copyStructure(d1: ReturnType<typeof getD1>, fromFamily: string, toFamilies: string[], actor: string, now: number) {
+  const sections = await d1.prepare(`
+    SELECT id, label_cs AS labelCs, label_en AS labelEn, sort_order AS sortOrder
+    FROM engine_technical_sections WHERE family = ? AND archived_at IS NULL ORDER BY sort_order
+  `).bind(fromFamily).all<{ id: string; labelCs: string; labelEn: string; sortOrder: number }>();
+  if (sections.results.length === 0) return { copied: [] as string[], skipped: toFamilies };
+
+  const sectionIds = sections.results.map((section) => section.id);
+  const fields = await d1.prepare(`
+    SELECT id, section_id AS sectionId, label_cs AS labelCs, label_en AS labelEn, field_type AS fieldType,
+           show_on_overview AS showOnOverview, sort_order AS sortOrder, legacy_key AS legacyKey
+    FROM engine_technical_fields WHERE section_id IN (${sectionIds.map(() => "?").join(", ")}) AND archived_at IS NULL ORDER BY sort_order
+  `).bind(...sectionIds).all<{ id: string; sectionId: string; labelCs: string; labelEn: string; fieldType: string; showOnOverview: number; sortOrder: number; legacyKey: string | null }>();
+
+  const fieldIds = fields.results.map((field) => field.id);
+  const options = fieldIds.length === 0 ? { results: [] } : await d1.prepare(`
+    SELECT id, field_id AS fieldId, value_cs AS valueCs, value_en AS valueEn, sort_order AS sortOrder
+    FROM engine_technical_field_options WHERE field_id IN (${fieldIds.map(() => "?").join(", ")}) AND archived_at IS NULL ORDER BY sort_order
+  `).bind(...fieldIds).all<{ id: string; fieldId: string; valueCs: string; valueEn: string; sortOrder: number }>();
+
+  const layout = await d1.prepare("SELECT column_count AS columnCount FROM engine_technical_layout WHERE family = ?")
+    .bind(fromFamily).first<{ columnCount: number }>();
+
+  const copied: string[] = [];
+  const skipped: string[] = [];
+  for (const target of toFamilies) {
+    if (target === fromFamily) { skipped.push(target); continue; }
+    const existing = await d1.prepare("SELECT id FROM engine_technical_sections WHERE family = ? AND archived_at IS NULL LIMIT 1").bind(target).first();
+    if (existing) { skipped.push(target); continue; }
+
+    const statements: ReturnType<typeof d1.prepare>[] = [];
+    for (const section of sections.results) {
+      const newSectionId = crypto.randomUUID();
+      statements.push(d1.prepare(`
+        INSERT INTO engine_technical_sections (id, family, label_cs, label_en, sort_order, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(newSectionId, target, section.labelCs, section.labelEn, section.sortOrder, actor, now, now));
+
+      for (const field of fields.results.filter((item) => item.sectionId === section.id)) {
+        const newFieldId = crypto.randomUUID();
+        statements.push(d1.prepare(`
+          INSERT INTO engine_technical_fields (id, section_id, label_cs, label_en, field_type, show_on_overview, sort_order, legacy_key, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).bind(newFieldId, newSectionId, field.labelCs, field.labelEn, field.fieldType, field.showOnOverview, field.sortOrder, field.legacyKey, actor, now, now));
+
+        for (const option of (options.results as Array<{ fieldId: string; valueCs: string; valueEn: string; sortOrder: number }>).filter((item) => item.fieldId === field.id)) {
+          statements.push(d1.prepare(`
+            INSERT INTO engine_technical_field_options (id, field_id, value_cs, value_en, sort_order, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `).bind(crypto.randomUUID(), newFieldId, option.valueCs, option.valueEn, option.sortOrder, now));
+        }
+      }
+    }
+    if (layout) {
+      statements.push(d1.prepare(`
+        INSERT INTO engine_technical_layout (family, column_count, updated_by, updated_at) VALUES (?, ?, ?, ?)
+        ON CONFLICT(family) DO UPDATE SET column_count = excluded.column_count, updated_by = excluded.updated_by, updated_at = excluded.updated_at
+      `).bind(target, layout.columnCount, actor, now));
+    }
+    for (let offset = 0; offset < statements.length; offset += 50) {
+      await d1.batch(statements.slice(offset, offset + 50));
+    }
+    copied.push(target);
+  }
+  return { copied, skipped };
+}
+
 export async function POST(request: Request) {
   const auth = await requireSuperadmin();
   if (auth.error) return auth.error;
@@ -80,6 +160,13 @@ export async function POST(request: Request) {
   await ensureRuntimeSchema();
   const d1 = getD1();
   const now = Date.now();
+
+  if (payload.kind === "copyStructure") {
+    const fromFamily = clean(payload.family, 20);
+    const toFamilies = Array.isArray(payload.toFamilies) ? payload.toFamilies.map((item: string) => clean(item, 20)).filter(Boolean) : [];
+    if (!fromFamily || toFamilies.length === 0) return Response.json({ error: "Source family and at least one target are required" }, { status: 400 });
+    return Response.json(await copyStructure(d1, fromFamily, toFamilies, auth.user.email, now));
+  }
 
   if (payload.kind === "section") {
     const family = clean(payload.family, 20);
@@ -219,6 +306,17 @@ export async function PUT(request: Request) {
   await ensureRuntimeSchema();
   const d1 = getD1();
   const now = Date.now();
+
+  // Přeskládání pořadí drag & dropem — celý seznam se přepíše na 10, 20, 30…
+  if (payload.kind === "reorder") {
+    const table = ({ section: "engine_technical_sections", field: "engine_technical_fields", option: "engine_technical_field_options" } as const)[payload.resource as "section" | "field" | "option"];
+    const ids = Array.isArray(payload.ids) ? payload.ids.map((item: string) => clean(item, 80)).filter(Boolean) : [];
+    if (!table || ids.length === 0) return Response.json({ error: "Invalid reorder request" }, { status: 400 });
+    await d1.batch(ids.map((itemId: string, index: number) =>
+      d1.prepare(`UPDATE ${table} SET sort_order = ? WHERE id = ?`).bind((index + 1) * SORT_STEP, itemId)
+    ));
+    return Response.json({ ok: true });
+  }
 
   if (payload.kind === "layout") {
     const family = clean(payload.family, 20);

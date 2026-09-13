@@ -3,6 +3,8 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
+import { ServiceCardSettings } from "./settings-service-card";
+import { TechnicalStructureSettings } from "./settings-technical-structure";
 
 type Locale = "cs" | "en";
 type AppRole = "superadmin" | "boss" | "mechanic";
@@ -36,8 +38,14 @@ const emptyForm: UserForm = {
 
 const roleOrder: AppRole[] = ["superadmin", "boss", "mechanic"];
 
+/** Sekce Nastavení. Nová položka se přidá sem a do `content.cs/en.sections`. */
+type SettingsSection = "access" | "serviceCard" | "technicalData";
+const sectionOrder: SettingsSection[] = ["access", "serviceCard", "technicalData"];
+
 const content = {
   cs: {
+    sections: { access: "Přístupy a role", serviceCard: "Servisní karta", technicalData: "Technické údaje" },
+    sectionsLabel: "Sekce nastavení",
     title: "Přístupy a role",
     intro: "Řiďte, kdo se může přihlásit do MM SYSTEM a jaké má oprávnění.",
     add: "Přidat uživatele",
@@ -90,6 +98,8 @@ const content = {
     forbidden: "Tuto část může spravovat pouze superadmin.",
   },
   en: {
+    sections: { access: "Access and roles", serviceCard: "Service card", technicalData: "Technical data" },
+    sectionsLabel: "Settings section",
     title: "Access and roles",
     intro: "Control who can sign in to MM SYSTEM and what they are allowed to do.",
     add: "Add user",
@@ -155,6 +165,7 @@ export function SettingsPage({
   onCurrentUserUpdated: (user: Pick<ManagedUser, "fullName" | "email" | "role" | "locale">) => void;
 }) {
   const t = content[locale];
+  const [section, setSection] = useState<SettingsSection>("access");
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [loading, setLoading] = useState(role === "superadmin");
   const [loadError, setLoadError] = useState(false);
@@ -261,6 +272,16 @@ export function SettingsPage({
 
   return (
     <section className="settings-page">
+      <nav className="engine-tabs" aria-label={t.sectionsLabel}>
+        {sectionOrder.map((item) => (
+          <button key={item} type="button" className={section === item ? "active" : ""} onClick={() => setSection(item)}>{t.sections[item]}</button>
+        ))}
+      </nav>
+
+      {section === "serviceCard" && <ServiceCardSettings locale={locale} role={role} />}
+      {section === "technicalData" && <TechnicalStructureSettings locale={locale} role={role} />}
+
+      {section === "access" && (<>
       <article className="dash-panel settings-hero">
         <div>
           <span className="settings-kicker">MM SYSTEM · SECURITY</span>
@@ -348,6 +369,7 @@ export function SettingsPage({
           </div>
         )}
       </article>
+      </>)}
 
       {modalOpen && (
         <UserFormModal

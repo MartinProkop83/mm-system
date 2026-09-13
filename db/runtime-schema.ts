@@ -189,6 +189,165 @@ async function createRuntimeSchema() {
         updated_at INTEGER NOT NULL
       )
     `),
+    // --- Servisní karta (Nastavení → Servisní karta) -------------------------------
+    // Engine categories mirror the `engines.family` codes (MINI / OKJ / OKN / OKN-J / OK / KZ)
+    // — `code` is the join key, so `engines` itself needs no new column. `counter_unit NULL`
+    // means the category has no running-hours counter at all: every interval / warning /
+    // tile-colour rule is skipped for it, in the API and in the UI. Flipping it from NULL to
+    // 'hours' later is a pure settings change, no migration.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_categories (
+        id TEXT PRIMARY KEY NOT NULL,
+        code TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        counter_unit TEXT CHECK (counter_unit IN ('hours', 'days', 'race_weekends')),
+        service_card_migrated INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_types (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_category_id TEXT NOT NULL,
+        code TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        description_cs TEXT NOT NULL DEFAULT '',
+        description_en TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Which card items a service type pre-ticks. Flat link table on purpose — there is no
+    // inheritance between types (1.D does NOT extend 1.C); each type carries its own full list.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_type_default_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        service_type_id TEXT NOT NULL,
+        service_card_item_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
+    // `legacy_part_key` carries the old engine_service_part_catalog.part_key so historic
+    // engine_service_entries rows (which reference parts by that key, not by id) can be
+    // matched to the item they became. Null for items created from scratch in the new UI.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_card_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_category_id TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        material_category_id TEXT,
+        interval_minutes INTEGER,
+        warn_percent INTEGER NOT NULL DEFAULT 80,
+        legacy_part_key TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS material_categories (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_category_id TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Attributes belong to a material category, not to the catalogue as a whole — pistons have
+    // a brand and a size, gaskets a type and a thickness. `options` is a JSON string array and
+    // only carries anything for attribute_type = 'dropdown'.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS material_attributes (
+        id TEXT PRIMARY KEY NOT NULL,
+        material_category_id TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        attribute_type TEXT NOT NULL DEFAULT 'text' CHECK (attribute_type IN ('dropdown', 'number', 'text')),
+        unit TEXT NOT NULL DEFAULT '',
+        options TEXT NOT NULL DEFAULT '[]',
+        technical_field_id TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // A ready-made variant is the only thing a mechanic ever picks — they never type attribute
+    // values by hand, which is what keeps "0.3" / "0,3" / "0.30 mm" out of the data.
+    // `attribute_values` is a JSON map of material_attributes.id → value.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS material_variants (
+        id TEXT PRIMARY KEY NOT NULL,
+        material_category_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        attribute_values TEXT NOT NULL DEFAULT '{}',
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // `service_date` is when the work happened (entered by the mechanic, possibly backdated);
+    // `created_at` is when it was typed in. They are deliberately separate, and history sorts
+    // by service_date. `counter_minutes` is a snapshot of engines.total_minutes at write time
+    // and stays NULL for categories without a counter — such rows are skipped (not treated as
+    // zero) when computing "run since replacement". Cancelled rows keep cancelled_at set and
+    // are never deleted.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_records (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        service_type_id TEXT,
+        service_type_snapshot TEXT NOT NULL DEFAULT '',
+        service_date TEXT NOT NULL,
+        service_time TEXT NOT NULL DEFAULT '',
+        counter_minutes INTEGER,
+        mechanic_id TEXT,
+        mechanic_name_snapshot TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        cancelled_reason TEXT NOT NULL DEFAULT '',
+        cancelled_at INTEGER,
+        cancelled_by TEXT NOT NULL DEFAULT '',
+        import_source TEXT NOT NULL DEFAULT '',
+        divergence_note TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Snapshots are mandatory: history is read from item_name_*_snapshot and material_snapshot
+    // first, so renaming an item or archiving a variant in settings a year from now can neither
+    // rewrite nor break what was recorded. The foreign keys are kept only for live lookups.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_record_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        service_record_id TEXT NOT NULL,
+        service_card_item_id TEXT,
+        item_name_cs_snapshot TEXT NOT NULL,
+        item_name_en_snapshot TEXT NOT NULL,
+        material_variant_id TEXT,
+        material_snapshot TEXT,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY NOT NULL,
@@ -873,6 +1032,19 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_field_options_field_idx ON engine_technical_field_options (field_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_technical_values_unique_idx ON engine_technical_values (engine_id, field_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_values_field_idx ON engine_technical_values (field_id)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_categories_code_unique_idx ON engine_categories (code)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_types_category_idx ON service_types (engine_category_id, sort_order)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_types_category_code_unique_idx ON service_types (engine_category_id, code) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_type_default_items_unique_idx ON service_type_default_items (service_type_id, service_card_item_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_card_items_category_idx ON service_card_items (engine_category_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_card_items_material_idx ON service_card_items (material_category_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS material_categories_category_idx ON material_categories (engine_category_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS material_attributes_category_idx ON material_attributes (material_category_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS material_variants_category_idx ON material_variants (material_category_id, name)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_records_engine_idx ON service_records (engine_id, service_date)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_records_type_idx ON service_records (service_type_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_record_items_record_idx ON service_record_items (service_record_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_record_items_card_item_idx ON service_record_items (service_card_item_id)"),
   ]);
 
   const columns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();
@@ -1186,7 +1358,396 @@ async function createRuntimeSchema() {
   ].filter(([name]) => !existingServiceEntryColumns.has(name));
   if (serviceEntryAdditions.length > 0) await d1.batch(serviceEntryAdditions.map(([, statement]) => d1.prepare(statement)));
 
+  // `import_source` přibyl až po prvním nasazení modulu servisní karty, takže tabulka už může
+  // existovat bez něj. Index se proto zakládá až tady, ne v úvodním batchi — tam by na starší
+  // databázi padl na neexistujícím sloupci.
+  const serviceRecordColumns = await d1.prepare("PRAGMA table_info(service_records)").all<{ name: string }>();
+  if (!serviceRecordColumns.results.some((column: { name: string }) => column.name === "import_source")) {
+    await d1.prepare("ALTER TABLE service_records ADD COLUMN import_source TEXT NOT NULL DEFAULT ''").run();
+  }
+  await d1.prepare("CREATE INDEX IF NOT EXISTS service_records_import_source_idx ON service_records (import_source)").run();
+
+  // `service_time` (HH:MM) je volitelný doplněk k `service_date`. Prázdný řetězec znamená
+  // „čas neznámý" — takový záznam se řadí na začátek dne a čas se u něj nikde nezobrazuje.
+  // Datum zůstává vlastním sloupcem ve tvaru YYYY-MM-DD, aby staré i přenesené záznamy platily
+  // beze změny a `ORDER BY service_date` nikde nezměnilo význam.
+  if (!serviceRecordColumns.results.some((column: { name: string }) => column.name === "service_time")) {
+    await d1.prepare("ALTER TABLE service_records ADD COLUMN service_time TEXT NOT NULL DEFAULT ''").run();
+  }
+
+  // `divergence_note` drží zápis o tom, že mechanik vědomě nechal rozejít rozměr v servisu
+  // a v technických údajích. Přibylo spolu s propojením obou míst.
+  if (!serviceRecordColumns.results.some((column: { name: string }) => column.name === "divergence_note")) {
+    await d1.prepare("ALTER TABLE service_records ADD COLUMN divergence_note TEXT NOT NULL DEFAULT ''").run();
+  }
+
+  // `technical_field_id` říká, kterému poli technických údajů atribut odpovídá — díky tomu umí
+  // formulář servisu poznat, že se hodnoty rozcházejí, a nabídnout jejich srovnání.
+  const attributeColumns = await d1.prepare("PRAGMA table_info(material_attributes)").all<{ name: string }>();
+  if (!attributeColumns.results.some((column: { name: string }) => column.name === "technical_field_id")) {
+    await d1.prepare("ALTER TABLE material_attributes ADD COLUMN technical_field_id TEXT").run();
+  }
+
   await ensureMiniServicePartCatalogSeed(d1);
+  await ensureServiceCardSeed(d1);
+  // Přenos staré historie se ZÁMĚRNĚ nespouští automaticky — viz migrateLegacyServiceEntries.
+}
+
+/** Engine categories, keyed by the `engines.family` code already used everywhere else. */
+const SERVICE_CARD_CATEGORY_SEED: Array<{ code: string; nameCs: string; nameEn: string; counterUnit: string | null; migrated: boolean }> = [
+  { code: "MINI", nameCs: "MINI", nameEn: "MINI", counterUnit: null, migrated: true },
+  { code: "OKJ", nameCs: "OKJ", nameEn: "OKJ", counterUnit: null, migrated: false },
+  { code: "OKN", nameCs: "OKN", nameEn: "OKN", counterUnit: "hours", migrated: false },
+  { code: "OKN-J", nameCs: "OKN-J", nameEn: "OKN-J", counterUnit: "hours", migrated: false },
+  { code: "OK", nameCs: "OK", nameEn: "OK", counterUnit: "hours", migrated: false },
+  { code: "KZ", nameCs: "KZ", nameEn: "KZ", counterUnit: "hours", migrated: false },
+];
+
+/** Card items — the same seven parts, in the same order, as the old hardcoded LEGACY_SERVICE_PARTS
+ *  list (app/api/engine-records/route.ts) and the MINI part catalog. That list applies to every
+ *  engine family today, so every category is seeded with it: MINI as its live card, the rest as
+ *  an editable starting point they can adjust before switching over.
+ *
+ *  `legacyPartKey` is what ties historic engine_service_entries rows to the new item, and what
+ *  lets the switch-over check find the piston / connecting-rod items whose intervals replace the
+ *  automatic counter reset. Items created from scratch in the UI have it null. */
+const CARD_ITEM_SEED: Array<{ legacyPartKey: string; nameCs: string; nameEn: string; materialCategory: string | null }> = [
+  { legacyPartKey: "piston", nameCs: "Píst", nameEn: "Piston", materialCategory: "PISTONS" },
+  { legacyPartKey: "oil_seals", nameCs: "Gufera", nameEn: "Oil seals", materialCategory: "OIL_SEALS" },
+  { legacyPartKey: "crank_bearings", nameCs: "Ložiska kliky", nameEn: "Crank bearings", materialCategory: "BEARINGS" },
+  { legacyPartKey: "connecting_rod", nameCs: "Kompletní ojnice", nameEn: "Complete connecting rod", materialCategory: "RODS" },
+  { legacyPartKey: "upper_rod_cage", nameCs: "Horní klec ojnice", nameEn: "Upper rod cage", materialCategory: null },
+  { legacyPartKey: "cylinder_gasket", nameCs: "Těsnění válce", nameEn: "Cylinder gasket", materialCategory: "GASKETS" },
+  { legacyPartKey: "head_gasket", nameCs: "Těsnění hlavy", nameEn: "Head gasket", materialCategory: "GASKETS" },
+];
+
+const MINI_SERVICE_TYPE_SEED: Array<{ code: string; nameCs: string; nameEn: string }> = [
+  { code: "1.A", nameCs: "1.A", nameEn: "1.A" },
+  { code: "1.B", nameCs: "1.B", nameEn: "1.B" },
+  { code: "1.C", nameCs: "1.C", nameEn: "1.C" },
+  { code: "1.D", nameCs: "1.D", nameEn: "1.D" },
+  { code: "PRE", nameCs: "Přestavba", nameEn: "Rebuild" },
+  { code: "KON", nameCs: "Kontrola", nameEn: "Inspection" },
+];
+
+/** Material categories. `key` is seed-local only — it wires card items to their category below
+ *  and is not persisted. Attributes belong to a category, never to the catalogue as a whole. */
+const MATERIAL_SEED: Array<{
+  key: string;
+  nameCs: string;
+  nameEn: string;
+  attributes: Array<{ nameCs: string; nameEn: string; type: "dropdown" | "number" | "text"; unit: string }>;
+}> = [
+  {
+    key: "PISTONS", nameCs: "Písty", nameEn: "Pistons",
+    attributes: [
+      { nameCs: "Značka", nameEn: "Brand", type: "dropdown", unit: "" },
+      { nameCs: "Rozměr", nameEn: "Size", type: "number", unit: "mm" },
+    ],
+  },
+  {
+    key: "GASKETS", nameCs: "Těsnění", nameEn: "Gaskets",
+    attributes: [
+      { nameCs: "Typ", nameEn: "Type", type: "dropdown", unit: "" },
+      { nameCs: "Síla", nameEn: "Thickness", type: "number", unit: "mm" },
+    ],
+  },
+  { key: "BEARINGS", nameCs: "Ložiska", nameEn: "Bearings", attributes: [] },
+  { key: "OIL_SEALS", nameCs: "Gufera", nameEn: "Oil seals", attributes: [] },
+  { key: "SPARK_PLUGS", nameCs: "Svíčky", nameEn: "Spark plugs", attributes: [] },
+  { key: "RODS", nameCs: "Ojnice", nameEn: "Connecting rods", attributes: [] },
+];
+
+/** sort_order is written in steps of 10 so inserting between two rows rewrites one row, not all. */
+const SORT_STEP = 10;
+
+/**
+ * Rozměry pístu, které do teď žily natvrdo v kódu (`pistonSizeOptions` v app/mm-dashboard.tsx
+ * a `pistonSizes` v app/api/engine-records/route.ts) a nikdo je nemohl upravit bez zásahu do
+ * repozitáře. Seedují se jako varianty katalogu materiálu v kategorii „Písty", odkud si je
+ * bere formulář servisu i validace na serveru.
+ *
+ * Seznam je opsaný 1:1 včetně toho, že 53.84 v něm nikdy nebylo. MINI má vlastní řadu (41.xx),
+ * kterou si superadmin nastavil sám — ta se neseeduje, aby se nepřepsala.
+ */
+const OK_FAMILY_PISTON_SIZES = ["53.83", "53.85", "53.86", "53.87", "53.88", "53.89", "53.90", "53.91", "53.92", "53.93", "53.94", "53.95"];
+const PISTON_SIZE_SEED: Record<string, string[]> = {
+  OKJ: OK_FAMILY_PISTON_SIZES,
+  OKN: OK_FAMILY_PISTON_SIZES,
+  "OKN-J": OK_FAMILY_PISTON_SIZES,
+  OK: OK_FAMILY_PISTON_SIZES,
+};
+
+// Seeds the Nastavení → Servisní karta dictionaries. Idempotent: each block is skipped once its
+// table holds anything, so an operator's later edits are never overwritten on the next boot.
+async function ensureServiceCardSeed(d1: ReturnType<typeof getD1>) {
+  const now = Date.now();
+
+  const categoryCount = await d1.prepare("SELECT COUNT(*) AS count FROM engine_categories").first<{ count: number }>();
+  if ((categoryCount?.count ?? 0) === 0) {
+    await d1.batch(SERVICE_CARD_CATEGORY_SEED.map((category, index) =>
+      d1.prepare(`
+        INSERT INTO engine_categories (id, code, name_cs, name_en, sort_order, counter_unit, service_card_migrated, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'system', ?, ?)
+      `).bind(crypto.randomUUID(), category.code, category.nameCs, category.nameEn, (index + 1) * SORT_STEP, category.counterUnit, category.migrated ? 1 : 0, now, now)
+    ));
+  }
+
+  const categories = await d1.prepare("SELECT id, code FROM engine_categories").all<{ id: string; code: string }>();
+  for (const category of categories.results) {
+    await seedCategoryDictionaries(d1, category, now);
+  }
+}
+
+/** Materiál, položky karty a (u MINI) typy servisu pro jednu kategorii. Každý blok se přeskočí,
+ *  jakmile jeho tabulka pro tu kategorii něco obsahuje — pozdější úpravy se nikdy nepřepíšou. */
+async function seedCategoryDictionaries(d1: ReturnType<typeof getD1>, category: { id: string; code: string }, now: number) {
+  const materialCount = await d1.prepare("SELECT COUNT(*) AS count FROM material_categories WHERE engine_category_id = ?").bind(category.id).first<{ count: number }>();
+  const materialIdByKey = new Map<string, string>();
+  if ((materialCount?.count ?? 0) === 0) {
+    const statements: ReturnType<typeof d1.prepare>[] = [];
+    MATERIAL_SEED.forEach((material, materialIndex) => {
+      const materialId = crypto.randomUUID();
+      materialIdByKey.set(material.key, materialId);
+      statements.push(d1.prepare(`
+        INSERT INTO material_categories (id, engine_category_id, name_cs, name_en, sort_order, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'system', ?, ?)
+      `).bind(materialId, category.id, material.nameCs, material.nameEn, (materialIndex + 1) * SORT_STEP, now, now));
+      material.attributes.forEach((attribute, attributeIndex) => {
+        statements.push(d1.prepare(`
+          INSERT INTO material_attributes (id, material_category_id, name_cs, name_en, attribute_type, unit, options, sort_order, created_by, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, '[]', ?, 'system', ?, ?)
+        `).bind(crypto.randomUUID(), materialId, attribute.nameCs, attribute.nameEn, attribute.type, attribute.unit, (attributeIndex + 1) * SORT_STEP, now, now));
+      });
+    });
+    await d1.batch(statements);
+  } else {
+    const existing = await d1.prepare("SELECT id, name_cs AS nameCs FROM material_categories WHERE engine_category_id = ?").bind(category.id).all<{ id: string; nameCs: string }>();
+    for (const seed of MATERIAL_SEED) {
+      const match = existing.results.find((row) => row.nameCs === seed.nameCs);
+      if (match) materialIdByKey.set(seed.key, match.id);
+    }
+  }
+
+  const itemCount = await d1.prepare("SELECT COUNT(*) AS count FROM service_card_items WHERE engine_category_id = ?").bind(category.id).first<{ count: number }>();
+  if ((itemCount?.count ?? 0) === 0) {
+    // Bez intervalů — u kategorií s počítadlem si je superadmin doplní před přepnutím na novou kartu.
+    await d1.batch(CARD_ITEM_SEED.map((item, index) =>
+      d1.prepare(`
+        INSERT INTO service_card_items (id, engine_category_id, name_cs, name_en, material_category_id, interval_minutes, warn_percent, legacy_part_key, sort_order, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, 80, ?, ?, 'system', ?, ?)
+      `).bind(crypto.randomUUID(), category.id, item.nameCs, item.nameEn, item.materialCategory ? materialIdByKey.get(item.materialCategory) ?? null : null, item.legacyPartKey, (index + 1) * SORT_STEP, now, now)
+    ));
+  }
+
+  await seedPistonSizes(d1, category, materialIdByKey.get("PISTONS"), now);
+
+  // Typy servisu zatím seedujeme jen pro MINI — ostatní kategorie si je nadefinují v UI.
+  if (category.code !== "MINI") return;
+  const typeCount = await d1.prepare("SELECT COUNT(*) AS count FROM service_types WHERE engine_category_id = ?").bind(category.id).first<{ count: number }>();
+  if ((typeCount?.count ?? 0) === 0) {
+    // Záměrně bez výchozích položek — ty si superadmin zaškrtá v UI.
+    await d1.batch(MINI_SERVICE_TYPE_SEED.map((type, index) =>
+      d1.prepare(`
+        INSERT INTO service_types (id, engine_category_id, code, name_cs, name_en, description_cs, description_en, sort_order, created_by, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, '', '', ?, 'system', ?, ?)
+      `).bind(crypto.randomUUID(), category.id, type.code, type.nameCs, type.nameEn, (index + 1) * SORT_STEP, now, now)
+    ));
+  }
+}
+
+/**
+ * Převede hardcoded rozměry pístu do katalogu materiálu. Idempotentní: jakmile kategorie Písty
+ * dané rodiny nějakou variantu má, seed se nespustí — ruční úpravy se nikdy nepřepisují.
+ */
+async function seedPistonSizes(d1: ReturnType<typeof getD1>, category: { id: string; code: string }, pistonCategoryId: string | undefined, now: number) {
+  const sizes = PISTON_SIZE_SEED[category.code];
+  if (!sizes || !pistonCategoryId) return;
+
+  const existing = await d1.prepare("SELECT COUNT(*) AS count FROM material_variants WHERE material_category_id = ?").bind(pistonCategoryId).first<{ count: number }>();
+  if ((existing?.count ?? 0) > 0) return;
+
+  // Rozměr je atribut kategorie; varianta se jmenuje podle něj, stejně jako to dnes vypadá
+  // ve formuláři servisu. Značka zůstává prázdná — doplní se, až ji někdo bude chtít evidovat.
+  const sizeAttribute = await d1.prepare(`
+    SELECT id FROM material_attributes WHERE material_category_id = ? AND name_en = 'Size' AND archived_at IS NULL
+  `).bind(pistonCategoryId).first<{ id: string }>();
+  if (!sizeAttribute) return;
+
+  await d1.batch(sizes.map((size: string) =>
+    d1.prepare(`
+      INSERT INTO material_variants (id, material_category_id, name, attribute_values, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'system', ?, ?)
+    `).bind(crypto.randomUUID(), pistonCategoryId, size, JSON.stringify({ [sizeAttribute.id]: size }), now, now)
+  ));
+}
+
+/** Labels the four hardcoded legacy service types carried, kept only so migrated history
+ *  still reads the way it did before. New records store their own snapshot instead. */
+const LEGACY_SERVICE_TYPE_LABELS: Record<string, string> = {
+  inspection: "Kontrola / Inspection",
+  piston_service: "Servis pístu / Piston service",
+  top_end: "Top end",
+  full_service: "Kompletní servis / Full service",
+};
+
+type LegacyEntryRow = {
+  id: string;
+  engineId: string;
+  engineCode: string;
+  serviceDate: string;
+  serviceType: string;
+  replacedParts: string;
+  replacedPartsSnapshot: string;
+  notes: string;
+  mechanicId: string | null;
+  mechanicName: string;
+  createdBy: string;
+  createdAt: number;
+};
+
+/**
+ * Odkud záznam pochází. Prázdný řetězec = běžný zápis mechanika, ten se nikdy hromadně nemaže.
+ * Ostatní hodnoty označují dávkově založené záznamy, které jde vrátit zpět — to je jediná
+ * záchranná brzda na produkci, kam se mimo aplikaci nedostaneme.
+ */
+export const IMPORT_SOURCE_LEGACY = "legacy_import";
+export const IMPORT_SOURCE_COUNTER_CARRYOVER = "counter_carryover";
+
+/** Souhrn jednoho běhu přenosu staré historie — stejný tvar pro náhled i ostrý zápis. */
+export type LegacyMigrationSummary = {
+  categoryCode: string;
+  /** Kolik starých záznamů ještě čeká na přenos (u ostrého běhu kolik se přeneslo). */
+  records: number;
+  /** Kolik už přenesených záznamů v nové historii leží — přesně tolik vrátí „Vrátit přenos". */
+  alreadyImported: number;
+  /** Kolik z nich vzniklo položek. */
+  items: number;
+  /** part_key ze staré historie, ke kterému se nenašla položka karty — přenese se jen snapshot názvu. */
+  unmatchedPartKeys: string[];
+  /** Prvních pár záznamů na kontrolu proti tomu, co je vidět v UI. */
+  samples: Array<{ engineCode: string; serviceDate: string; serviceType: string; items: string[] }>;
+};
+
+/**
+ * Přenese starou historii z `engine_service_entries` do `service_records` + `service_record_items`
+ * pro kategorie, které už jedou po nové servisní kartě.
+ *
+ * **Nespouští se automaticky při startu.** Nasazení nového kódu na produkci nesmí historii sáhnout
+ * dřív, než si ji někdo prohlédne — proto se volá výhradně ručně: `dryRun: true` z náhledu
+ * v Nastavení → Servisní karta (nic nezapisuje, jen spočítá a vrátí vzorek), `dryRun: false`
+ * po potvrzení, a taky z přepnutí kategorie na novou kartu.
+ *
+ * Idempotentní přes `service_records.id` — přebírá se id starého řádku, takže druhý běh nic
+ * nepřidá a dřív přenesené záznamy se v náhledu už neobjeví.
+ */
+export async function migrateLegacyServiceEntries(
+  d1: ReturnType<typeof getD1>,
+  options: { dryRun?: boolean } = {},
+): Promise<LegacyMigrationSummary[]> {
+  const dryRun = options.dryRun ?? false;
+  const categories = await d1.prepare("SELECT id, code FROM engine_categories WHERE service_card_migrated = 1").all<{ id: string; code: string }>();
+  const summaries: LegacyMigrationSummary[] = [];
+
+  for (const category of categories.results) {
+    const pending = await d1.prepare(`
+      SELECT e.id, e.engine_id AS engineId, e.service_date AS serviceDate, e.service_type AS serviceType,
+             e.replaced_parts AS replacedParts, e.replaced_parts_snapshot AS replacedPartsSnapshot,
+             e.notes, e.mechanic_id AS mechanicId, e.mechanic_name_snapshot AS mechanicName,
+             e.created_by AS createdBy, e.created_at AS createdAt, g.code AS engineCode
+      FROM engine_service_entries e
+      JOIN engines g ON g.id = e.engine_id
+      WHERE g.family = ?
+        AND NOT EXISTS (SELECT 1 FROM service_records r WHERE r.id = e.id)
+      ORDER BY e.service_date DESC
+    `).bind(category.code).all<LegacyEntryRow>();
+    const imported = await d1.prepare(`
+      SELECT COUNT(*) AS count FROM service_records r
+      JOIN engines g ON g.id = r.engine_id
+      WHERE g.family = ? AND r.import_source = ?
+    `).bind(category.code, IMPORT_SOURCE_LEGACY).first<{ count: number }>();
+    const alreadyImported = imported?.count ?? 0;
+
+    if (pending.results.length === 0) {
+      summaries.push({ categoryCode: category.code, records: 0, alreadyImported, items: 0, unmatchedPartKeys: [], samples: [] });
+      continue;
+    }
+
+    const items = await d1.prepare(`
+      SELECT id, name_cs AS nameCs, name_en AS nameEn, legacy_part_key AS legacyPartKey
+      FROM service_card_items WHERE engine_category_id = ? AND legacy_part_key IS NOT NULL
+    `).bind(category.id).all<{ id: string; nameCs: string; nameEn: string; legacyPartKey: string }>();
+    const itemByKey = new Map(items.results.map((item) => [item.legacyPartKey, item]));
+
+    const statements: ReturnType<typeof d1.prepare>[] = [];
+    const unmatched = new Set<string>();
+    const samples: LegacyMigrationSummary["samples"] = [];
+    let itemCount = 0;
+
+    for (const entry of pending.results) {
+      const serviceTypeSnapshot = LEGACY_SERVICE_TYPE_LABELS[entry.serviceType] ?? entry.serviceType;
+      statements.push(d1.prepare(`
+        INSERT INTO service_records (
+          id, engine_id, service_type_id, service_type_snapshot, service_date, counter_minutes,
+          mechanic_id, mechanic_name_snapshot, note, import_source, created_by, created_at, updated_at
+        ) VALUES (?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(entry.id, entry.engineId, serviceTypeSnapshot, entry.serviceDate, entry.mechanicId,
+        entry.mechanicName, entry.notes, IMPORT_SOURCE_LEGACY, entry.createdBy, entry.createdAt, entry.createdAt));
+
+      // Přednost má snapshot, který starý řádek nesl; teprve pak seznam klíčů + dnešní katalog,
+      // aby se nic neztratilo ani u řádků zapsaných dřív, než snapshoty vůbec existovaly.
+      const snapshot = parseJsonArray<{ partKey: string; labelCs: string; labelEn: string }>(entry.replacedPartsSnapshot);
+      const partKeys = snapshot.length > 0 ? snapshot.map((part) => part.partKey) : parseJsonArray<string>(entry.replacedParts);
+      const sampleItems: string[] = [];
+      partKeys.forEach((partKey, index) => {
+        const snapshotEntry = snapshot.find((part) => part.partKey === partKey);
+        const item = itemByKey.get(partKey);
+        if (!item) unmatched.add(partKey);
+        const nameCs = snapshotEntry?.labelCs || item?.nameCs || partKey;
+        const nameEn = snapshotEntry?.labelEn || item?.nameEn || partKey;
+        sampleItems.push(nameCs);
+        itemCount += 1;
+        statements.push(d1.prepare(`
+          INSERT INTO service_record_items (
+            id, service_record_id, service_card_item_id, item_name_cs_snapshot, item_name_en_snapshot,
+            material_variant_id, material_snapshot, sort_order, created_at
+          ) VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?)
+        `).bind(crypto.randomUUID(), entry.id, item?.id ?? null, nameCs, nameEn, (index + 1) * SORT_STEP, entry.createdAt));
+      });
+
+      if (samples.length < 5) {
+        samples.push({ engineCode: entry.engineCode, serviceDate: entry.serviceDate, serviceType: serviceTypeSnapshot, items: sampleItems });
+      }
+    }
+
+    if (!dryRun) {
+      // D1 má strop na velikost dávky; po částech, ať to unese i motor s dlouhou historií.
+      for (let offset = 0; offset < statements.length; offset += 50) {
+        await d1.batch(statements.slice(offset, offset + 50));
+      }
+      console.log(`[service-card] migrated ${pending.results.length} legacy service entries for category ${category.code}`);
+    }
+
+    summaries.push({
+      categoryCode: category.code,
+      records: pending.results.length,
+      alreadyImported,
+      items: itemCount,
+      unmatchedPartKeys: [...unmatched],
+      samples,
+    });
+  }
+
+  return summaries;
+}
+
+function parseJsonArray<T>(value: string): T[] {
+  try {
+    const parsed = JSON.parse(value || "[]");
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 // Starting catalog for MINI — mirrors the parts this family already used from the old hardcoded
@@ -1445,4 +2006,31 @@ async function ensureArchivedScopedUniqueness(d1: ReturnType<typeof getD1>) {
     d1.prepare("DROP INDEX IF EXISTS race_templates_name_unique"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS race_templates_name_unique ON race_templates (name) WHERE archived_at IS NULL"),
   ]);
+}
+
+/**
+ * Vrátí přenos staré historie — smaže výhradně záznamy s `import_source = 'legacy_import'`
+ * a jejich položky.
+ *
+ * Ruční zápisy mechaniků (prázdný `import_source`) i záznamy dopočítané při přepnutí kategorie
+ * (`counter_carryover`) zůstávají nedotčené. `engine_service_entries` se nečte ani nemění —
+ * původní data tam leželi celou dobu, takže po vrácení jde přenos spustit znovu.
+ *
+ * Pozor: pokud někdo přenesený záznam mezitím upravil nebo stornoval, zmizí i ta změna.
+ */
+export async function revertLegacyServiceImport(d1: ReturnType<typeof getD1>): Promise<number> {
+  const affected = await d1.prepare("SELECT COUNT(*) AS count FROM service_records WHERE import_source = ?")
+    .bind(IMPORT_SOURCE_LEGACY).first<{ count: number }>();
+  const count = affected?.count ?? 0;
+  if (count === 0) return 0;
+
+  await d1.batch([
+    d1.prepare(`
+      DELETE FROM service_record_items
+      WHERE service_record_id IN (SELECT id FROM service_records WHERE import_source = ?)
+    `).bind(IMPORT_SOURCE_LEGACY),
+    d1.prepare("DELETE FROM service_records WHERE import_source = ?").bind(IMPORT_SOURCE_LEGACY),
+  ]);
+  console.log(`[service-card] reverted ${count} imported legacy service records`);
+  return count;
 }
