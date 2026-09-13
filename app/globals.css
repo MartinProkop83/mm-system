@@ -1098,8 +1098,10 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .service-checklist div > span { grid-row: 1 / span 2; align-self: center; color: var(--wrc-ink-faint); font-size: var(--wrc-text-xl); }
 .service-checklist div.has-record { border-color: var(--wrc-green); background: var(--wrc-green-dim); }
 .service-checklist div.has-record > span { color: var(--wrc-green); }
-.service-checklist strong { font-size: var(--wrc-text-xs); }
-.service-checklist small { margin-top: 4px; color: var(--wrc-ink-faint); font-size: var(--wrc-text-micro); }
+/* Název položky drží stejnou velikost jako hodnota v technických údajích (.detail-field strong),
+   doprovodný text jako její popisek — obě mřížky pak působí jako jedna karta, ne jako dvě. */
+.service-checklist strong { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-bold); }
+.service-checklist small { margin-top: var(--wrc-space-4); color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); line-height: 1.35; }
 .empty-inline { min-height: 170px; display: grid; place-items: center; align-content: center; margin-top: 18px; padding: var(--wrc-space-20); border: 1px dashed var(--wrc-line); border-radius: var(--wrc-radius-lg); background: var(--wrc-surface-2); text-align: center; }
 .empty-inline strong { color: var(--wrc-ink); font-size: var(--wrc-text-base); }
 .empty-inline p { max-width: 560px; margin: var(--wrc-space-6) 0 0; color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); line-height: 1.5; }
@@ -2710,6 +2712,10 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
   .table-action { min-height: 38px; font-size: var(--wrc-text-sm); }
   .detail-field span { font-size: var(--wrc-text-sm); }
   .detail-field strong { font-size: var(--wrc-text-base); }
+  .service-checklist strong { font-size: var(--wrc-text-base); }
+  .service-checklist small { font-size: var(--wrc-text-sm); }
+  /* Větší text potřebuje víc místa, jinak by se dlaždice ořízla. */
+  .service-checklist div { min-height: 108px; }
   .tab-panel-header h2 { font-size: var(--wrc-text-2xl); }
   .tab-panel-header p { font-size: var(--wrc-text-base); }
   .technical-group h3 { font-size: var(--wrc-text-base); }
@@ -3775,7 +3781,7 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .service-checklist.sc-tiles div.sc-tile-over > span { color: var(--wrc-danger-ink); }
 .service-checklist.sc-tiles div.sc-tile-warn strong, .service-checklist.sc-tiles div.sc-tile-over strong,
 .service-checklist.sc-tiles div.sc-tile-ok strong { color: inherit; }
-.sc-tile-run { display: block; margin-top: var(--wrc-space-2); font-size: var(--wrc-text-xs); font-style: normal; font-weight: var(--wrc-weight-bold); }
+.sc-tile-run { display: block; margin-top: var(--wrc-space-2); font-size: inherit; font-style: normal; font-weight: var(--wrc-weight-bold); }
 /* U kategorie S počítadlem znamená zelená „v pořádku vůči intervalu". Položka, která se neměří
    (bez intervalu) nebo zatím nemá čím měřit (jen záznamy z doby před počítadlem), proto zelená
    být nesmí — zůstává neutrální, i když záznam má. U kategorií bez počítadla se tohle pravidlo
@@ -3918,3 +3924,49 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .queue-screen-bar .queue-screen-engine + .queue-screen-user { flex: 0; }
 .queue-screen-body { flex: 1; min-width: 0; padding: var(--wrc-space-16); }
 @media (max-width: 600px) { .queue-screen-body { padding: var(--wrc-space-8); } }
+
+/* --- Časová osa motoru ----------------------------------------------------------------- */
+.timeline-controls { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wrc-space-12); margin-bottom: var(--wrc-space-16); }
+.timeline-filters { display: flex; flex-wrap: wrap; gap: var(--wrc-space-4); }
+.timeline-filters button { display: inline-flex; align-items: center; gap: var(--wrc-space-6); min-height: 36px; padding: 0 var(--wrc-space-12); color: var(--wrc-ink-soft); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-pill); background: var(--wrc-surface); cursor: pointer; font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
+.timeline-filters button:hover { border-color: var(--wrc-red); }
+.timeline-filters button.active { color: #fff; border-color: var(--wrc-red); background: var(--wrc-red); }
+.timeline-filters button small { padding: 0 var(--wrc-space-4); border-radius: var(--wrc-radius-pill); background: var(--wrc-surface-2); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); }
+.timeline-filters button.active small { color: var(--wrc-red); background: var(--wrc-surface); }
+.timeline-system-toggle { display: inline-flex; align-items: center; gap: var(--wrc-space-6); color: var(--wrc-ink-soft); cursor: pointer; font-size: var(--wrc-text-sm); }
+
+.timeline { display: flex; flex-direction: column; gap: var(--wrc-space-4); margin: 0; padding: 0; list-style: none; }
+.timeline-item { position: relative; display: flex; gap: var(--wrc-space-12); padding: var(--wrc-space-8) 0 var(--wrc-space-8) var(--wrc-space-4); }
+/* Svislá linka mezi značkami — u poslední události se nekreslí. */
+.timeline-item::before { content: ""; position: absolute; top: 24px; bottom: -4px; left: 9px; width: 2px; background: var(--wrc-line); }
+.timeline-item:last-child::before { display: none; }
+.timeline-marker { position: relative; z-index: 1; flex: none; width: 12px; height: 12px; margin-top: 6px; border: 2px solid var(--wrc-surface); border-radius: var(--wrc-radius-circle); background: var(--timeline-accent, var(--wrc-ink-faint)); box-shadow: 0 0 0 2px var(--timeline-accent, var(--wrc-ink-faint)); }
+.timeline-body { display: flex; flex-direction: column; gap: var(--wrc-space-2); min-width: 0; }
+.timeline-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--wrc-space-8); color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); }
+.timeline-meta time { font-weight: var(--wrc-weight-bold); }
+.timeline-kind { padding: 1px var(--wrc-space-6); color: var(--timeline-accent, var(--wrc-ink-faint)); border-radius: var(--wrc-radius-pill); background: var(--timeline-dim, var(--wrc-surface-2)); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+.timeline-actor { margin-left: auto; }
+.timeline-title { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
+.timeline-detail { color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); }
+.timeline-tag { padding: 1px var(--wrc-space-4); border-radius: var(--wrc-radius-sm); background: var(--wrc-surface-2); font-weight: var(--wrc-weight-semibold); }
+/* Ruční zásah vs. hodnota propsaná ze servisu — na ose se to musí poznat na první pohled. */
+.timeline-tag.from-service { color: var(--wrc-info-ink); background: var(--wrc-blue-dim); }
+.timeline-tag.manual { color: var(--wrc-purple-ink); background: var(--wrc-purple-dim); }
+.timeline-link { align-self: flex-start; margin-top: var(--wrc-space-2); padding: 0; color: var(--wrc-red); border: 0; background: transparent; cursor: pointer; font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); }
+.timeline-link:hover { text-decoration: underline; }
+
+/* Barva podle druhu události. */
+.timeline-item.kind-service, .timeline-item.kind-service_legacy { --timeline-accent: var(--wrc-success-ink); --timeline-dim: var(--wrc-green-dim); }
+.timeline-item.kind-service_cancelled { --timeline-accent: var(--wrc-danger-ink); --timeline-dim: var(--wrc-red-dim); }
+.timeline-item.kind-race { --timeline-accent: var(--wrc-red); --timeline-dim: var(--wrc-red-dim); }
+.timeline-item.kind-loan, .timeline-item.kind-loan_returned { --timeline-accent: var(--wrc-info-ink); --timeline-dim: var(--wrc-blue-dim); }
+.timeline-item.kind-queue_added, .timeline-item.kind-queue_skipped { --timeline-accent: var(--wrc-warning-ink); --timeline-dim: var(--wrc-amber-dim); }
+.timeline-item.kind-technical { --timeline-accent: var(--wrc-purple-ink); --timeline-dim: var(--wrc-purple-dim); }
+.timeline-item.kind-usage { --timeline-accent: var(--wrc-ink); --timeline-dim: var(--wrc-surface-2); }
+.timeline-item.kind-system { --timeline-accent: var(--wrc-ink-faint); --timeline-dim: var(--wrc-surface-2); }
+.timeline-item.kind-system .timeline-title { color: var(--wrc-ink-soft); font-weight: var(--wrc-weight-medium); }
+
+@media (max-width: 600px) {
+  .timeline-controls { flex-direction: column; align-items: flex-start; }
+  .timeline-actor { margin-left: 0; }
+}

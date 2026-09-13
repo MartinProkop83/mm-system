@@ -21,6 +21,8 @@ const MECHANIC_READ = new Set([
   "/api/engines",
   // Technické údaje motoru a porovnání s vybraným materiálem (varianta C).
   "/api/engine-technical-structure",
+  // Časová osa na kartě motoru.
+  "/api/engine-timeline",
   // Název a datum závodu — fronta ukazuje, odkud se motor vrátil.
   "/api/races",
   // Vlastní session: bez ní se nepozná přihlášený uživatel ani jazyk.

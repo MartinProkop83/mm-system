@@ -380,6 +380,27 @@ async function createRuntimeSchema() {
         created_at INTEGER NOT NULL
       )
     `),
+    // Historie změn technických údajů. `engine_technical_values` drží jen poslední hodnotu —
+    // předchozí se přepíše, takže bez tohohle logu nejde zpětně zjistit, co na motoru bylo.
+    //
+    // Hodnoty se ukládají jako ČITELNÝ TEXT, ne jako id volby: pole typu „výběr" drží
+    // v `engine_technical_values.value` id z `engine_technical_field_options`, a to by se po
+    // archivaci volby stalo nedohledatelným. Ze stejného důvodu se snapshotuje i název pole.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_technical_value_changes (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        field_id TEXT,
+        field_label_cs TEXT NOT NULL,
+        field_label_en TEXT NOT NULL,
+        old_value TEXT NOT NULL DEFAULT '',
+        new_value TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'service')),
+        service_record_id TEXT,
+        changed_by TEXT NOT NULL,
+        changed_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS teams (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1064,6 +1085,7 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_field_options_field_idx ON engine_technical_field_options (field_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_technical_values_unique_idx ON engine_technical_values (engine_id, field_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_values_field_idx ON engine_technical_values (field_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_technical_value_changes_engine_idx ON engine_technical_value_changes (engine_id, changed_at)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_categories_code_unique_idx ON engine_categories (code)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_queue_resolutions_unique_idx ON engine_service_queue_resolutions (engine_id, source_type, source_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_queue_resolutions_engine_idx ON engine_service_queue_resolutions (engine_id)"),
@@ -1402,6 +1424,13 @@ async function createRuntimeSchema() {
     await d1.prepare("ALTER TABLE service_records ADD COLUMN import_source TEXT NOT NULL DEFAULT ''").run();
   }
   await d1.prepare("CREATE INDEX IF NOT EXISTS service_records_import_source_idx ON service_records (import_source)").run();
+
+  // `service_record_id` přibyl až s časovou osou — u změny propsané ze servisu je z něj vidět,
+  // který zápis ji způsobil, a jde se na něj z osy prokliknout.
+  const technicalChangeColumns = await d1.prepare("PRAGMA table_info(engine_technical_value_changes)").all<{ name: string }>();
+  if (!technicalChangeColumns.results.some((column: { name: string }) => column.name === "service_record_id")) {
+    await d1.prepare("ALTER TABLE engine_technical_value_changes ADD COLUMN service_record_id TEXT").run();
+  }
 
   // `service_time` (HH:MM) je volitelný doplněk k `service_date`. Prázdný řetězec znamená
   // „čas neznámý" — takový záznam se řadí na začátek dne a čas se u něj nikde nezobrazuje.

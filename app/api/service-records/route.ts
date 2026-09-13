@@ -2,6 +2,7 @@ import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
 import { EDIT_WINDOW_MS, SORT_STEP, type MaterialSnapshot } from "../../service-card-shared";
+import { buildTechnicalChangeLog } from "../../engine-technical-log";
 
 /**
  * Servisní záznamy na kartě motoru — čtení, zápis, oprava a storno.
@@ -294,6 +295,8 @@ async function reconcileTechnicalValues(
   sync: boolean,
   actor: string,
   now: number,
+  /** Id vznikajícího záznamu — osa z něj udělá proklik na servis, který změnu způsobil. */
+  serviceRecordId: string,
 ): Promise<string> {
   if (variantIds.length === 0) return "";
 
@@ -338,6 +341,12 @@ async function reconcileTechnicalValues(
       SELECT id FROM engine_technical_field_options WHERE field_id = ? AND value_cs = ? AND archived_at IS NULL
     `).bind(link.technicalFieldId, wanted).first<{ id: string }>();
     const stored = option?.id ?? wanted;
+
+    // Historie změny se zapisuje ve stejném batchi jako hodnota sama — `source: "service"`
+    // odliší propsání ze servisu od ruční editace karty motoru.
+    statements.push(...await buildTechnicalChangeLog(
+      d1, engineId, [{ fieldId: link.technicalFieldId, value: stored }], actor, "service", now, serviceRecordId,
+    ));
 
     statements.push(current
       ? d1.prepare("UPDATE engine_technical_values SET value = ?, updated_by = ?, updated_at = ? WHERE id = ?")
@@ -442,7 +451,7 @@ export async function POST(request: Request) {
   const divergenceNote = await reconcileTechnicalValues(
     d1, engine.id, category.id,
     built.items.map((item) => item.variantId).filter((variantId): variantId is string => Boolean(variantId)),
-    payload.syncTechnicalValues !== false, user.email, now,
+    payload.syncTechnicalValues !== false, user.email, now, id,
   );
 
   await d1.batch([

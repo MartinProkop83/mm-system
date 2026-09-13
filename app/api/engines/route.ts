@@ -2,6 +2,7 @@ import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
 import { filterResponseForMechanic } from "../../api-access";
+import { buildTechnicalChangeLog, type TechnicalValueWrite } from "../../engine-technical-log";
 import { applyMiniAutoService } from "../../engine-auto-service";
 
 const allowedStatuses = new Set(["ready", "service_soon", "service", "rebuild", "storage", "retired"]);
@@ -503,11 +504,11 @@ export async function PATCH(request: Request) {
       technical.liner, technical.degree, technical.timing, technical.carter,
       technical.reeds, technical.spacer, technical.squish, now, payload.id,
     ),
-    d1.prepare(`
-      INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
-      VALUES (?, ?, 'update_technical', 'engine', ?, ?, ?)
-    `).bind(crypto.randomUUID(), user.email, payload.id, JSON.stringify(technical), now),
   ];
+  // `update_technical` se do audit_logs už nezapisuje: byl to snapshot celé sady polí bez
+  // rozdílu, takže z něj nešlo poznat, co se změnilo. Nahradil ho engine_technical_value_changes
+  // (viz app/engine-technical-log.ts), který drží starou i novou hodnotu. Staré záznamy
+  // v audit_logs zůstávají a časová osa je pořád ukazuje mezi systémovými událostmi.
 
   // Mirror the save into the configurable technical-structure values table (see
   // engine-technical-structure-panel.tsx): every legacy-keyed field gets the (possibly unchanged) merged
@@ -530,6 +531,16 @@ export async function PATCH(request: Request) {
       ON CONFLICT(engine_id, field_id) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = excluded.updated_at
     `).bind(crypto.randomUUID(), payload.id, write.fieldId, write.value, user.email, now));
   }
+
+  // Historie změn se musí spočítat PŘED zápisem — potom už je stará hodnota přepsaná.
+  // Zapisuje se ve stejném batchi, aby se log a hodnota nemohly rozejít.
+  const loggedWrites: TechnicalValueWrite[] = [
+    ...familyFields.results
+      .filter((field) => field.legacyKey)
+      .map((field) => ({ fieldId: field.fieldId, value: (technical as Record<string, string>)[field.legacyKey as string] ?? "" })),
+    ...valueWrites.filter((write) => !familyFields.results.find((field) => field.fieldId === write.fieldId)?.legacyKey),
+  ];
+  statements.push(...await buildTechnicalChangeLog(d1, payload.id, loggedWrites, user.email, "manual", now));
 
   await d1.batch(statements);
 

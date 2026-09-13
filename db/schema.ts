@@ -981,3 +981,24 @@ export const engineServiceQueueManual = sqliteTable("engine_service_queue_manual
 }, (table) => [
   index("engine_service_queue_manual_engine_idx").on(table.engineId, table.createdAt),
 ]);
+
+/** Historie změn technických údajů motoru. `engineTechnicalValues` drží jen poslední hodnotu,
+ *  takže bez tohohle logu nejde zpětně zjistit, co na motoru bylo. Hodnoty i název pole se
+ *  ukládají jako čitelný text — id volby by po její archivaci přestalo dávat smysl. */
+export const engineTechnicalValueChanges = sqliteTable("engine_technical_value_changes", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  fieldId: text("field_id").references(() => engineTechnicalFields.id),
+  fieldLabelCs: text("field_label_cs").notNull(),
+  fieldLabelEn: text("field_label_en").notNull(),
+  oldValue: text("old_value").notNull().default(""),
+  newValue: text("new_value").notNull().default(""),
+  /** `service` = hodnota se propsala ze servisního záznamu, `manual` = ruční editace karty. */
+  source: text("source", { enum: ["manual", "service"] }).notNull().default("manual"),
+  /** U `source: "service"` odkaz na zápis, který změnu způsobil — osa z něj dělá proklik. */
+  serviceRecordId: text("service_record_id").references(() => serviceRecords.id),
+  changedBy: text("changed_by").notNull(),
+  changedAt: integer("changed_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("engine_technical_value_changes_engine_idx").on(table.engineId, table.changedAt),
+]);

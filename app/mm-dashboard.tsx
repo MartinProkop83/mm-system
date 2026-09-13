@@ -20,6 +20,7 @@ import { ChecklistsPage } from "./checklist-pages";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
 import { EngineServiceCard } from "./engine-service-card";
+import { EngineTimeline } from "./engine-timeline";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
@@ -1545,7 +1546,6 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([]);
   const [serviceRecords, setServiceRecords] = useState<ServiceRecord[]>([]);
   const [assignments, setAssignments] = useState<EngineAssignment[]>([]);
-  const [auditEntries, setAuditEntries] = useState<EngineAuditEntry[]>([]);
   const [serviceParts, setServiceParts] = useState<ServicePart[]>([]);
   // Rozměry pístu spravuje superadmin v katalogu materiálu; dřív to byl natvrdo psaný seznam tady.
   const [pistonSizeOptions, setPistonSizeOptions] = useState<string[]>([]);
@@ -1611,7 +1611,6 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
         setUsageRecords(data.usage);
         setServiceRecords(data.service);
         setAssignments(data.assignments);
-        setAuditEntries(data.audit);
         setServiceParts(data.serviceParts);
         setRecordsError(false);
       } catch {
@@ -1686,7 +1685,6 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
       setUsageRecords(data.usage);
       setServiceRecords(data.service);
       setAssignments(data.assignments);
-      setAuditEntries(data.audit);
       setServiceParts(data.serviceParts);
       setRecordsError(false);
     } catch {
@@ -1914,32 +1912,15 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
         </section>
       )}
 
+      {/* Historie = jedna časová osa přes všechny zdroje: servisy (nové i staré), závody,
+          zápůjčky, frontu, změny technických údajů a motohodiny. Proklik z technické změny
+          vede na servisní záznam, který ji způsobil. */}
       {tab === "history" && (
-        <section className="dash-panel tab-panel">
-          <div className="tab-panel-header"><div><span className="eyebrow">RACE HISTORY</span><h2>{t.historyTab}</h2><p>{locale === "cs" ? "Závody, piloti a spárované karburátory zůstávají trvale v kartě motoru." : "Races, drivers and paired carburetors remain permanently in the engine card."}</p></div></div>
-          {assignments.length > 0 ? <div className="table-wrap"><table className="engine-table race-logo-history-table zebra"><thead><tr><th>{locale === "cs" ? "Závod" : "Race"}</th><th>{locale === "cs" ? "Pilot" : "Driver"}</th><th>{locale === "cs" ? "Kategorie" : "Category"}</th><th>{locale === "cs" ? "Karburátor" : "Carburetor"}</th><th>{locale === "cs" ? "Pozice" : "Position"}</th></tr></thead><tbody>{assignments.map((assignment) => <tr key={`${assignment.id}-${assignment.position}`}><td><div className="race-history-identity"><RaceLogoBadge logoUrl={assignment.logoUrl} name={assignment.raceName} fallback={countryFlag(assignment.countryCode)} size="small" /><span><strong>{assignment.raceName}</strong><small>{assignment.track} · {dashboardDateRange(assignment.startDate, assignment.endDate, locale)}</small></span></div></td><td><strong>{assignment.driverName}</strong><small>{assignment.teamName || "—"}</small></td><td>{assignment.category}</td><td><span className="equipment-code">{assignment.carburetorCode || "—"}</span></td><td>{assignment.position}</td></tr>)}</tbody></table></div> : <EmptyState size="inline" title={locale === "cs" ? "Zatím bez závodu" : "No races yet"} description={locale === "cs" ? "Historie se vytvoří automaticky po přiřazení motoru v plánu závodu." : "History will be created automatically after assigning the engine in a race plan."} />}
-          <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">LOANS</span><h3>{locale === "cs" ? "Zápůjčky" : "Loans"}</h3></div></div>
-          {loans.length > 0 ? (
-            <div className="history-list">{loans.map((loan) => {
-              const overdue = !loan.actualReturnDate && loan.expectedReturnDate < todayInputValue();
-              return <div key={loan.id}><i />
-                <span>
-                  <strong>{loan.recipientName}{!loan.actualReturnDate && <span className={`status-pill ${overdue ? "danger" : "info-pill"} audit-system-badge`}>{overdue ? (locale === "cs" ? "Prošlá" : "Overdue") : (locale === "cs" ? "Aktivní" : "Active")}</span>}</strong>
-                  <small>{formatDisplayDate(loan.startDate, locale)} – {formatDisplayDate(loan.actualReturnDate ?? loan.expectedReturnDate, locale)}{loan.actualReturnDate ? "" : locale === "cs" ? " (očekáváno)" : " (expected)"}</small>
-                </span>
-              </div>;
-            })}</div>
-          ) : (
-            <EmptyState size="inline" title={locale === "cs" ? "Zatím žádná zápůjčka" : "No loans yet"} description={locale === "cs" ? "Zápůjčky se zde objeví po zapůjčení motoru." : "Loans will appear here once the engine is lent out."} />
-          )}
-          <div className="tab-panel-header audit-subsection"><div><span className="eyebrow">AUDIT</span><h3>{locale === "cs" ? "Změny karty" : "Card changes"}</h3></div></div>
-          <div className="history-list">{auditEntries.map((entry) => <div key={entry.id}><i />
-            <span>
-              <strong>{auditEntryText(entry, locale)}{entry.isSystem && <span className="status-pill info-pill audit-system-badge">{locale === "cs" ? "Automaticky" : "Automatic"}</span>}</strong>
-              <small>{formatTimestamp(entry.createdAt, locale)}</small>
-            </span>
-          </div>)}</div>
-        </section>
+        <EngineTimeline
+          engineId={engine.id}
+          locale={locale}
+          onOpenServiceRecord={() => setTab("service")}
+        />
       )}
 
       {tab === "documents" && (
@@ -2765,48 +2746,11 @@ function engineStatusLabel(status: EngineRecord["status"], locale: Locale) {
   return labels[status][locale === "cs" ? 0 : 1];
 }
 
-function auditEntryText(entry: EngineAuditEntry, locale: Locale) {
-  if (entry.action === "create") return locale === "cs" ? "Motor založen v systému" : "Engine created in the system";
-  if (entry.action === "archive") return locale === "cs" ? "Motor odstraněn" : "Engine removed";
-  if (entry.action === "update_technical") return locale === "cs" ? "Upravena technická karta" : "Technical data updated";
-  if (entry.action === "set_engine_baseline") return locale === "cs" ? "Nastaven výchozí stav motohodin" : "Engine hours baseline set";
-  if (entry.action === "status_change") {
-    const from = engineStatusLabel(entry.fromStatus, locale);
-    const to = engineStatusLabel(entry.toStatus, locale);
-    return locale === "cs" ? `Stav změněn z „${from}“ na „${to}“` : `Status changed from "${from}" to "${to}"`;
-  }
-  if (entry.action === "engine_auto_service") {
-    const raceName = entry.raceName || (locale === "cs" ? "neznámý závod" : "unknown race");
-    return locale === "cs" ? `Stav změněn na Servis — automaticky po závodě ${raceName}` : `Status changed to Service — automatically after the ${raceName} race`;
-  }
-  const mechanicName = entry.mechanicName || (locale === "cs" ? "neznámý mechanik" : "unknown mechanic");
-  const partsText = entry.partsCount > 0 ? ` (${formatCount(entry.partsCount, locale, { cs: ["díl", "díly", "dílů"], en: ["part", "parts"] })})` : "";
-  return locale === "cs" ? `Proveden servis${partsText} — ${mechanicName}` : `Service performed${partsText} — ${mechanicName}`;
-}
-
 function formatDisplayDate(value: string | null, locale: Locale) {
   if (!value) return "";
   const [year, month, day] = value.split("-").map(Number);
   if (!year || !month || !day) return value;
   return new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB").format(new Date(year, month - 1, day));
-}
-
-function formatTimestamp(value: number, locale: Locale) {
-  if (!value) return locale === "cs" ? "Datum není dostupné" : "Date unavailable";
-  return new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
-}
-
-function servicePartEnglish(part: string) {
-  const labels: Record<string, string> = {
-    "Píst": "Piston",
-    "Gufera": "Oil seals",
-    "Ložiska kliky": "Crank bearings",
-    "Kompletní ojnice": "Complete connecting rod",
-    "Horní klec ojnice": "Upper rod cage",
-    "Těsnění válce": "Cylinder gasket",
-    "Těsnění hlavy": "Head gasket",
-  };
-  return labels[part] ?? part;
 }
 
 function todayInputValue() {
