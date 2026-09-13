@@ -215,6 +215,26 @@ async function createRuntimeSchema() {
         created_at INTEGER NOT NULL
       )
     `),
+    // Rozpracovaný motor — mechanik si ho zabere tlačítkem „Beru si ho", aby se na jednom
+    // motoru nesešli dva. Výlučnost hlídá částečný unikátní index níž (`released_at IS NULL`),
+    // ne aplikace: dvě současná kliknutí by jinak obě prošla kontrolou „je volný?".
+    //
+    // Historie zabrání se nemaže — `released_at` jen uzavře pobyt, takže jde zpětně dohledat,
+    // kdo na motoru kdy dělal. `release_reason` odlišuje vrácení do fronty od automatického
+    // uvolnění při uložení servisu.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_service_claims (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        claimed_by TEXT NOT NULL,
+        claimed_by_name TEXT NOT NULL,
+        claimed_mechanic_id TEXT,
+        claimed_at INTEGER NOT NULL,
+        released_at INTEGER,
+        released_by TEXT,
+        release_reason TEXT NOT NULL DEFAULT '' CHECK (release_reason IN ('', 'manual', 'service'))
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS engine_service_queue_resolutions (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1090,6 +1110,9 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_queue_resolutions_unique_idx ON engine_service_queue_resolutions (engine_id, source_type, source_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_queue_resolutions_engine_idx ON engine_service_queue_resolutions (engine_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_queue_manual_engine_idx ON engine_service_queue_manual (engine_id, created_at)"),
+    // Na motoru dělá vždycky jeden: částečný unikátní index nedovolí druhé nezavřené zabrání.
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_claims_active_idx ON engine_service_claims (engine_id) WHERE released_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_claims_engine_idx ON engine_service_claims (engine_id, claimed_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS service_types_category_idx ON service_types (engine_category_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_types_category_code_unique_idx ON service_types (engine_category_id, code) WHERE archived_at IS NULL"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_type_default_items_unique_idx ON service_type_default_items (service_type_id, service_card_item_id)"),
@@ -1424,6 +1447,22 @@ async function createRuntimeSchema() {
     await d1.prepare("ALTER TABLE service_records ADD COLUMN import_source TEXT NOT NULL DEFAULT ''").run();
   }
   await d1.prepare("CREATE INDEX IF NOT EXISTS service_records_import_source_idx ON service_records (import_source)").run();
+
+  // Vyřízení fronty starým servisním záznamem. `service_record_id` míří do `service_records`,
+  // takže zápis ze staré karty potřebuje vlastní sloupec — bez něj by v reportu vypadal jako
+  // odbavení bez servisu.
+  const resolutionColumns = await d1.prepare("PRAGMA table_info(engine_service_queue_resolutions)").all<{ name: string }>();
+  if (!resolutionColumns.results.some((column: { name: string }) => column.name === "legacy_entry_id")) {
+    await d1.prepare("ALTER TABLE engine_service_queue_resolutions ADD COLUMN legacy_entry_id TEXT").run();
+  }
+
+  // Na sdílené obrazovce v dílně je přihlášený jeden účet za všechny, takže `claimed_by`
+  // (účet, který klikl) není totéž co člověk, který na motoru dělá. `claimed_mechanic_id`
+  // drží vybraného mechanika; u mechanikova vlastního účtu zůstává prázdné.
+  const claimColumns = await d1.prepare("PRAGMA table_info(engine_service_claims)").all<{ name: string }>();
+  if (!claimColumns.results.some((column: { name: string }) => column.name === "claimed_mechanic_id")) {
+    await d1.prepare("ALTER TABLE engine_service_claims ADD COLUMN claimed_mechanic_id TEXT").run();
+  }
 
   // `service_record_id` přibyl až s časovou osou — u změny propsané ze servisu je z něj vidět,
   // který zápis ji způsobil, a jde se na něj z osy prokliknout.

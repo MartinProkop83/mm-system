@@ -628,6 +628,9 @@ async function saveService(payload: RecordPayload, engine: EngineRow, actorEmail
     `).bind(now, engine.id));
   }
   await d1.batch(statements);
+  // Zápis ze staré karty odbaví frontu stejně jako zápis z nové — jinak by motor po uložení
+  // servisu zůstal ve frontě a mechanik by ho musel odklikávat ještě jednou.
+  await resolveLegacyQueueForEngine(d1, engine.id, id, actorEmail, now);
 
   const counters = skipHourRecalculation ? await getEngine(engine.id) : await recalculateEngine(engine.id, now);
   const saved = await getService(id, engine.id);
@@ -779,4 +782,56 @@ export async function DELETE(request: Request) {
 
   const counters = await recalculateEngine(engineId, now);
   return Response.json({ id: recordId, kind: payload.kind, counters });
+}
+
+/**
+ * Odbavení fronty starým servisním záznamem.
+ *
+ * Nová servisní karta to řeší v `app/api/service-records/route.ts`; kategorie, které na ni
+ * ještě nepřešly, zapisují sem, a bez tohohle by motor po uložení servisu zůstal ve frontě.
+ * Vyřízení míří na `legacy_entry_id`, protože `service_record_id` patří do `service_records`.
+ */
+async function resolveLegacyQueueForEngine(
+  d1: ReturnType<typeof getD1>,
+  engineId: string,
+  legacyEntryId: string,
+  actor: string,
+  now: number,
+) {
+  const open = await d1.prepare(`
+    SELECT 'race' AS sourceType, r.id AS sourceId
+    FROM race_entries re
+    JOIN races r ON r.id = re.race_id
+    WHERE r.status != 'archived' AND r.end_date < date('now')
+      AND ? IN (re.engine_1_id, re.engine_2_id, re.engine_3_id)
+      AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
+                      WHERE q.engine_id = ? AND q.source_type = 'race' AND q.source_id = r.id)
+    UNION
+    SELECT 'loan', l.id
+    FROM engine_loans l
+    WHERE l.engine_id = ? AND l.actual_return_date IS NOT NULL
+      AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
+                      WHERE q.engine_id = ? AND q.source_type = 'loan' AND q.source_id = l.id)
+    UNION
+    SELECT 'manual', m.id
+    FROM engine_service_queue_manual m
+    WHERE m.engine_id = ?
+      AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
+                      WHERE q.engine_id = ? AND q.source_type = 'manual' AND q.source_id = m.id)
+  `).bind(engineId, engineId, engineId, engineId, engineId, engineId).all<{ sourceType: string; sourceId: string }>();
+
+  const statements = open.results.map((row) => d1.prepare(`
+    INSERT INTO engine_service_queue_resolutions (id, engine_id, source_type, source_id, resolution, legacy_entry_id, resolved_by, resolved_at)
+    VALUES (?, ?, ?, ?, 'serviced', ?, ?, ?)
+    ON CONFLICT (engine_id, source_type, source_id) DO NOTHING
+  `).bind(crypto.randomUUID(), engineId, row.sourceType, row.sourceId, legacyEntryId, actor, now));
+
+  // Servis je zapsaný, takže označení rozpracovaného motoru padá stejně jako u nové karty.
+  statements.push(d1.prepare(
+    "UPDATE engine_service_claims SET released_at = ?, released_by = ?, release_reason = 'service' WHERE engine_id = ? AND released_at IS NULL",
+  ).bind(now, actor, engineId));
+
+  for (let offset = 0; offset < statements.length; offset += 50) {
+    await d1.batch(statements.slice(offset, offset + 50));
+  }
 }

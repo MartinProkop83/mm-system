@@ -21,12 +21,13 @@ import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
 import { EngineServiceCard } from "./engine-service-card";
 import { EngineTimeline } from "./engine-timeline";
+import { ServiceHistoryPage } from "./service-history-page";
 
 type Locale = "cs" | "en";
-type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "sales" | "inventory" | "documents" | "settings";
+type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "sales" | "inventory" | "documents" | "settings";
 // Views whose own page component already renders its own eyebrow/title/description hero —
 // the shared topbar skips its generic title there instead of repeating it.
-const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "sales", "inventory", "documents", "settings"];
+const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "sales", "inventory", "documents", "settings"];
 // Views backed by CatalogPage — its own detail sub-view (driver/team/mechanic/vehicle/carburetor card)
 // replaces the list and already carries its own back button + hero, so the topbar hides entirely there.
 const CATALOG_BACKED_VIEWS: View[] = ["raceTypes", "teams", "drivers", "carburetors", "mechanics", "vehicles"];
@@ -248,6 +249,7 @@ const copy = {
     flights: "Letenky",
     rentals: "Pronájem aut",
     service: "Servis",
+    serviceHistory: "Servisní historie",
     sales: "Prodej",
     inventory: "Sklad",
     documents: "Dokumenty",
@@ -354,6 +356,7 @@ const copy = {
     flights: "Flights",
     rentals: "Car rental",
     service: "Service",
+    serviceHistory: "Service history",
     sales: "Sales",
     inventory: "Inventory",
     documents: "Documents",
@@ -459,6 +462,7 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "flights", mark: "✈" },
   { id: "rentals", mark: "▱" },
   { id: "service", mark: "◇" },
+  { id: "serviceHistory", mark: "◈" },
   { id: "sales", mark: "¤" },
   { id: "inventory", mark: "□" },
   { id: "documents", mark: "≡" },
@@ -469,7 +473,7 @@ const navGroups: Array<{ labelCs: string; labelEn: string; items: View[] }> = [
   { labelCs: "Provoz", labelEn: "Operations", items: ["dashboard", "tasks", "calendar"] },
   { labelCs: "Závody", labelEn: "Races", items: ["races", "raceTypes", "circuits"] },
   { labelCs: "Tým", labelEn: "Team", items: ["drivers", "teams", "customers", "mechanics", "clothing"] },
-  { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "inventory"] },
+  { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "serviceHistory", "inventory"] },
   { labelCs: "Logistika", labelEn: "Logistics", items: ["accommodation", "flights", "rentals"] },
   { labelCs: "Obchod", labelEn: "Business", items: ["sales", "documents"] },
   { labelCs: "Nastavení", labelEn: "Settings", items: ["settings"] },
@@ -494,6 +498,8 @@ export default function Home() {
   // Vstup z fronty na servis: karta se otevře rovnou v zápisu servisu a po uložení
   // se mechanik vrátí zpátky do fronty, ne na detail motoru.
   const [serviceEntryFromQueue, setServiceEntryFromQueue] = useState(false);
+  /** Fronta otevřela motor, jehož kategorie ještě jede po staré servisní kartě. */
+  const [legacyEntryFromQueue, setLegacyEntryFromQueue] = useState(false);
   const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
   const [raceDetailOpen, setRaceDetailOpen] = useState(false);
@@ -885,14 +891,16 @@ export default function Home() {
             role={session?.role ?? "mechanic"}
             currentUserName={session?.fullName ?? ""}
             openServiceEntry={serviceEntryFromQueue}
-            onServiceEntryClosed={() => setServiceEntryFromQueue(false)}
+            openLegacyServiceEntry={legacyEntryFromQueue}
+            onServiceEntryClosed={() => { setServiceEntryFromQueue(false); setLegacyEntryFromQueue(false); }}
             onServiceSaved={() => {
               if (!serviceEntryFromQueue) return;
               setServiceEntryFromQueue(false);
+              setLegacyEntryFromQueue(false);
               setDetailEngineId(null);
               setView("service");
             }}
-            onBack={() => { setServiceEntryFromQueue(false); setDetailEngineId(null); }}
+            onBack={() => { setServiceEntryFromQueue(false); setLegacyEntryFromQueue(false); setDetailEngineId(null); }}
             onEdit={() => openEngineEdit(detailEngine)}
             onSaved={syncEngine}
             showNotice={showNotice}
@@ -918,9 +926,19 @@ export default function Home() {
           <ServiceQueuePage
             locale={locale}
             fullscreenHref="/servis-fronta"
-            onOpenEngineService={(engineId) => { setServiceEntryFromQueue(true); setDetailEngineId(engineId); setView("engines"); }}
+            // Fronta otevírá rovnou formulář zápisu. Která kategorie jede po které kartě, ví
+            // fronta ze serveru — bez toho by se u staré karty otevřely jen dlaždice.
+            onOpenEngineService={(engineId, migrated) => {
+              setServiceEntryFromQueue(true);
+              setLegacyEntryFromQueue(!migrated);
+              setDetailEngineId(engineId);
+              setView("engines");
+            }}
           />
         )}
+        {/* Přehled odvedené práce napříč motory. Mechanik se sem nedostane: do aplikace
+            s menu vůbec nechodí a `/api/service-history` mu vrátí 403. */}
+        {view === "serviceHistory" && <ServiceHistoryPage locale={locale} />}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
@@ -1517,7 +1535,7 @@ function EngineLoansOverviewPanel({ locale, onClose, onOpenEngine }: { locale: L
   );
 }
 
-function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, openServiceEntry = false, onServiceEntryClosed, onServiceSaved, onBack, onEdit, onSaved, showNotice }: {
+function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, openServiceEntry = false, openLegacyServiceEntry = false, onServiceEntryClosed, onServiceSaved, onBack, onEdit, onSaved, showNotice }: {
   locale: Locale;
   engine: EngineRecord;
   technicalStructure: TechnicalStructureData;
@@ -1528,6 +1546,8 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   currentUserName: string;
   /** Vstup z fronty na servis — karta se rovnou otevře v zápisu servisu. */
   openServiceEntry?: boolean;
+  /** Motor z fronty, jehož kategorie jede po staré kartě — otevře se rovnou starý formulář. */
+  openLegacyServiceEntry?: boolean;
   onServiceEntryClosed?: () => void;
   onServiceSaved?: () => void;
   onBack: () => void;
@@ -1538,7 +1558,8 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   const t = copy[locale];
   const [tab, setTab] = useState<EngineDetailTab>(openServiceEntry ? "service" : "overview");
   const [technicalOpen, setTechnicalOpen] = useState(false);
-  const [serviceOpen, setServiceOpen] = useState(false);
+  // Fronta u staré karty otevírá tenhle formulář rovnou; nová karta si otevírá svůj vlastní.
+  const [serviceOpen, setServiceOpen] = useState(openLegacyServiceEntry);
   const [usageOpen, setUsageOpen] = useState(false);
   const [baselineOpen, setBaselineOpen] = useState(false);
   const [editingUsage, setEditingUsage] = useState<UsageRecord | null>(null);
@@ -1948,7 +1969,7 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
       {baselineOpen && <BaselineForm locale={locale} engine={engine} pistonSizeOptions={pistonSizeOptions} onClose={() => setBaselineOpen(false)} onSaved={(counters) => { applyCounters(counters); setBaselineOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Vstupní stav byl uložen a počítadla přepočítána." : "Starting state saved and counters recalculated."); }} />}
       {usageOpen && <UsageForm locale={locale} engine={engine} onClose={() => setUsageOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setUsageOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Motohodiny byly zapsány." : "Running hours logged."); }} />}
       {editingUsage && <UsageForm locale={locale} engine={engine} record={editingUsage} onClose={() => setEditingUsage(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingUsage(null); void reloadRecords(); showNotice(locale === "cs" ? "Záznam motohodin byl opraven." : "Running-hours record corrected."); }} />}
-      {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} serviceParts={serviceParts} pistonSizeOptions={pistonSizeOptions} mechanics={mechanics} currentUserName={role === "mechanic" ? currentUserName : ""} onClose={() => setServiceOpen(false)} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); }} />}
+      {serviceOpen && <ServiceEntryForm locale={locale} engine={engine} serviceParts={serviceParts} pistonSizeOptions={pistonSizeOptions} mechanics={mechanics} currentUserName={role === "mechanic" ? currentUserName : ""} onClose={() => { setServiceOpen(false); if (openLegacyServiceEntry) onServiceEntryClosed?.(); }} onSaved={(_record, counters) => { applyCounters(counters); setServiceOpen(false); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl uložen." : "Service entry saved."); if (openLegacyServiceEntry) onServiceSaved?.(); }} />}
       {editingService && <ServiceEntryForm locale={locale} engine={engine} record={editingService} serviceParts={serviceParts} pistonSizeOptions={pistonSizeOptions} mechanics={mechanics} currentUserName="" onClose={() => setEditingService(null)} onSaved={(_record, counters) => { applyCounters(counters); setEditingService(null); void reloadRecords(); showNotice(locale === "cs" ? "Servisní záznam byl opraven." : "Service record corrected."); }} />}
       {loanFormOpen && <EngineLoanCreateForm locale={locale} engine={engine} recipientOptions={recipientOptions} onClose={() => setLoanFormOpen(false)} onSaved={(location) => { onSaved({ ...engine, location }); setLoanFormOpen(false); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla vytvořena." : "Loan created."); }} />}
       {extendingLoan && <EngineLoanExtendForm locale={locale} loan={extendingLoan} onClose={() => setExtendingLoan(null)} onSaved={(location) => { onSaved({ ...engine, location }); setExtendingLoan(null); void reloadLoans(); showNotice(locale === "cs" ? "Zápůjčka byla prodloužena." : "Loan extended."); }} />}

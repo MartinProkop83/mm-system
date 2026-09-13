@@ -210,7 +210,17 @@ export async function GET(request: Request) {
     WHERE v.engine_id = ? AND v.field_id IN (${linkedFieldIds.map(() => "?").join(", ")})
   `).bind(engineId, ...linkedFieldIds).all();
 
+  // Kdo si motor zabral ve frontě — formulář z toho předvyplní mechanika. U zabrání ze
+  // sdíleného panelu je mechanik uložený přímo, u mechanikova účtu se dohledá podle jména.
+  const claim = await d1.prepare(`
+    SELECT COALESCE(c.claimed_mechanic_id, m.id) AS mechanicId, c.claimed_by_name AS name
+    FROM engine_service_claims c
+    LEFT JOIN mechanics m ON m.archived_at IS NULL AND lower(m.name) = lower(c.claimed_by_name)
+    WHERE c.engine_id = ? AND c.released_at IS NULL
+  `).bind(engineId).first<{ mechanicId: string | null; name: string }>();
+
   return Response.json({
+    claim: claim ? { mechanicId: claim.mechanicId, name: claim.name } : null,
     technicalLinks: technicalLinks.results,
     technicalValues: technicalValues.results,
     engine: { id: engine.id, code: engine.code, family: engine.family, totalMinutes: engine.totalMinutes },
@@ -471,6 +481,11 @@ export async function POST(request: Request) {
   ]);
 
   await resolveQueueForEngine(d1, engine.id, id, user.email, now);
+
+  // Servis je zapsaný, takže motor už nikdo „nedrží" — označení rozpracovaného padá samo.
+  // Kdyby zůstalo, viselo by na dlaždici do druhého dne a hlásilo práci, která je hotová.
+  await d1.prepare("UPDATE engine_service_claims SET released_at = ?, released_by = ?, release_reason = 'service' WHERE engine_id = ? AND released_at IS NULL")
+    .bind(now, user.email, engine.id).run();
 
   return Response.json({ records: await loadRecords(d1, engine.id) }, { status: 201 });
 }

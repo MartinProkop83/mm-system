@@ -28,6 +28,8 @@ type CardData = {
   technicalLinks: Array<{ attributeId: string; technicalFieldId: string; materialCategoryId: string; fieldLabelCs: string; fieldLabelEn: string }>;
   technicalValues: Array<{ fieldId: string; value: string }>;
   mechanics: Array<{ id: string; name: string }>;
+  /** Kdo si motor zabral ve frontě — formulář z toho předvyplní mechanika. */
+  claim: { mechanicId: string | null; name: string } | null;
   records: ServiceRecord[];
 };
 
@@ -92,6 +94,7 @@ const content = {
     saveEdit: "Uložit opravu",
     saving: "Ukládám…",
     errorNoItems: "Zaškrtni aspoň jednu položku.",
+    errorNoMechanic: "Vyber mechanika, který servis dělal.",
     errorGeneric: "Záznam se nepodařilo uložit.",
     errorEditWindow: "Od zápisu uplynulo víc než 24 hodin — použij storno.",
     errorReason: "Důvod storna je povinný.",
@@ -159,6 +162,7 @@ const content = {
     saveEdit: "Save correction",
     saving: "Saving…",
     errorNoItems: "Tick at least one item.",
+    errorNoMechanic: "Pick the mechanic who did the service.",
     errorGeneric: "The record could not be saved.",
     errorEditWindow: "More than 24 hours have passed since the entry — use cancellation instead.",
     errorReason: "A reason is required.",
@@ -413,8 +417,14 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
   const [note, setNote] = useState(record?.note ?? "");
   const [selected, setSelected] = useState<SelectedItem[]>(() =>
     (record?.items ?? []).map((item) => ({ itemId: item.serviceCardItemId ?? "", variantId: item.materialVariantId ?? "" })).filter((item) => item.itemId));
+  // Pořadí předvyplnění: u opravy ten, kdo je v záznamu; u nového zápisu ten, kdo si motor
+  // zabral ve frontě; jinak přihlášený uživatel, pokud je mezi mechaniky. Vždycky jde přepsat —
+  // motor mohl dodělat někdo jiný, než kdo si ho vzal.
   const [mechanicId, setMechanicId] = useState(
     record?.mechanicId
+    ?? (data.claim?.mechanicId && data.mechanics.some((mechanic) => mechanic.id === data.claim?.mechanicId)
+      ? data.claim.mechanicId
+      : undefined)
     ?? data.mechanics.find((mechanic) => mechanic.name.trim().toLowerCase() === currentUserName.trim().toLowerCase())?.id
     ?? "",
   );
@@ -476,6 +486,8 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (selected.length === 0) { setError(t.errorNoItems); return; }
+    // Bez mechanika se záznam neuloží ani na serveru; tady je to jen dřív a česky.
+    if (!mechanicId) { setError(t.errorNoMechanic); return; }
     setSaving(true);
     setError("");
     try {

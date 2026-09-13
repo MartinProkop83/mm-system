@@ -1002,3 +1002,25 @@ export const engineTechnicalValueChanges = sqliteTable("engine_technical_value_c
 }, (table) => [
   index("engine_technical_value_changes_engine_idx").on(table.engineId, table.changedAt),
 ]);
+
+/** Rozpracovaný motor — kdo si ho vzal („Beru si ho") a odkdy na něm dělá. Výlučnost hlídá
+ *  částečný unikátní index nad `engine_id` pro nezavřená zabrání (viz `runtime-schema.ts`);
+ *  drizzle ho takhle zapsat neumí, proto je tady jen prostý index. Řádek se nemaže, jen
+ *  uzavírá `releasedAt`, aby šlo dohledat, kdo na motoru kdy dělal. */
+export const engineServiceClaims = sqliteTable("engine_service_claims", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  claimedBy: text("claimed_by").notNull(),
+  /** Jméno v době zabrání — na dlaždici se ukazuje i po přejmenování účtu. */
+  claimedByName: text("claimed_by_name").notNull(),
+  /** Vybraný mechanik, když zabrání zapsal sdílený panel v dílně. Mechanikův vlastní účet
+   *  ho nevyplňuje — tam je člověk dán přihlášením. */
+  claimedMechanicId: text("claimed_mechanic_id").references(() => mechanics.id),
+  claimedAt: integer("claimed_at", { mode: "timestamp_ms" }).notNull(),
+  releasedAt: integer("released_at", { mode: "timestamp_ms" }),
+  releasedBy: text("released_by"),
+  /** `manual` = vráceno do fronty, `service` = uvolněno automaticky po uložení servisu. */
+  releaseReason: text("release_reason", { enum: ["", "manual", "service"] }).notNull().default(""),
+}, (table) => [
+  index("engine_service_claims_engine_idx").on(table.engineId, table.claimedAt),
+]);
