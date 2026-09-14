@@ -2,18 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { EmptyState, LoadingState } from "./empty-state";
+import { ServiceOrderPrintButton } from "./service-order-print";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
 type OrderStatus = "received" | "in_progress" | "waiting_part" | "done" | "checked" | "handed_over";
 
-type WorkLine = {
+export type WorkLine = {
   id: string; orderEngineId: string; priceItemId: string | null; codeSnapshot: string;
   nameCsSnapshot: string; nameEnSnapshot: string; quantity: number;
   unitPriceCzkCents: number; unitPriceEurCents: number; discountPercent: number;
   totalCzkCents: number; totalEurCents: number; createdByName: string; createdAt: number;
 };
-type MaterialLine = {
+export type MaterialLine = {
   id: string; orderEngineId: string; inventoryPartId: string | null; code: string; name: string; quantity: number;
   unitPriceCzkCents: number; unitPriceEurCents: number; discountPercent: number;
   totalCzkCents: number; totalEurCents: number; source: "stock" | "customer"; createdByName: string; createdAt: number;
@@ -22,7 +23,7 @@ type WaitingPart = {
   id: string; orderEngineId: string; code: string; name: string; priceCzkCents: number; priceEurCents: number;
   expectedDate: string; isOrdered: boolean; arrivedAt: number | null; createdAt: number;
 };
-type OrderEngine = {
+export type OrderEngine = {
   id: string; orderId: string; customerEngineId: string; engineCode: string; engineNote: string;
   typeNameCs: string; typeNameEn: string; engineMinutes: number | null; scope: string;
   carbService: boolean; customerParts: boolean; customerPartsText: string; status: OrderStatus;
@@ -31,8 +32,8 @@ type OrderEngine = {
   works: WorkLine[]; materials: MaterialLine[]; waitingParts: WaitingPart[];
 };
 type Photo = { id: string; orderId: string; orderEngineId: string | null; fileName: string; contentType: string; note: string; createdAt: number; url: string };
-type OrderDetail = {
-  id: string; number: string; customerId: string; customerName: string; customerCountryCode: string;
+export type OrderDetail = {
+  id: string; number: string; customerId: string; customerName: string; customerPhone: string; customerEmail: string; customerCountryCode: string;
   currency: "CZK" | "EUR"; discountWorkPercent: number; discountMaterialPercent: number;
   receivedAt: string; deadlineDate: string; deadlineNote: string; customerNote: string; internalNote: string;
   handoverType: "personal" | "carrier" | "race"; carrier: string; trackingNumber: string;
@@ -54,7 +55,7 @@ const t9n = {
     loading: "Načítám zakázku…", loadError: "Zakázku se nepodařilo načíst.", retry: "Zkusit znovu",
     cancelled: "Zakázka je stornovaná", invoiced: "Zakázka je vyfakturovaná a uzavřená pro úpravy",
     unlock: "Odemknout pro úpravu", cancel: "Stornovat zakázku", cancelConfirm: "Opravdu stornovat celou zakázku? Motory na ní zůstanou v historii, jen se zakázka označí jako stornovaná.",
-    cancelReason: "Důvod stornování", invoice: "Vyfakturováno", invoiceButton: "Označit jako vyfakturováno",
+    cancelReason: "Důvod stornování", invoice: "Vyfakturováno", invoiceButton: "Označit jako vyfakturováno", printButton: "Tisk",
     deleteOrder: "Smazat zakázku", inTrash: "Zakázka je v koši — smaže se navždy za 30 dní od smazání.",
     restoreFromTrash: "Obnovit z koše", restoreError: "Zakázku se nepodařilo obnovit.",
     deleteTitle: "Smazat zakázku?", deleteIntro: "Zakázka půjde do koše. Po 30 dnech zmizí navždy — do té doby ji superadmin může v koši obnovit.",
@@ -90,7 +91,7 @@ const t9n = {
     loading: "Loading order…", loadError: "The order could not be loaded.", retry: "Try again",
     cancelled: "This order is cancelled", invoiced: "This order is invoiced and locked for edits",
     unlock: "Unlock for editing", cancel: "Cancel order", cancelConfirm: "Cancel this whole order? Its engines stay in history, the order is just marked as cancelled.",
-    cancelReason: "Cancellation reason", invoice: "Invoiced", invoiceButton: "Mark as invoiced",
+    cancelReason: "Cancellation reason", invoice: "Invoiced", invoiceButton: "Mark as invoiced", printButton: "Print",
     deleteOrder: "Delete order", inTrash: "This order is in trash — it disappears for good 30 days after deletion.",
     restoreFromTrash: "Restore from trash", restoreError: "Could not restore the order.",
     deleteTitle: "Delete this order?", deleteIntro: "The order goes to trash. It disappears for good after 30 days — until then a superadmin can restore it from trash.",
@@ -254,6 +255,7 @@ export function ServiceOrderDetail({ orderId, locale, role, onClose }: { orderId
           {!isTrashed && order.cancelledAt && <span className="status-pill danger">{t.cancelled}</span>}
           {!isTrashed && !order.cancelledAt && order.invoicedAt && !order.locked && <span className="status-pill neutral">{t.invoice}</span>}
           {!isTrashed && !order.cancelledAt && order.locked && <span className="status-pill neutral">{t.invoiced}</span>}
+          {!isTrashed && <ServiceOrderPrintButton order={order} locale={locale} label={t.printButton} />}
           {isTrashed && role === "superadmin" && (
             <button className="secondary-compact" type="button" onClick={() => void run(() => api("/api/service-orders", "PUT", { kind: "restore", orderId: order.id }))}>
               ↺ {t.restoreFromTrash}

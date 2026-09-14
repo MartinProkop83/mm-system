@@ -231,7 +231,8 @@ export async function GET(request: Request) {
 
 async function getOrderDetail(d1: D1, id: string) {
   const order = await d1.prepare(`
-    SELECT o.id, o.number, o.customer_id AS customerId, c.name AS customerName, c.discount_work_percent AS customerDiscountWork,
+    SELECT o.id, o.number, o.customer_id AS customerId, c.name AS customerName, c.phone AS customerPhone, c.email AS customerEmail,
+           c.discount_work_percent AS customerDiscountWork,
            c.discount_material_percent AS customerDiscountMaterial, c.country_code AS customerCountryCode,
            o.currency, o.discount_work_percent AS discountWorkPercent, o.discount_material_percent AS discountMaterialPercent,
            o.received_at AS receivedAt, o.deadline_date AS deadlineDate, o.deadline_note AS deadlineNote,

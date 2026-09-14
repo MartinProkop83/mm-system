@@ -4624,3 +4624,113 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
   gap: var(--wrc-space-8);
   margin-top: var(--wrc-space-12);
 }
+
+/* ——— Tisk zakázky: příjemka a zakázkový list ——— */
+
+.print-picker-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wrc-space-8);
+  margin: 0 0 var(--wrc-space-16);
+  padding: 0;
+  border: 0;
+}
+
+.print-picker-options legend {
+  margin-bottom: var(--wrc-space-8);
+  font-size: var(--wrc-text-sm);
+  font-weight: var(--wrc-weight-semibold);
+  color: var(--wrc-ink-soft);
+}
+
+.print-picker-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--wrc-space-8);
+  padding: var(--wrc-space-12);
+  border: 1px solid var(--wrc-line);
+  border-radius: var(--wrc-radius-md);
+  cursor: pointer;
+}
+
+.print-picker-option input {
+  margin-top: 3px;
+}
+
+.print-picker-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.print-picker-option small {
+  color: var(--wrc-ink-soft);
+  font-size: var(--wrc-text-sm);
+}
+
+.print-picker-language {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wrc-space-4);
+}
+
+.service-order-print-area { display: none; }
+
+@media print {
+  @page service-order { size: A4 portrait; margin: 15mm; }
+
+  body[data-print-mode="service-order"] * { visibility: hidden; }
+  body[data-print-mode="service-order"] .service-order-print-area,
+  body[data-print-mode="service-order"] .service-order-print-area * { visibility: visible; }
+  body[data-print-mode="service-order"] .service-order-print-area {
+    display: block;
+    position: absolute;
+    top: 0; left: 0; width: 100%;
+    margin: 0; padding: 0;
+    page: service-order;
+    background: #fff;
+    color: #14141a;
+  }
+
+  .print-page { padding: 0 0 8mm; }
+  .print-page:not(:last-child) { break-after: page; page-break-after: always; }
+
+  .print-header { display: flex; align-items: baseline; justify-content: space-between; gap: 4mm; padding-bottom: 4mm; border-bottom: 2px solid #14141a; }
+  .print-header strong { font-size: 11pt; letter-spacing: .04em; }
+  .print-header h1 { margin: 0; font-size: 16pt; font-weight: 800; letter-spacing: .03em; }
+
+  .print-fact-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2mm 8mm; margin-top: 4mm; }
+  .print-fact-row { display: flex; justify-content: space-between; gap: 4mm; margin: 0; font-size: 10pt; border-bottom: 1px dotted #cfcfcf; padding-bottom: 1mm; }
+  .print-fact-row span { color: #4a4a52; }
+  .print-fact-row strong { text-align: right; }
+
+  .print-scope-block { display: flex; flex-direction: column; gap: 1.5mm; margin-top: 4mm; }
+  .print-scope-label { font-size: 8pt; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #4a4a52; }
+  .print-scope-text {
+    margin: 0;
+    /* Zakázkový list čte mechanik v boxu u motoru — rozsah prací proto musí být čitelný
+       i z dálky a výrazně orámovaný, ne jen řádek textu mezi ostatními fakty. */
+    padding: 3mm;
+    border: 1.5px solid #14141a;
+    border-radius: 2mm;
+    font-size: 13pt;
+    font-weight: 700;
+    line-height: 1.35;
+  }
+
+  .print-engine-block { margin-top: 5mm; break-inside: avoid; }
+  .print-engine-block h3 { margin: 0 0 2mm; font-size: 13pt; font-weight: 800; border-top: 1px solid #14141a; padding-top: 3mm; }
+  .print-engine-block h3 small { font-weight: 400; color: #4a4a52; }
+
+  .print-line-table { width: 100%; margin-top: 3mm; border-collapse: collapse; font-size: 9pt; break-inside: avoid; }
+  .print-line-table th, .print-line-table td { padding: 1.2mm 2mm; border-bottom: 1px solid #cfcfcf; text-align: left; }
+  .print-line-table th:not(:first-child), .print-line-table td:not(:first-child) { text-align: right; }
+  .print-line-table thead th { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .04em; color: #4a4a52; border-bottom: 1px solid #14141a; }
+
+  .print-engine-subtotal, .print-grand-total { display: flex; justify-content: space-between; gap: 4mm; margin-top: 3mm; padding-top: 2mm; border-top: 1px solid #14141a; font-size: 10pt; }
+  .print-grand-total { margin-top: 6mm; padding: 3mm; border: 1.5px solid #14141a; font-size: 13pt; font-weight: 800; }
+
+  .print-footer { margin-top: 8mm; padding-top: 3mm; border-top: 1px dashed #cfcfcf; }
+  .print-footer p { margin: 0 0 1mm; font-size: 8pt; color: #4a4a52; }
+  .print-footer-meta { font-style: italic; }
+}
