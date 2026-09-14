@@ -358,7 +358,8 @@ function NewOrderModal({ locale, customers, engineTypes, onClose, onCreated }: {
       customerNote: "Co zákazník řekl", engines: "Motory", addEngine: "＋ Přidat motor", removeEngine: "Odebrat",
       existingEngine: "Existující motor zákazníka", newEngine: "Nový motor", pickEngine: "Vyber motor…",
       code: "Výrobní číslo", type: "Typ motoru", pickType: "Vyber typ…", note: "Poznámka",
-      engineMinutes: "Motohodiny při příjmu", engineMinutesHint: "Nepovinné, v minutách.",
+      engineMinutes: "Motohodiny při příjmu", engineMinutesHint: "Nepovinné, ve formátu HH:MM.",
+      engineMinutesError: "Motohodiny zapiš ve formátu HH:MM, například 06:48.",
       scope: "Rozsah prací", carbService: "Součástí je i servis karburátoru", customerParts: "Zákazník přivezl vlastní díly",
       customerPartsText: "Jaké díly", save: "Založit zakázku", saving: "Ukládám…", cancel: "Zrušit",
       codeRequired: "Vyplň výrobní číslo motoru.", typeRequired: "Vyber typ motoru.", saveError: "Zakázku se nepodařilo založit.",
@@ -370,7 +371,8 @@ function NewOrderModal({ locale, customers, engineTypes, onClose, onCreated }: {
       customerNote: "What the customer said", engines: "Engines", addEngine: "＋ Add engine", removeEngine: "Remove",
       existingEngine: "Customer's existing engine", newEngine: "New engine", pickEngine: "Pick an engine…",
       code: "Serial number", type: "Engine type", pickType: "Pick a type…", note: "Note",
-      engineMinutes: "Engine hours at drop-off", engineMinutesHint: "Optional, in minutes.",
+      engineMinutes: "Engine hours at drop-off", engineMinutesHint: "Optional, in HH:MM format.",
+      engineMinutesError: "Enter engine hours as HH:MM, for example 06:48.",
       scope: "Scope of work", carbService: "Carburetor service included", customerParts: "Customer brought own parts",
       customerPartsText: "Which parts", save: "Create order", saving: "Saving…", cancel: "Cancel",
       codeRequired: "Fill in the engine serial number.", typeRequired: "Pick an engine type.", saveError: "Could not create the order.",
@@ -384,6 +386,7 @@ function NewOrderModal({ locale, customers, engineTypes, onClose, onCreated }: {
       if (engine.mode === "existing" && !engine.customerEngineId) { setError(t.pickEngine); return; }
       if (engine.mode === "new" && !engine.code.trim()) { setError(t.codeRequired); return; }
       if (engine.mode === "new" && !engine.serviceEngineTypeId) { setError(t.typeRequired); return; }
+      if (engine.engineMinutesText.trim() && !/^\d{1,4}:[0-5]\d$/.test(engine.engineMinutesText.trim())) { setError(t.engineMinutesError); return; }
     }
     setSaving(true);
     setError("");
@@ -397,7 +400,7 @@ function NewOrderModal({ locale, customers, engineTypes, onClose, onCreated }: {
             .map((engine) => ({
               customerEngineId: engine.mode === "existing" ? engine.customerEngineId : undefined,
               newEngine: engine.mode === "new" ? { code: engine.code.trim(), serviceEngineTypeId: engine.serviceEngineTypeId, note: engine.note } : undefined,
-              engineMinutes: engine.engineMinutesText.trim() ? Number(engine.engineMinutesText) : null,
+              engineMinutes: engine.engineMinutesText.trim() || null,
               scope: engine.scope, carbService: engine.carbService, customerParts: engine.customerParts, customerPartsText: engine.customerPartsText,
             })),
         }),
@@ -468,7 +471,7 @@ function NewOrderModal({ locale, customers, engineTypes, onClose, onCreated }: {
                 </div>
               )}
               <div className="form-grid">
-                <label><span>{t.engineMinutes}</span><input type="number" min="0" value={engine.engineMinutesText} onChange={(event) => updateEngine(engine.key, { engineMinutesText: event.target.value })} /><small>{t.engineMinutesHint}</small></label>
+                <label><span>{t.engineMinutes}</span><input value={engine.engineMinutesText} onChange={(event) => updateEngine(engine.key, { engineMinutesText: event.target.value })} inputMode="numeric" pattern="[0-9]{1,4}:[0-5][0-9]" placeholder="06:48" /><small>{t.engineMinutesHint}</small></label>
                 <label className="full-field"><span>{t.scope}</span><textarea rows={2} value={engine.scope} onChange={(event) => updateEngine(engine.key, { scope: event.target.value })} maxLength={2000} /></label>
               </div>
               <label className="settings-checkbox-row"><input type="checkbox" checked={engine.carbService} onChange={(event) => updateEngine(engine.key, { carbService: event.target.checked })} /><span>{t.carbService}</span></label>

@@ -1,6 +1,7 @@
 import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
+import { parseTime } from "../../engine-usage";
 
 /**
  * Zakázkový servis pro zákazníky — zakázky, motory na nich a provedená práce/materiál.
@@ -19,7 +20,8 @@ type D1 = ReturnType<typeof getD1>;
 type EnginePayload = {
   customerEngineId?: string;
   newEngine?: { code?: string; serviceEngineTypeId?: string; note?: string };
-  engineMinutes?: number | null;
+  /** Motohodiny při příjmu jako "HH:MM" (stejně jako u našich motorů), ne v minutách. */
+  engineMinutes?: string | null;
   scope?: string;
   carbService?: boolean;
   customerParts?: boolean;
@@ -53,7 +55,7 @@ type Payload = {
   // engine sub-payload (create/update)
   customerEngineId?: string;
   newEngine?: EnginePayload["newEngine"];
-  engineMinutes?: number | null;
+  engineMinutes?: string | null;
   scope?: string;
   carbService?: boolean;
   customerParts?: boolean;
@@ -97,6 +99,18 @@ function cents(value: unknown) {
 function quantity(value: unknown) {
   const number = Math.round(Number(value));
   return Number.isFinite(number) && number > 0 ? number : 1;
+}
+/**
+ * "HH:MM" → minuty, stejný `parseTime()` jako u motohodin našich motorů (`app/engine-usage.ts`).
+ * Prázdné/`null`/`undefined` = nezadáno. `false` = zadáno, ale ve špatném formátu — volající
+ * na to musí odpovědět 400, ne si tiše domyslet nulu.
+ */
+function engineMinutesFromInput(value: unknown): number | null | false {
+  if (value === undefined || value === null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const minutes = parseTime(text, true);
+  return minutes === null ? false : minutes;
 }
 function lineTotal(unitCents: number, qty: number, discountPercent: number) {
   return Math.round(unitCents * qty * (100 - discountPercent) / 100);
@@ -356,6 +370,9 @@ export async function POST(request: Request) {
   // Motor buď existující ze zákazníkovy historie, nebo se založí nový hned tady.
   const resolvedEngines: Array<{ customerEngineId: string; isNew: boolean; input: EnginePayload }> = [];
   for (const engineInput of engineInputs) {
+    if (engineMinutesFromInput(engineInput.engineMinutes) === false) {
+      return Response.json({ error: "Engine hours must use HH:MM" }, { status: 400 });
+    }
     if (engineInput.customerEngineId) {
       const customerEngineId = clean(engineInput.customerEngineId, 80);
       const engine = await d1.prepare("SELECT id FROM customer_engines WHERE id = ? AND customer_id = ?").bind(customerEngineId, customerId).first();
@@ -418,7 +435,8 @@ export async function POST(request: Request) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).bind(
       crypto.randomUUID(), orderId, resolved.customerEngineId,
-      resolved.input.engineMinutes ?? null, clean(resolved.input.scope, 2000), resolved.input.carbService ? 1 : 0,
+      // Formát už je ověřený výš (jinak by request skončil 400) — tady je jistě number|null.
+      engineMinutesFromInput(resolved.input.engineMinutes) as number | null, clean(resolved.input.scope, 2000), resolved.input.carbService ? 1 : 0,
       resolved.input.customerParts ? 1 : 0, clean(resolved.input.customerPartsText, 2000),
       (index + 1) * 10, now, now,
     ));
@@ -551,7 +569,11 @@ async function upsertEngine(d1: D1, user: { email: string }, payload: Payload) {
     if (isLocked(existing)) return Response.json({ error: "Order is locked after invoicing" }, { status: 409 });
 
     const fields: Array<[string, unknown]> = [];
-    if (payload.engineMinutes !== undefined) fields.push(["engine_minutes", payload.engineMinutes]);
+    if (payload.engineMinutes !== undefined) {
+      const minutes = engineMinutesFromInput(payload.engineMinutes);
+      if (minutes === false) return Response.json({ error: "Engine hours must use HH:MM" }, { status: 400 });
+      fields.push(["engine_minutes", minutes]);
+    }
     if (payload.scope !== undefined) fields.push(["scope", clean(payload.scope, 2000)]);
     if (payload.carbService !== undefined) fields.push(["carb_service", payload.carbService ? 1 : 0]);
     if (payload.customerParts !== undefined) fields.push(["customer_parts", payload.customerParts ? 1 : 0]);
@@ -597,12 +619,15 @@ async function upsertEngine(d1: D1, user: { email: string }, payload: Payload) {
     return Response.json({ error: "customerEngineId or newEngine is required" }, { status: 400 });
   }
 
+  const engineMinutes = engineMinutesFromInput(payload.engineMinutes);
+  if (engineMinutes === false) return Response.json({ error: "Engine hours must use HH:MM" }, { status: 400 });
+
   const maxSort = Number((await d1.prepare("SELECT COALESCE(MAX(sort_order), 0) AS value FROM service_order_engines WHERE order_id = ?").bind(orderId).first<{ value: number }>())?.value ?? 0);
   const orderEngineId = crypto.randomUUID();
   statements.push(d1.prepare(`
     INSERT INTO service_order_engines (id, order_id, customer_engine_id, engine_minutes, scope, carb_service, customer_parts, customer_parts_text, sort_order, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).bind(orderEngineId, orderId, customerEngineId, payload.engineMinutes ?? null, clean(payload.scope, 2000), payload.carbService ? 1 : 0, payload.customerParts ? 1 : 0, clean(payload.customerPartsText, 2000), maxSort + 10, now, now));
+  `).bind(orderEngineId, orderId, customerEngineId, engineMinutes, clean(payload.scope, 2000), payload.carbService ? 1 : 0, payload.customerParts ? 1 : 0, clean(payload.customerPartsText, 2000), maxSort + 10, now, now));
 
   await d1.batch(statements);
   return Response.json({ id: orderEngineId }, { status: 201 });

@@ -16,6 +16,7 @@ import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage } from "./commerce-pages";
 import { ServiceOrdersPage } from "./service-orders-page";
+import { formatHours } from "./format-hours";
 import { ServiceQueuePage } from "./service-queue-page";
 import { ChecklistsPage } from "./checklist-pages";
 import Link from "next/link";
@@ -2776,12 +2777,6 @@ function engineAssignmentLabel(engine: EngineRecord, races: DashboardRace[]) {
   if (!engine.assignedDriver) return "—";
   const race = engine.assignedRace ? races.find((item) => item.name === engine.assignedRace) : undefined;
   return race ? `${engine.assignedDriver} · ${race.track}` : engine.assignedDriver;
-}
-
-function formatHours(totalMinutes: number) {
-  const hours = Math.floor(totalMinutes / 60).toString().padStart(2, "0");
-  const minutes = (totalMinutes % 60).toString().padStart(2, "0");
-  return `${hours}:${minutes}`;
 }
 
 function ignitionLabel(ignition: EngineRecord["ignition"], locale: Locale) {

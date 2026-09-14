@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { EmptyState, LoadingState } from "./empty-state";
 import { ServiceOrderPrintButton } from "./service-order-print";
+import { formatHours } from "./format-hours";
 
 type Locale = "cs" | "en";
 type Role = "superadmin" | "boss" | "mechanic";
@@ -449,7 +450,7 @@ function EngineCard({ engine, locale, currency, canManage, locked, priceItems, i
 
       {engine.scope && <p className="service-order-engine-scope"><strong>{t.scope}:</strong> {engine.scope}</p>}
       <p className="service-order-engine-flags">
-        {engine.engineMinutes !== null && <span>{t.engineMinutes}: {engine.engineMinutes} min</span>}
+        {engine.engineMinutes !== null && <span>{t.engineMinutes}: {formatHours(engine.engineMinutes)}</span>}
         {engine.carbService && <span className="status-pill neutral">{t.carbServiceFlag}</span>}
         {engine.customerParts && <span className="status-pill neutral">{t.customerPartsFlag}: {engine.customerPartsText || "—"}</span>}
       </p>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useModalA11y } from "./use-modal-a11y";
+import { formatHours } from "./format-hours";
 import type { MaterialLine, OrderDetail, OrderEngine, WorkLine } from "./service-order-detail";
 
 type Locale = "cs" | "en";
@@ -68,10 +69,7 @@ function formatMoney(cents: number, currency: "CZK" | "EUR", printLocale: Locale
   return new Intl.NumberFormat(printLocale === "cs" ? "cs-CZ" : "en-GB", { style: "currency", currency, maximumFractionDigits: 2 }).format(cents / 100);
 }
 function formatEngineHours(minutes: number | null) {
-  if (minutes === null) return null;
-  const hours = Math.floor(minutes / 60).toString().padStart(2, "0");
-  const rest = (minutes % 60).toString().padStart(2, "0");
-  return `${hours}:${rest}`;
+  return minutes === null ? null : formatHours(minutes);
 }
 function formatDate(value: string, printLocale: Locale) {
   if (!value) return "";
