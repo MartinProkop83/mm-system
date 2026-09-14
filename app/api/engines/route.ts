@@ -3,6 +3,7 @@ import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
 import { filterResponseForMechanic } from "../../api-access";
 import { buildTechnicalChangeLog, type TechnicalValueWrite } from "../../engine-technical-log";
+import { generatePublicCode } from "../../engine-public-code";
 import { applyMiniAutoService } from "../../engine-auto-service";
 
 const allowedStatuses = new Set(["ready", "service_soon", "service", "rebuild", "storage", "retired"]);
@@ -134,7 +135,7 @@ export async function GET(request: Request) {
   await applyMiniAutoService(d1);
   const [result, assignmentResult, loanResult, layoutResult, sectionResult, fieldResult, optionResult, valueResult] = await Promise.all([
     d1.prepare(`
-      SELECT id, code, category, family, ignition, kz_generation AS kzGeneration,
+      SELECT id, public_code AS publicCode, code, category, family, ignition, kz_generation AS kzGeneration,
              current_configuration AS currentConfiguration, upgrade_code AS upgradeCode, label_color AS labelColor,
              purchase_date AS purchaseDate, status, total_minutes AS totalMinutes,
              piston_minutes AS pistonMinutes, rod_minutes AS rodMinutes,
@@ -240,13 +241,15 @@ export async function POST(request: Request) {
     await d1.batch([
       d1.prepare(`
         INSERT INTO engines (
-          id, code, serial_number, brand, model, category, family, ignition,
+          id, public_code, code, serial_number, brand, model, category, family, ignition,
           kz_generation, current_configuration, upgrade_code, label_color, purchase_date,
           status, total_minutes, service_interval_minutes, notes, created_by,
           created_at, updated_at
-        ) VALUES (?, ?, '', 'TM Racing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 360, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, '', 'TM Racing', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 360, ?, ?, ?, ?)
       `).bind(
         id,
+        // Krátký identifikátor pro QR štítek vzniká rovnou se motorem a už se nemění.
+        generatePublicCode(),
         code,
         family,
         category,

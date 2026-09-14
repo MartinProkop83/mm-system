@@ -1024,3 +1024,12 @@ export const engineServiceClaims = sqliteTable("engine_service_claims", {
 }, (table) => [
   index("engine_service_claims_engine_idx").on(table.engineId, table.claimedAt),
 ]);
+
+/** Obecné nastavení aplikace jako klíč/hodnota — první je základní adresa pro QR kódy,
+ *  ale tabulka je záměrně obecná. */
+export const appSettings = sqliteTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull().default(""),
+  updatedBy: text("updated_by").notNull().default(""),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});

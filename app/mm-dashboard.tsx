@@ -22,17 +22,19 @@ import { useModalA11y } from "./use-modal-a11y";
 import { EngineServiceCard } from "./engine-service-card";
 import { EngineTimeline } from "./engine-timeline";
 import { ServiceHistoryPage } from "./service-history-page";
+import { EngineQrPanel } from "./engine-qr-panel";
+import { QrSheetPage } from "./qr-sheet-page";
 
 type Locale = "cs" | "en";
-type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "sales" | "inventory" | "documents" | "settings";
+type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "qrCodes" | "sales" | "inventory" | "documents" | "settings";
 // Views whose own page component already renders its own eyebrow/title/description hero —
 // the shared topbar skips its generic title there instead of repeating it.
-const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "sales", "inventory", "documents", "settings"];
+const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "qrCodes", "sales", "inventory", "documents", "settings"];
 // Views backed by CatalogPage — its own detail sub-view (driver/team/mechanic/vehicle/carburetor card)
 // replaces the list and already carries its own back button + hero, so the topbar hides entirely there.
 const CATALOG_BACKED_VIEWS: View[] = ["raceTypes", "teams", "drivers", "carburetors", "mechanics", "vehicles"];
 type EngineFilter = "ALL" | "MINI" | "OKJ" | "OKN" | "OK" | "KZ";
-type EngineDetailTab = "overview" | "technical" | "service" | "hours" | "history" | "documents";
+type EngineDetailTab = "overview" | "technical" | "service" | "hours" | "history" | "documents" | "qr";
 
 type AppSession = {
   id: string;
@@ -57,6 +59,8 @@ type ActivityRecord = {
 
 type EngineRecord = {
   id: string;
+  /** Krátký identifikátor na QR štítku — neměnný, vzniká se motorem. */
+  publicCode: string;
   code: string;
   family: "MINI" | "OKJ" | "OKN" | "OKN-J" | "OK" | "KZ";
   ignition: "" | "PVL" | "SELETTRA";
@@ -250,6 +254,7 @@ const copy = {
     rentals: "Pronájem aut",
     service: "Servis",
     serviceHistory: "Servisní historie",
+    qrCodes: "QR kódy",
     sales: "Prodej",
     inventory: "Sklad",
     documents: "Dokumenty",
@@ -299,6 +304,7 @@ const copy = {
     usageTab: "Motohodiny",
     historyTab: "Historie",
     documentsTab: "Dokumenty",
+    qrTab: "QR kód",
     engineInfo: "Informace o motoru",
     currentUsage: "Aktuální provoz",
     quickActions: "Rychlé akce",
@@ -357,6 +363,7 @@ const copy = {
     rentals: "Car rental",
     service: "Service",
     serviceHistory: "Service history",
+    qrCodes: "QR codes",
     sales: "Sales",
     inventory: "Inventory",
     documents: "Documents",
@@ -406,6 +413,7 @@ const copy = {
     usageTab: "Running hours",
     historyTab: "History",
     documentsTab: "Documents",
+    qrTab: "QR code",
     engineInfo: "Engine information",
     currentUsage: "Current usage",
     quickActions: "Quick actions",
@@ -463,6 +471,7 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "rentals", mark: "▱" },
   { id: "service", mark: "◇" },
   { id: "serviceHistory", mark: "◈" },
+  { id: "qrCodes", mark: "▨" },
   { id: "sales", mark: "¤" },
   { id: "inventory", mark: "□" },
   { id: "documents", mark: "≡" },
@@ -473,15 +482,16 @@ const navGroups: Array<{ labelCs: string; labelEn: string; items: View[] }> = [
   { labelCs: "Provoz", labelEn: "Operations", items: ["dashboard", "tasks", "calendar"] },
   { labelCs: "Závody", labelEn: "Races", items: ["races", "raceTypes", "circuits"] },
   { labelCs: "Tým", labelEn: "Team", items: ["drivers", "teams", "customers", "mechanics", "clothing"] },
-  { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "serviceHistory", "inventory"] },
+  { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "serviceHistory", "qrCodes", "inventory"] },
   { labelCs: "Logistika", labelEn: "Logistics", items: ["accommodation", "flights", "rentals"] },
   { labelCs: "Obchod", labelEn: "Business", items: ["sales", "documents"] },
   { labelCs: "Nastavení", labelEn: "Settings", items: ["settings"] },
 ];
 
-export default function Home() {
+/** `initialEngineId` přichází z QR kódu (`/m/<kód>`) — otevře rovnou servisní kartu motoru. */
+export default function Home({ initialEngineId = "" }: { initialEngineId?: string }) {
   const [locale, setLocale] = useState<Locale>("cs");
-  const [view, setView] = useState<View>("dashboard");
+  const [view, setView] = useState<View>(initialEngineId ? "engines" : "dashboard");
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
   const [session, setSession] = useState<AppSession | null>(null);
@@ -494,7 +504,7 @@ export default function Home() {
   const [engineFormOpen, setEngineFormOpen] = useState(false);
   const [quickServiceOpen, setQuickServiceOpen] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<EngineRecord | null>(null);
-  const [detailEngineId, setDetailEngineId] = useState<string | null>(null);
+  const [detailEngineId, setDetailEngineId] = useState<string | null>(initialEngineId || null);
   // Vstup z fronty na servis: karta se otevře rovnou v zápisu servisu a po uložení
   // se mechanik vrátí zpátky do fronty, ne na detail motoru.
   const [serviceEntryFromQueue, setServiceEntryFromQueue] = useState(false);
@@ -892,6 +902,7 @@ export default function Home() {
             currentUserName={session?.fullName ?? ""}
             openServiceEntry={serviceEntryFromQueue}
             openLegacyServiceEntry={legacyEntryFromQueue}
+            openServiceCard={detailEngineId === initialEngineId}
             onServiceEntryClosed={() => { setServiceEntryFromQueue(false); setLegacyEntryFromQueue(false); }}
             onServiceSaved={() => {
               if (!serviceEntryFromQueue) return;
@@ -939,6 +950,8 @@ export default function Home() {
         {/* Přehled odvedené práce napříč motory. Mechanik se sem nedostane: do aplikace
             s menu vůbec nechodí a `/api/service-history` mu vrátí 403. */}
         {view === "serviceHistory" && <ServiceHistoryPage locale={locale} />}
+        {/* Arch QR štítků pro celou kategorii. Zatím na obrazovku, tisk až podle formátu štítků. */}
+        {view === "qrCodes" && <QrSheetPage locale={locale} />}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
@@ -1535,7 +1548,7 @@ function EngineLoansOverviewPanel({ locale, onClose, onOpenEngine }: { locale: L
   );
 }
 
-function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, openServiceEntry = false, openLegacyServiceEntry = false, onServiceEntryClosed, onServiceSaved, onBack, onEdit, onSaved, showNotice }: {
+function EngineDetail({ locale, engine, technicalStructure, technicalValues, onTechnicalValuesSaved, canManage, role, currentUserName, openServiceEntry = false, openLegacyServiceEntry = false, openServiceCard = false, onServiceEntryClosed, onServiceSaved, onBack, onEdit, onSaved, showNotice }: {
   locale: Locale;
   engine: EngineRecord;
   technicalStructure: TechnicalStructureData;
@@ -1548,6 +1561,8 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   openServiceEntry?: boolean;
   /** Motor z fronty, jehož kategorie jede po staré kartě — otevře se rovnou starý formulář. */
   openLegacyServiceEntry?: boolean;
+  /** Příchod z QR kódu: otevře servisní kartu, ale ne formulář zápisu. */
+  openServiceCard?: boolean;
   onServiceEntryClosed?: () => void;
   onServiceSaved?: () => void;
   onBack: () => void;
@@ -1556,7 +1571,7 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   showNotice: (message: string) => void;
 }) {
   const t = copy[locale];
-  const [tab, setTab] = useState<EngineDetailTab>(openServiceEntry ? "service" : "overview");
+  const [tab, setTab] = useState<EngineDetailTab>(openServiceEntry || openServiceCard ? "service" : "overview");
   const [technicalOpen, setTechnicalOpen] = useState(false);
   // Fronta u staré karty otevírá tenhle formulář rovnou; nová karta si otevírá svůj vlastní.
   const [serviceOpen, setServiceOpen] = useState(openLegacyServiceEntry);
@@ -1588,6 +1603,7 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
     ...(usesHours ? [{ id: "hours" as const, label: t.usageTab }] : []),
     { id: "history", label: t.historyTab },
     { id: "documents", label: t.documentsTab },
+    { id: "qr", label: t.qrTab },
   ];
 
   useEffect(() => {
@@ -1950,6 +1966,10 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
           <div className="empty-inline"><strong>{locale === "cs" ? "Zatím žádné dokumenty" : "No documents yet"}</strong><p>{locale === "cs" ? "Nahrávání fotografií a PDF zapojíme později přes bezpečné úložiště." : "Photo and PDF uploads will be connected to secure storage later."}</p></div>
         </section>
       )}
+
+      {/* QR štítek motoru. Zatím ukazuje obě varianty kódu vedle sebe, ať jde porovnat,
+          která se v dílně skenuje líp. */}
+      {tab === "qr" && <EngineQrPanel engine={engine} locale={locale} />}
 
       {technicalOpen && (
         <TechnicalForm

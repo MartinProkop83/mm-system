@@ -14,12 +14,14 @@ type AppRole = "superadmin" | "boss" | "mechanic";
  * Používá se na dvou místech: na nástěnce v dílně a jako domovská obrazovka mechaniků.
  * Odkaz zpět do systému vidí jen superadmin a vedení; mechanik se odsud nikam neproklikne.
  */
-export function ServiceQueueScreen({ locale, role, userName }: {
+export function ServiceQueueScreen({ locale, role, userName, initialEngineId = "" }: {
   locale: Locale;
   role: AppRole;
   userName: string;
+  /** Motor z QR kódu — otevře se rovnou jeho servisní karta, ale bez formuláře zápisu. */
+  initialEngineId?: string;
 }) {
-  const [engineId, setEngineId] = useState<string | null>(null);
+  const [engineId, setEngineId] = useState<string | null>(initialEngineId || null);
   const canLeave = role !== "mechanic";
 
   if (engineId) {
@@ -28,6 +30,9 @@ export function ServiceQueueScreen({ locale, role, userName }: {
         locale={locale}
         engineId={engineId}
         currentUserName={role === "mechanic" ? userName : ""}
+        // Z fronty se zapisuje servis, takže formulář naskočí sám; z QR kódu se motor jen
+        // otevře — člověk u něj zrovna stojí a možná se chce jen podívat do historie.
+        openEntry={engineId !== initialEngineId}
         onDone={() => setEngineId(null)}
       />
     );

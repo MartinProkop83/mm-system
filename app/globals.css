@@ -4093,3 +4093,71 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .history-items b i { color: var(--wrc-ink-faint); font-style: normal; font-weight: var(--wrc-weight-bold); }
 .service-history tr.is-cancelled td { color: var(--wrc-ink-faint); text-decoration: line-through; }
 .service-history tr.is-cancelled .status-pill { text-decoration: none; }
+
+/* --- QR kódy motorů ---------------------------------------------------------------------- */
+/* Kód je vždycky černý na bílé, i v tmavém režimu — invertovaný QR řada čteček nenačte,
+   takže tahle jedna věc barvy motivu schválně nepřebírá. */
+.qr-code { display: block; border-radius: var(--wrc-radius-sm); background: #fff; }
+
+/* Panel stojí přímo v `.engine-detail`, což je mřížka o jednom sloupci — žádné `grid-column`
+   tu nemá co dělat. `span 12` platil, dokud byl QR na Přehledu uvnitř dvanáctisloupcové
+   `.engine-detail-grid`; po přesunu do vlastní záložky mřížce přidával jedenáct sloupců
+   a odsouval hlavičku i lištu záložek doprava. */
+.engine-qr-card { display: flex; flex-direction: column; gap: var(--wrc-space-12); min-width: 0; }
+.engine-qr-intro { margin: 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); line-height: 1.45; }
+.engine-qr-variants { display: flex; flex-wrap: wrap; align-items: flex-start; gap: var(--wrc-space-16); min-width: 0; }
+.engine-qr-actions { display: flex; flex-wrap: wrap; gap: var(--wrc-space-8); margin-top: var(--wrc-space-4); }
+.engine-qr-variant { display: flex; flex-direction: column; align-items: flex-start; gap: var(--wrc-space-6); min-width: 0; padding: var(--wrc-space-12); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-lg); background: var(--wrc-surface-2); }
+.engine-qr-variant > strong { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-bold); }
+.engine-qr-variant code { max-width: 100%; overflow: hidden; color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-overflow: ellipsis; white-space: nowrap; }
+.engine-qr-variant small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); line-height: 1.4; }
+.engine-qr-modules { color: var(--wrc-ink-soft); font-weight: var(--wrc-weight-bold); }
+
+
+/* Identifikátor čitelný okem — když QR nejde naskenovat, opíše se. */
+/* Čitelný kód patří pod kód, ne vedle něj — proto vlastní řádek i ve flexu panelu. */
+.engine-qr-readable { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--wrc-space-8); padding: var(--wrc-space-8) var(--wrc-space-12); border: 1px dashed var(--wrc-line-hi); border-radius: var(--wrc-radius-md); }
+.engine-qr-readable b { color: var(--wrc-ink); font-size: var(--wrc-text-xl); font-weight: var(--wrc-weight-black); font-variant-numeric: tabular-nums; letter-spacing: var(--wrc-tracking-wide); }
+.engine-qr-readable small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); }
+.settings-general-field { display: flex; flex-direction: column; gap: var(--wrc-space-6); max-width: 560px; }
+.settings-general-field > span { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+.settings-general-field small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); line-height: 1.45; }
+
+/* Arch QR štítků. Mřížka je zatím obrazovková; tiskový layout přijde, až bude jasný formát. */
+.qr-sheet { display: flex; flex-direction: column; gap: var(--wrc-space-16); min-width: 0; }
+.qr-sheet-grid { display: grid; grid-template-columns: repeat(var(--qr-columns, 4), minmax(0, 1fr)); gap: var(--wrc-space-16); min-width: 0; }
+.qr-sheet-label { display: flex; flex-direction: column; align-items: center; gap: var(--wrc-space-8); margin: 0; padding: var(--wrc-space-12); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-lg); background: var(--wrc-surface); }
+.qr-sheet-label figcaption { display: flex; flex-direction: column; align-items: center; gap: var(--wrc-space-2); text-align: center; }
+.qr-sheet-label strong { color: var(--wrc-ink); font-size: var(--wrc-text-lg); font-weight: var(--wrc-weight-black); letter-spacing: var(--wrc-tracking-tight); }
+.qr-sheet-label small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); }
+@media (max-width: 760px) { .qr-sheet-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* --- Tisk QR štítků ---------------------------------------------------------------------- */
+/* Rozměry jsou schválně v milimetrech, ne v tokenech ze škály pro obrazovku: štítek se stříhá
+   a lepí na motor, takže rozhoduje fyzická velikost, ne pixely.
+   Štítek 40 × 45 mm, samotný kód 26 mm → při 37 modulech (29 + klidová zóna) vychází modul
+   na 0,7 mm, což telefon přečte i z metru. Na A4 s 10mm okraji se vejdou 4 sloupce × 5 řádků,
+   tedy 20 štítků na stránku. */
+.qr-print-only { display: none; }
+
+@media print {
+  @page { size: A4 portrait; margin: 10mm; }
+
+  /* Na papír jde jen mřížka štítků. `visibility` místo `display` proto, aby zůstalo funkční
+     pozicování — `display: none` na předcích by schovalo i tiskovou oblast v nich. */
+  body * { visibility: hidden; }
+  .qr-print-area, .qr-print-area * { visibility: visible; }
+  .qr-print-area { position: absolute; top: 0; left: 0; width: 100%; margin: 0; padding: 0; border: 0; background: #fff; box-shadow: none; }
+  .qr-print-only { display: block; }
+
+  .qr-sheet-grid { grid-template-columns: repeat(var(--qr-print-columns, 4), 40mm); justify-content: start; gap: 4mm; }
+  .qr-sheet-label {
+    width: 40mm; height: 45mm; gap: 1.5mm; padding: 2mm;
+    border: 1px dashed #999; border-radius: 0; background: #fff;
+    /* Štítek se nikdy nesmí rozříznout mezi stránkami — stříhá se podle rámečku. */
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  .qr-sheet-label .qr-code { width: 26mm; height: 26mm; }
+  .qr-sheet-label strong { color: #000; font-size: 11pt; }
+  .qr-sheet-label small { color: #000; font-size: 8pt; }
+}

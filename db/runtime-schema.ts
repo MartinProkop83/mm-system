@@ -1,4 +1,5 @@
 import { getD1 } from "./index";
+import { generatePublicCode } from "../app/engine-public-code";
 
 let schemaPromise: Promise<void> | null = null;
 
@@ -213,6 +214,17 @@ async function createRuntimeSchema() {
         note TEXT NOT NULL,
         created_by TEXT NOT NULL,
         created_at INTEGER NOT NULL
+      )
+    `),
+    // Obecné nastavení aplikace jako klíč/hodnota. Záměrně není pro jednu věc: první je
+    // základní adresa pro QR kódy, ale stejným způsobem sem půjde cokoli dalšího, co se
+    // nastavuje jednou a platí pro celý systém.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS app_settings (
+        key TEXT PRIMARY KEY NOT NULL,
+        value TEXT NOT NULL DEFAULT '',
+        updated_by TEXT NOT NULL DEFAULT '',
+        updated_at INTEGER NOT NULL
       )
     `),
     // Rozpracovaný motor — mechanik si ho zabere tlačítkem „Beru si ho", aby se na jednom
@@ -1447,6 +1459,29 @@ async function createRuntimeSchema() {
     await d1.prepare("ALTER TABLE service_records ADD COLUMN import_source TEXT NOT NULL DEFAULT ''").run();
   }
   await d1.prepare("CREATE INDEX IF NOT EXISTS service_records_import_source_idx ON service_records (import_source)").run();
+
+  // Krátký identifikátor motoru pro QR štítky (viz app/engine-public-code.ts). Existující
+  // motory ho dostanou dodatečně — každý svůj, proto po jednom, ne jedním UPDATE.
+  const engineColumns = await d1.prepare("PRAGMA table_info(engines)").all<{ name: string }>();
+  if (!engineColumns.results.some((column: { name: string }) => column.name === "public_code")) {
+    await d1.prepare("ALTER TABLE engines ADD COLUMN public_code TEXT NOT NULL DEFAULT ''").run();
+  }
+  await d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engines_public_code_unique_idx ON engines (public_code) WHERE public_code != ''").run();
+
+  const missingCodes = await d1.prepare("SELECT id FROM engines WHERE public_code = ''").all<{ id: string }>();
+  for (const engine of missingCodes.results) {
+    // Kolize je při 32^6 možnostech nepravděpodobná, ale unikátní index ji odmítne — zkusí se
+    // znovu s jiným kódem. Pět pokusů je víc než dost.
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      try {
+        await d1.prepare("UPDATE engines SET public_code = ? WHERE id = ? AND public_code = ''")
+          .bind(generatePublicCode(), engine.id).run();
+        break;
+      } catch {
+        // obsazený kód — další pokus
+      }
+    }
+  }
 
   // Vyřízení fronty starým servisním záznamem. `service_record_id` míří do `service_records`,
   // takže zápis ze staré karty potřebuje vlastní sloupec — bez něj by v reportu vypadal jako

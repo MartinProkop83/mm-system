@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
  * Mechanik sem po přihlášení spadne rovnou (viz app/page.tsx) a zpět do zbytku aplikace se
  * odsud nedostane; superadmin a vedení mají v rohu odkaz na návrat.
  */
-export default async function ServiceQueuePage() {
+export default async function ServiceQueuePage({ searchParams }: { searchParams: Promise<{ motor?: string }> }) {
+  // `?motor=` sem pošle trvalý odkaz z QR kódu — mechanik skončí rovnou na servisní kartě.
+  const { motor } = await searchParams;
   const authenticatedUser = await getChatGPTUser();
 
   if (process.env.NODE_ENV === "production" && !authenticatedUser) {
@@ -44,5 +46,5 @@ export default async function ServiceQueuePage() {
     );
   }
 
-  return <ServiceQueueScreen locale={appUser.locale} role={appUser.role} userName={appUser.fullName} />;
+  return <ServiceQueueScreen locale={appUser.locale} role={appUser.role} userName={appUser.fullName} initialEngineId={motor ?? ""} />;
 }

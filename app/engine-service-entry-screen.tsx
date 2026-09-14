@@ -15,10 +15,12 @@ type Locale = "cs" | "en";
  * Kategorie, která ještě jede po staré servisní kartě, se tu zapsat nedá — starý formulář je
  * navázaný na dashboard. Místo prázdné obrazovky je tu vysvětlení a cesta zpět.
  */
-export function EngineServiceEntryScreen({ locale, engineId, currentUserName, onDone }: {
+export function EngineServiceEntryScreen({ locale, engineId, currentUserName, openEntry = true, onDone }: {
   locale: Locale;
   engineId: string;
   currentUserName: string;
+  /** `false` u příchodu z QR kódu — otevře se karta, ne rovnou formulář. */
+  openEntry?: boolean;
   onDone: () => void;
 }) {
   const [engine, setEngine] = useState<{ id: string; code: string; family: string } | null>(null);
@@ -74,7 +76,7 @@ export function EngineServiceEntryScreen({ locale, engineId, currentUserName, on
             engine={engine}
             locale={locale}
             currentUserName={currentUserName}
-            openEntryOnMount
+            openEntryOnMount={openEntry}
             onEntryClosed={onDone}
             onSaved={onDone}
             onOpenHours={() => { /* motohodiny se v režimu bez menu neupravují */ }}

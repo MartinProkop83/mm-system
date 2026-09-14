@@ -70,7 +70,7 @@ const MECHANIC_FIELDS: Record<string, { collection: string; fields: string[] }> 
   "/api/engines": {
     collection: "engines",
     fields: [
-      "id", "code", "family", "category", "status", "ignition", "kzGeneration",
+      "id", "publicCode", "code", "family", "category", "status", "ignition", "kzGeneration",
       "currentConfiguration", "upgradeCode", "labelColor",
       "pistonSpec", "cylinderCode", "cylinderUpgrade", "liner", "degree", "timing",
       "carter", "reeds", "spacer", "squish",

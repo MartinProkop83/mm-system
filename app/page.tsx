@@ -5,7 +5,9 @@ import { getAppUser } from "./server-auth";
 
 export const dynamic = "force-dynamic";
 
-export default async function Page() {
+export default async function Page({ searchParams }: { searchParams: Promise<{ motor?: string }> }) {
+  // `?motor=` sem pošle trvalý odkaz z QR kódu (viz app/m/[code]/page.tsx).
+  const { motor } = await searchParams;
   const authenticatedUser = await getChatGPTUser();
 
   if (process.env.NODE_ENV === "production" && !authenticatedUser) {
@@ -40,7 +42,7 @@ export default async function Page() {
 
   // Mechanik má jako domovskou obrazovku frontu na servis — bez bočního menu a bez zbytku
   // aplikace. Rozhoduje se na serveru, aby se sem nedalo dostat ani přímým zadáním adresy.
-  if (appUser.role === "mechanic") redirect("/servis-fronta");
+  if (appUser.role === "mechanic") redirect(motor ? `/servis-fronta?motor=${encodeURIComponent(motor)}` : "/servis-fronta");
 
-  return <MMDashboard />;
+  return <MMDashboard initialEngineId={motor ?? ""} />;
 }
