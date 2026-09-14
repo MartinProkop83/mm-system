@@ -919,6 +919,40 @@ async function createRuntimeSchema() {
         updated_at INTEGER NOT NULL
       )
     `),
+    // Číselník typů dokumentů u motoru — správcovský, ne natvrdo v kódu, aby šel v Nastavení
+    // rozšířit o další typ bez zásahu do kódu. `hand_over_to_buyer` je jen příznak; samotné
+    // předávání dokumentů kupci je zatím druhý, neimplementovaný krok — bez něj se chová
+    // u prodaného motoru úplně stejně jako u jakéhokoli jiného.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_document_types (
+        id TEXT PRIMARY KEY NOT NULL,
+        code TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        hand_over_to_buyer INTEGER NOT NULL DEFAULT 0,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Dokumenty motoru: faktura, homologace, fotodokumentace a podobně. Binárka jde do R2
+    // (`getAssetsBucket()`), tady jen metadata — stejný vzor jako `travel_attachments`.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS engine_documents (
+        id TEXT PRIMARY KEY NOT NULL,
+        engine_id TEXT NOT NULL,
+        document_type_id TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        object_key TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        note TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS travel_attachments (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1108,6 +1142,8 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS race_flights_race_idx ON race_flights (race_id, departure_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_car_rentals_race_idx ON race_car_rentals (race_id, pickup_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS travel_attachments_entity_idx ON travel_attachments (entity_type, entity_id, created_at)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_document_types_code_unique_idx ON engine_document_types (code)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS engine_documents_engine_idx ON engine_documents (engine_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS races_start_date_idx ON races (start_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sales_date_idx ON sales (sale_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sale_items_sale_idx ON sale_items (sale_id)"),
@@ -1557,7 +1593,32 @@ async function createRuntimeSchema() {
 
   await ensureMiniServicePartCatalogSeed(d1);
   await ensureServiceCardSeed(d1);
+  await ensureEngineDocumentTypesSeed(d1);
   // Přenos staré historie se ZÁMĚRNĚ nespouští automaticky — viz migrateLegacyServiceEntries.
+}
+
+/** Výchozí sada typů dokumentů u motoru — spravovatelná dál v Nastavení, tohle jen nastartuje. */
+const ENGINE_DOCUMENT_TYPE_SEED: Array<{ code: string; nameCs: string; nameEn: string; handOverToBuyer: boolean }> = [
+  { code: "invoice", nameCs: "Faktura", nameEn: "Invoice", handOverToBuyer: false },
+  { code: "delivery_note", nameCs: "Dodací list", nameEn: "Delivery note", handOverToBuyer: false },
+  { code: "purchase_contract", nameCs: "Kupní smlouva", nameEn: "Purchase contract", handOverToBuyer: false },
+  { code: "homologation", nameCs: "Homologace", nameEn: "Homologation", handOverToBuyer: true },
+  { code: "photo_documentation", nameCs: "Fotodokumentace", nameEn: "Photo documentation", handOverToBuyer: true },
+  { code: "measurement_protocol", nameCs: "Protokol o měření", nameEn: "Measurement protocol", handOverToBuyer: true },
+  { code: "warranty", nameCs: "Záruka a reklamace", nameEn: "Warranty and claims", handOverToBuyer: false },
+  { code: "other", nameCs: "Ostatní", nameEn: "Other", handOverToBuyer: false },
+];
+
+async function ensureEngineDocumentTypesSeed(d1: ReturnType<typeof getD1>) {
+  const count = await d1.prepare("SELECT COUNT(*) AS count FROM engine_document_types").first<{ count: number }>();
+  if ((count?.count ?? 0) > 0) return;
+  const now = Date.now();
+  await d1.batch(ENGINE_DOCUMENT_TYPE_SEED.map((type, index) =>
+    d1.prepare(`
+      INSERT INTO engine_document_types (id, code, name_cs, name_en, hand_over_to_buyer, sort_order, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'system', ?, ?)
+    `).bind(crypto.randomUUID(), type.code, type.nameCs, type.nameEn, type.handOverToBuyer ? 1 : 0, (index + 1) * SORT_STEP, now, now)
+  ));
 }
 
 /** Engine categories, keyed by the `engines.family` code already used everywhere else. */

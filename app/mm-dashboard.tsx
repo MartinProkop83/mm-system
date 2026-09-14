@@ -24,6 +24,7 @@ import { EngineServiceCard } from "./engine-service-card";
 import { EngineTimeline } from "./engine-timeline";
 import { ServiceHistoryPage } from "./service-history-page";
 import { EngineQrPanel } from "./engine-qr-panel";
+import { EngineDocumentsPanel } from "./engine-documents-panel";
 import { QrSheetPage } from "./qr-sheet-page";
 
 type Locale = "cs" | "en";
@@ -1961,12 +1962,7 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
         />
       )}
 
-      {tab === "documents" && (
-        <section className="dash-panel tab-panel">
-          <div className="tab-panel-header"><div><span className="eyebrow">FILES</span><h2>{t.documentsTab}</h2><p>{locale === "cs" ? "Karta motoru, fotografie, protokoly a další dokumenty." : "Engine card, photos, reports and other documents."}</p></div></div>
-          <div className="empty-inline"><strong>{locale === "cs" ? "Zatím žádné dokumenty" : "No documents yet"}</strong><p>{locale === "cs" ? "Nahrávání fotografií a PDF zapojíme později přes bezpečné úložiště." : "Photo and PDF uploads will be connected to secure storage later."}</p></div>
-        </section>
-      )}
+      {tab === "documents" && <EngineDocumentsPanel engineId={engine.id} locale={locale} canManage={canManage} />}
 
       {/* QR štítek motoru. Zatím ukazuje obě varianty kódu vedle sebe, ať jde porovnat,
           která se v dílně skenuje líp. */}

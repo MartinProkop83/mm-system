@@ -639,6 +639,39 @@ export const raceCarRentals = sqliteTable("race_car_rentals", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+/** Číselník typů dokumentů u motoru — spravovatelný v Nastavení. `handOverToBuyer` je zatím
+ *  jen příznak; samotné předávání dokumentů kupci je neimplementovaný druhý krok. */
+export const engineDocumentTypes = sqliteTable("engine_document_types", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  handOverToBuyer: integer("hand_over_to_buyer", { mode: "boolean" }).notNull().default(false),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("engine_document_types_code_unique_idx").on(table.code),
+]);
+
+/** Dokumenty motoru — binárka v R2, tady jen metadata. Stejný vzor jako `travelAttachments`. */
+export const engineDocuments = sqliteTable("engine_documents", {
+  id: text("id").primaryKey(),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  documentTypeId: text("document_type_id").notNull().references(() => engineDocumentTypes.id),
+  fileName: text("file_name").notNull(),
+  objectKey: text("object_key").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("engine_documents_engine_idx").on(table.engineId, table.createdAt),
+]);
+
 export const travelAttachments = sqliteTable("travel_attachments", {
   id: text("id").primaryKey(),
   entityType: text("entity_type", { enum: ["accommodation", "flight", "rental"] }).notNull(),
