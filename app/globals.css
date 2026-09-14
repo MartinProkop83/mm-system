@@ -4273,3 +4273,56 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .settings-checkbox-row { display: flex; align-items: center; gap: var(--wrc-space-8); margin-top: var(--wrc-space-8); }
 .settings-checkbox-row input { width: 18px; height: 18px; }
 .settings-checkbox-row span { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
+
+/* ——— Nastavení: číselníky zakázkového servisu ——— */
+
+/* Kód položky ceníku a typu motoru — krátký identifikátor, ať jde v tabulce rychle najít. */
+.settings-code {
+  display: inline-block;
+  padding: var(--wrc-space-2) var(--wrc-space-6);
+  border-radius: var(--wrc-radius-xs);
+  background: var(--wrc-surface-3);
+  color: var(--wrc-ink);
+  font-size: var(--wrc-text-sm);
+  font-weight: var(--wrc-weight-bold);
+  letter-spacing: .02em;
+  white-space: nowrap;
+}
+
+/* Ceny doprava, ať jdou řády pod sebou porovnat. */
+.settings-table .price-cell {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.price-list-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--wrc-space-8);
+  margin-bottom: var(--wrc-space-12);
+}
+
+.price-list-filter > span {
+  font-size: var(--wrc-text-sm);
+  font-weight: var(--wrc-weight-semibold);
+  color: var(--wrc-ink-soft);
+}
+
+.price-list-filter select {
+  width: auto;
+  min-width: 180px;
+}
+
+@media (max-width: 600px) {
+  .price-list-filter {
+    align-items: stretch;
+    flex-direction: column;
+    gap: var(--wrc-space-4);
+  }
+
+  .price-list-filter select {
+    min-width: 0;
+    width: 100%;
+  }
+}

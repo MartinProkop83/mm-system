@@ -496,3 +496,102 @@ test("routy povolené mechanikovi vracejí data přes auth.json", async () => {
     );
   }
 });
+
+/**
+ * Zákaznický motor nepatří mezi naše motory.
+ *
+ * Naše motory se přiřazují na závody, mají servisní kartu s dlaždicemi a figurují v sekci
+ * Motory. Zákaznický motor nic z toho nemá a mít nesmí — jediná pojistka je, že žije ve
+ * vlastní tabulce `customer_engines` a do `engines` nikdy nespadne. Tenhle test hlídá, aby
+ * se ty dva světy někdo příště nepokusil propojit.
+ */
+test("customer engines stay out of races and out of the engine section", async () => {
+  const { readdir } = await import("node:fs/promises");
+  const appDir = new URL("../app/", import.meta.url);
+
+  const mentionsCustomerEngine = (source) => /customer_engines|customerEngines/.test(source);
+
+  // 1. Routy, které pracují se závody, prodejem, zápůjčkami nebo sekcí Motory, o zákaznickém
+  //    motoru nesmí vědět vůbec. Kdyby se sem dostal, šel by přiřadit na závod nebo prodat.
+  const forbidden = [
+    "api/engines/route.ts",
+    "api/engine-records/route.ts",
+    "api/engine-loans/route.ts",
+    "api/engine-timeline/route.ts",
+    "api/races/route.ts",
+    "api/race-planning/route.ts",
+    "api/race-mode/route.ts",
+    "api/service-queue/route.ts",
+    "api/service-records/route.ts",
+    "api/sales/route.ts",
+    "mm-dashboard.tsx",
+  ];
+  for (const relative of forbidden) {
+    const source = await readFile(new URL(relative, appDir), "utf8");
+    assert.equal(
+      mentionsCustomerEngine(source),
+      false,
+      `app/${relative} nesmí sahat na zákaznické motory — ty do závodů ani do sekce Motory nepatří.`,
+    );
+  }
+
+  // 2. Pravidlo místo seznamu: zákaznické motory smí číst jen soubory, které je mají v názvu.
+  //    Nová routa, která je bude potřebovat, se musí jmenovat podle toho — a nikdo je omylem
+  //    nepřimíchá do routy o závodech.
+  const allowedName = /(service-order|customer-engine|customer-service)/;
+  const entries = await readdir(appDir, { recursive: true });
+  const offenders = [];
+  for (const entry of entries) {
+    if (!/\.(ts|tsx)$/.test(entry) || allowedName.test(entry)) continue;
+    const source = await readFile(new URL(entry, appDir), "utf8");
+    if (mentionsCustomerEngine(source)) offenders.push(entry);
+  }
+  assert.deepEqual(offenders, [], `Tyhle soubory sahají na zákaznické motory, aniž by k tomu byly určené: ${offenders.join(", ")}`);
+
+  // 3. Ve schématu jsou to dvě oddělené tabulky a zákaznický motor se váže na zákazníka,
+  //    ne na `engines`.
+  const runtimeSchema = await readFile(runtimeSchemaUrl, "utf8");
+  assert.match(runtimeSchema, /CREATE TABLE IF NOT EXISTS customer_engines/);
+  assert.match(runtimeSchema, /CREATE TABLE IF NOT EXISTS service_order_engines/);
+  assert.match(runtimeSchema, /customer_id TEXT NOT NULL,\s+code TEXT NOT NULL,\s+service_engine_type_id TEXT NOT NULL/);
+
+  const schema = await readFile(schemaUrl, "utf8");
+  assert.match(schema, /export const customerEngines = sqliteTable\("customer_engines"/);
+  // Zákaznický motor míří na zákazníka a na vlastní číselník typů, nikdy na `engines`.
+  const customerEngineBlock = schema.slice(schema.indexOf('export const customerEngines'), schema.indexOf('export const serviceOrders'));
+  assert.match(customerEngineBlock, /references\(\(\) => customers\.id\)/);
+  assert.match(customerEngineBlock, /references\(\(\) => serviceEngineTypes\.id\)/);
+  assert.equal(/references\(\(\) => engines\.id\)/.test(customerEngineBlock), false);
+});
+
+/** Číselníky zakázkového servisu: vlastní typy motorů a ceník prací v obou měnách. */
+test("service order catalogs live in settings with prices in both currencies", async () => {
+  const [engineTypesRoute, priceRoute, engineTypesPage, pricePage, settingsPage, runtimeSchema] = await Promise.all([
+    readFile(new URL("../app/api/service-engine-types/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/service-price-items/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/settings-service-engine-types.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/settings-price-list.tsx", import.meta.url), "utf8"),
+    readFile(settingsPageUrl, "utf8"),
+    readFile(runtimeSchemaUrl, "utf8"),
+  ]);
+
+  // Číselníky mění jen superadmin, čtou je i ostatní role.
+  assert.match(engineTypesRoute, /auth\.user\.role !== "superadmin"/);
+  assert.match(priceRoute, /auth\.user\.role !== "superadmin"/);
+  // Deaktivace místo mazání — staré zakázky položku dál potřebují.
+  assert.match(priceRoute, /UPDATE service_price_items SET archived_at/);
+  assert.match(engineTypesRoute, /UPDATE service_engine_types SET archived_at/);
+  assert.equal(/DELETE FROM service_price_items/.test(priceRoute), false);
+  assert.equal(/DELETE FROM service_engine_types/.test(engineTypesRoute), false);
+
+  // Obě měny natvrdo, žádný přepočet kurzem.
+  assert.match(runtimeSchema, /price_czk_cents INTEGER NOT NULL DEFAULT 0,\s+price_eur_cents INTEGER NOT NULL DEFAULT 0/);
+  assert.match(pricePage, /priceCzkCents: toCents\(priceCzk\), priceEurCents: toCents\(priceEur\)/);
+  assert.match(pricePage, /bez DPH/);
+
+  // Obě sekce jsou v Nastavení a dají se přetahovat.
+  assert.match(settingsPage, /serviceEngineTypes: "Typy motorů pro servis"/);
+  assert.match(settingsPage, /priceList: "Ceník prací"/);
+  assert.match(engineTypesPage, /api\("PUT", \{ order:/);
+  assert.match(pricePage, /api\("PUT", \{ order:/);
+});

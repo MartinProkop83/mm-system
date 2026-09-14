@@ -732,11 +732,206 @@ export const customers = sqliteTable("customers", {
   companyId: text("company_id").notNull().default(""),
   vatId: text("vat_id").notNull().default(""),
   notes: text("notes").notNull().default(""),
+  discountWorkPercent: integer("discount_work_percent").notNull().default(0),
+  discountMaterialPercent: integer("discount_material_percent").notNull().default(0),
+  countryCode: text("country_code").notNull().default(""),
   archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/**
+ * Zakázkový servis pro zákazníky.
+ *
+ * Zákaznický motor má vlastní tabulku a do `engines` nepatří — naše motory se přiřazují
+ * na závody a mají servisní kartu, zákaznický nic z toho nemá a mít nesmí.
+ */
+export const serviceEngineTypes = sqliteTable("service_engine_types", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("service_engine_types_code_unique_idx").on(table.code),
+]);
+
+export const servicePriceItems = sqliteTable("service_price_items", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull(),
+  nameCs: text("name_cs").notNull(),
+  nameEn: text("name_en").notNull(),
+  materialIncludedCs: text("material_included_cs").notNull().default(""),
+  materialIncludedEn: text("material_included_en").notNull().default(""),
+  priceCzkCents: integer("price_czk_cents").notNull().default(0),
+  priceEurCents: integer("price_eur_cents").notNull().default(0),
+  groupName: text("group_name").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("service_price_items_code_unique_idx").on(table.code),
+  index("service_price_items_group_idx").on(table.groupName, table.sortOrder),
+]);
+
+export const customerEngines = sqliteTable("customer_engines", {
+  id: text("id").primaryKey(),
+  customerId: text("customer_id").notNull().references(() => customers.id),
+  code: text("code").notNull(),
+  serviceEngineTypeId: text("service_engine_type_id").notNull().references(() => serviceEngineTypes.id),
+  note: text("note").notNull().default(""),
+  archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("customer_engines_code_unique_idx").on(table.code),
+  index("customer_engines_customer_idx").on(table.customerId, table.code),
+]);
+
+export const serviceOrders = sqliteTable("service_orders", {
+  id: text("id").primaryKey(),
+  number: text("number").notNull(),
+  customerId: text("customer_id").notNull().references(() => customers.id),
+  currency: text("currency", { enum: ["CZK", "EUR"] }).notNull().default("CZK"),
+  discountWorkPercent: integer("discount_work_percent").notNull().default(0),
+  discountMaterialPercent: integer("discount_material_percent").notNull().default(0),
+  receivedAt: text("received_at").notNull(),
+  deadlineDate: text("deadline_date").notNull().default(""),
+  deadlineNote: text("deadline_note").notNull().default(""),
+  customerNote: text("customer_note").notNull().default(""),
+  internalNote: text("internal_note").notNull().default(""),
+  handoverType: text("handover_type", { enum: ["personal", "carrier", "race"] }).notNull().default("personal"),
+  carrier: text("carrier").notNull().default(""),
+  trackingNumber: text("tracking_number").notNull().default(""),
+  shippingPriceCzkCents: integer("shipping_price_czk_cents").notNull().default(0),
+  shippingPriceEurCents: integer("shipping_price_eur_cents").notNull().default(0),
+  shippedAt: text("shipped_at").notNull().default(""),
+  invoicedAt: integer("invoiced_at", { mode: "timestamp_ms" }),
+  unlockedAt: integer("unlocked_at", { mode: "timestamp_ms" }),
+  unlockedBy: text("unlocked_by").notNull().default(""),
+  cancelledAt: integer("cancelled_at", { mode: "timestamp_ms" }),
+  cancelledBy: text("cancelled_by").notNull().default(""),
+  cancelledReason: text("cancelled_reason").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("service_orders_number_unique_idx").on(table.number),
+  index("service_orders_customer_idx").on(table.customerId, table.receivedAt),
+]);
+
+export const serviceOrderEngines = sqliteTable("service_order_engines", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull().references(() => serviceOrders.id),
+  customerEngineId: text("customer_engine_id").notNull().references(() => customerEngines.id),
+  engineMinutes: integer("engine_minutes"),
+  scope: text("scope").notNull().default(""),
+  carbService: integer("carb_service", { mode: "boolean" }).notNull().default(false),
+  customerParts: integer("customer_parts", { mode: "boolean" }).notNull().default(false),
+  customerPartsText: text("customer_parts_text").notNull().default(""),
+  status: text("status", { enum: ["received", "in_progress", "waiting_part", "done", "checked", "handed_over"] }).notNull().default("received"),
+  takenBy: text("taken_by").notNull().default(""),
+  takenByName: text("taken_by_name").notNull().default(""),
+  takenAt: integer("taken_at", { mode: "timestamp_ms" }),
+  completedBy: text("completed_by").notNull().default(""),
+  completedByName: text("completed_by_name").notNull().default(""),
+  completedAt: integer("completed_at", { mode: "timestamp_ms" }),
+  checkedBy: text("checked_by").notNull().default(""),
+  checkedAt: integer("checked_at", { mode: "timestamp_ms" }),
+  handedOverAt: integer("handed_over_at", { mode: "timestamp_ms" }),
+  reopenedAt: integer("reopened_at", { mode: "timestamp_ms" }),
+  reopenedBy: text("reopened_by").notNull().default(""),
+  reopenReason: text("reopen_reason").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_order_engines_order_idx").on(table.orderId, table.sortOrder),
+  index("service_order_engines_status_idx").on(table.status),
+  index("service_order_engines_engine_idx").on(table.customerEngineId),
+]);
+
+export const serviceOrderWorks = sqliteTable("service_order_works", {
+  id: text("id").primaryKey(),
+  orderEngineId: text("order_engine_id").notNull().references(() => serviceOrderEngines.id),
+  priceItemId: text("price_item_id").references(() => servicePriceItems.id),
+  codeSnapshot: text("code_snapshot").notNull().default(""),
+  nameCsSnapshot: text("name_cs_snapshot").notNull(),
+  nameEnSnapshot: text("name_en_snapshot").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPriceCzkCents: integer("unit_price_czk_cents").notNull().default(0),
+  unitPriceEurCents: integer("unit_price_eur_cents").notNull().default(0),
+  discountPercent: integer("discount_percent").notNull().default(0),
+  totalCzkCents: integer("total_czk_cents").notNull().default(0),
+  totalEurCents: integer("total_eur_cents").notNull().default(0),
+  createdBy: text("created_by").notNull(),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_order_works_engine_idx").on(table.orderEngineId),
+]);
+
+export const serviceOrderMaterials = sqliteTable("service_order_materials", {
+  id: text("id").primaryKey(),
+  orderEngineId: text("order_engine_id").notNull().references(() => serviceOrderEngines.id),
+  inventoryPartId: text("inventory_part_id").references(() => inventoryParts.id),
+  code: text("code").notNull().default(""),
+  name: text("name").notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  unitPriceCzkCents: integer("unit_price_czk_cents").notNull().default(0),
+  unitPriceEurCents: integer("unit_price_eur_cents").notNull().default(0),
+  discountPercent: integer("discount_percent").notNull().default(0),
+  totalCzkCents: integer("total_czk_cents").notNull().default(0),
+  totalEurCents: integer("total_eur_cents").notNull().default(0),
+  source: text("source", { enum: ["stock", "customer"] }).notNull().default("stock"),
+  createdBy: text("created_by").notNull(),
+  createdByName: text("created_by_name").notNull().default(""),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_order_materials_engine_idx").on(table.orderEngineId),
+]);
+
+export const serviceOrderWaitingParts = sqliteTable("service_order_waiting_parts", {
+  id: text("id").primaryKey(),
+  orderEngineId: text("order_engine_id").notNull().references(() => serviceOrderEngines.id),
+  code: text("code").notNull().default(""),
+  name: text("name").notNull(),
+  priceCzkCents: integer("price_czk_cents").notNull().default(0),
+  priceEurCents: integer("price_eur_cents").notNull().default(0),
+  expectedDate: text("expected_date").notNull().default(""),
+  isOrdered: integer("is_ordered", { mode: "boolean" }).notNull().default(false),
+  arrivedAt: integer("arrived_at", { mode: "timestamp_ms" }),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_order_waiting_parts_engine_idx").on(table.orderEngineId),
+]);
+
+export const serviceOrderPhotos = sqliteTable("service_order_photos", {
+  id: text("id").primaryKey(),
+  orderId: text("order_id").notNull().references(() => serviceOrders.id),
+  orderEngineId: text("order_engine_id").references(() => serviceOrderEngines.id),
+  fileName: text("file_name").notNull(),
+  objectKey: text("object_key").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  note: text("note").notNull().default(""),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("service_order_photos_order_idx").on(table.orderId, table.createdAt),
+]);
 
 export const serviceCatalog = sqliteTable("service_catalog", {
   id: text("id").primaryKey(),

@@ -1086,6 +1086,211 @@ async function createRuntimeSchema() {
         line_total_cents INTEGER NOT NULL DEFAULT 0
       )
     `),
+    // ——— Zakázkový servis pro zákazníky ———
+    //
+    // Zákaznické motory ZÁMĚRNĚ nejsou v `engines`. Naše motory se přiřazují na závody a do
+    // servisní karty s dlaždicemi; zákaznický motor nic z toho nemá a nikdy mít nesmí. Vlastní
+    // tabulka je jediná pojistka, která to drží — proto se `customer_engines` nesmí objevit
+    // v žádné routě, která pracuje se závody nebo se sekcí Motory (hlídá to test v tests/).
+    //
+    // Peníze všude jako `*_czk_cents` / `*_eur_cents` (celé koruny a eura se zadávají v UI),
+    // slevy jako celá procenta 0–100.
+
+    // Typy motorů pro servis. Vlastní číselník, nezávislý na `engine_categories` — budou v něm
+    // i motokros a věci, které v našich kategoriích nejsou. Neseeduje se, plní se v Nastavení.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_engine_types (
+        id TEXT PRIMARY KEY NOT NULL,
+        code TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Ceník prací. Ceny jsou bez DPH a v obou měnách natvrdo — kurzem se nikdy nepřepočítávají.
+    // `group_name` je volný text (v UI s našeptávačem z už použitých skupin), ne číselník.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_price_items (
+        id TEXT PRIMARY KEY NOT NULL,
+        code TEXT NOT NULL,
+        name_cs TEXT NOT NULL,
+        name_en TEXT NOT NULL,
+        material_included_cs TEXT NOT NULL DEFAULT '',
+        material_included_en TEXT NOT NULL DEFAULT '',
+        price_czk_cents INTEGER NOT NULL DEFAULT 0,
+        price_eur_cents INTEGER NOT NULL DEFAULT 0,
+        group_name TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Zákaznický motor. Zůstává v systému napořád, i po vydání — při další návštěvě se na něj
+    // naváže historie. `archived_at` je jen ruční východisko pro překlep ve výrobním čísle,
+    // nic ho nenastavuje automaticky.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS customer_engines (
+        id TEXT PRIMARY KEY NOT NULL,
+        customer_id TEXT NOT NULL,
+        code TEXT NOT NULL,
+        service_engine_type_id TEXT NOT NULL,
+        note TEXT NOT NULL DEFAULT '',
+        archived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Zakázka. `number` je ve tvaru SERVIS_26-001 a pořadí se každý leden vrací na 001.
+    // Doprava je vedená na zakázce jako „poslední zásilka“ — u částečného odeslání se rozdíl
+    // dopisuje do poznámky, po motorech se nerozpadá.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_orders (
+        id TEXT PRIMARY KEY NOT NULL,
+        number TEXT NOT NULL,
+        customer_id TEXT NOT NULL,
+        currency TEXT NOT NULL DEFAULT 'CZK' CHECK (currency IN ('CZK', 'EUR')),
+        discount_work_percent INTEGER NOT NULL DEFAULT 0,
+        discount_material_percent INTEGER NOT NULL DEFAULT 0,
+        received_at TEXT NOT NULL,
+        deadline_date TEXT NOT NULL DEFAULT '',
+        deadline_note TEXT NOT NULL DEFAULT '',
+        customer_note TEXT NOT NULL DEFAULT '',
+        internal_note TEXT NOT NULL DEFAULT '',
+        handover_type TEXT NOT NULL DEFAULT 'personal' CHECK (handover_type IN ('personal', 'carrier', 'race')),
+        carrier TEXT NOT NULL DEFAULT '',
+        tracking_number TEXT NOT NULL DEFAULT '',
+        shipping_price_czk_cents INTEGER NOT NULL DEFAULT 0,
+        shipping_price_eur_cents INTEGER NOT NULL DEFAULT 0,
+        shipped_at TEXT NOT NULL DEFAULT '',
+        invoiced_at INTEGER,
+        unlocked_at INTEGER,
+        unlocked_by TEXT NOT NULL DEFAULT '',
+        cancelled_at INTEGER,
+        cancelled_by TEXT NOT NULL DEFAULT '',
+        cancelled_reason TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Motor na zakázce. Stav je na motoru, ne na zakázce — tři můžou být hotové a tři čekat
+    // na díl. `taken_by*` zastupuje zabrání z naší fronty: zákaznický motor nemá řádek
+    // v `engine_service_claims`, protože ten sloupec `engine_id` míří do `engines`.
+    // `engine_minutes` jsou motohodiny při příjmu (NULL = nezadané), v UI se píšou jako HH:MM.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_order_engines (
+        id TEXT PRIMARY KEY NOT NULL,
+        order_id TEXT NOT NULL,
+        customer_engine_id TEXT NOT NULL,
+        engine_minutes INTEGER,
+        scope TEXT NOT NULL DEFAULT '',
+        carb_service INTEGER NOT NULL DEFAULT 0,
+        customer_parts INTEGER NOT NULL DEFAULT 0,
+        customer_parts_text TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'received' CHECK (status IN ('received', 'in_progress', 'waiting_part', 'done', 'checked', 'handed_over')),
+        taken_by TEXT NOT NULL DEFAULT '',
+        taken_by_name TEXT NOT NULL DEFAULT '',
+        taken_at INTEGER,
+        completed_by TEXT NOT NULL DEFAULT '',
+        completed_by_name TEXT NOT NULL DEFAULT '',
+        completed_at INTEGER,
+        checked_by TEXT NOT NULL DEFAULT '',
+        checked_at INTEGER,
+        handed_over_at INTEGER,
+        reopened_at INTEGER,
+        reopened_by TEXT NOT NULL DEFAULT '',
+        reopen_reason TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Provedené práce. Kód, název i obě ceny se snapshotují při zápisu — pozdější úprava
+    // ceníku nikdy nepřepíše, co bylo na zakázce účtováno.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_order_works (
+        id TEXT PRIMARY KEY NOT NULL,
+        order_engine_id TEXT NOT NULL,
+        price_item_id TEXT,
+        code_snapshot TEXT NOT NULL DEFAULT '',
+        name_cs_snapshot TEXT NOT NULL,
+        name_en_snapshot TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        unit_price_czk_cents INTEGER NOT NULL DEFAULT 0,
+        unit_price_eur_cents INTEGER NOT NULL DEFAULT 0,
+        discount_percent INTEGER NOT NULL DEFAULT 0,
+        total_czk_cents INTEGER NOT NULL DEFAULT 0,
+        total_eur_cents INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        created_by_name TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Použitý materiál. `source = 'customer'` je díl, který přivezl zákazník — účtuje se nulou,
+    // ale v seznamu zůstává, ať je doložené, co se do motoru dalo.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_order_materials (
+        id TEXT PRIMARY KEY NOT NULL,
+        order_engine_id TEXT NOT NULL,
+        inventory_part_id TEXT,
+        code TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        quantity INTEGER NOT NULL DEFAULT 1,
+        unit_price_czk_cents INTEGER NOT NULL DEFAULT 0,
+        unit_price_eur_cents INTEGER NOT NULL DEFAULT 0,
+        discount_percent INTEGER NOT NULL DEFAULT 0,
+        total_czk_cents INTEGER NOT NULL DEFAULT 0,
+        total_eur_cents INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'stock' CHECK (source IN ('stock', 'customer')),
+        created_by TEXT NOT NULL,
+        created_by_name TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Čekání na díl. `is_ordered` odlišuje „čekáme na díl“ od „díl je objednaný, přijde ve
+    // čtvrtek“ — jsou to dvě různé situace. `arrived_at` vrací motor jedním kliknutím do práce.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_order_waiting_parts (
+        id TEXT PRIMARY KEY NOT NULL,
+        order_engine_id TEXT NOT NULL,
+        code TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        price_czk_cents INTEGER NOT NULL DEFAULT 0,
+        price_eur_cents INTEGER NOT NULL DEFAULT 0,
+        expected_date TEXT NOT NULL DEFAULT '',
+        is_ordered INTEGER NOT NULL DEFAULT 0,
+        arrived_at INTEGER,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    // Fotky při příjmu. Binárka do R2, tady jen metadata — stejný vzor jako `engine_documents`.
+    // `order_engine_id` je nepovinné: u zakázky na šest motorů se fotka váže ke konkrétnímu
+    // kusu, jinak zůstává u zakázky jako celku.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_order_photos (
+        id TEXT PRIMARY KEY NOT NULL,
+        order_id TEXT NOT NULL,
+        order_engine_id TEXT,
+        file_name TEXT NOT NULL,
+        object_key TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        note TEXT NOT NULL DEFAULT '',
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS checklists (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1144,6 +1349,20 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS travel_attachments_entity_idx ON travel_attachments (entity_type, entity_id, created_at)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_document_types_code_unique_idx ON engine_document_types (code)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_documents_engine_idx ON engine_documents (engine_id, created_at)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_engine_types_code_unique_idx ON service_engine_types (code) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_price_items_code_unique_idx ON service_price_items (code) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_price_items_group_idx ON service_price_items (group_name, sort_order)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS customer_engines_code_unique_idx ON customer_engines (code) WHERE archived_at IS NULL"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS customer_engines_customer_idx ON customer_engines (customer_id, code)"),
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_orders_number_unique_idx ON service_orders (number)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_orders_customer_idx ON service_orders (customer_id, received_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_engines_order_idx ON service_order_engines (order_id, sort_order)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_engines_status_idx ON service_order_engines (status)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_engines_engine_idx ON service_order_engines (customer_engine_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_works_engine_idx ON service_order_works (order_engine_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_materials_engine_idx ON service_order_materials (order_engine_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_waiting_parts_engine_idx ON service_order_waiting_parts (order_engine_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS service_order_photos_order_idx ON service_order_photos (order_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS races_start_date_idx ON races (start_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sales_date_idx ON sales (sale_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sale_items_sale_idx ON sale_items (sale_id)"),
@@ -1589,6 +1808,22 @@ async function createRuntimeSchema() {
   const attributeColumns = await d1.prepare("PRAGMA table_info(material_attributes)").all<{ name: string }>();
   if (!attributeColumns.results.some((column: { name: string }) => column.name === "technical_field_id")) {
     await d1.prepare("ALTER TABLE material_attributes ADD COLUMN technical_field_id TEXT").run();
+  }
+
+  // Zákazník u zakázkového servisu: výchozí slevy na práci a na materiál (celá procenta,
+  // dají se přepsat na zakázce i na jednotlivé položce) a země. Fakturační údaje — IČO, DIČ,
+  // adresa — v tabulce už jsou a zůstávají nepovinné; u zahraničního zákazníka často stačí
+  // telefon a e-mail.
+  const customerColumns = await d1.prepare("PRAGMA table_info(customers)").all<{ name: string }>();
+  const customerAdditions: Array<[string, string]> = [
+    ["discount_work_percent", "ALTER TABLE customers ADD COLUMN discount_work_percent INTEGER NOT NULL DEFAULT 0"],
+    ["discount_material_percent", "ALTER TABLE customers ADD COLUMN discount_material_percent INTEGER NOT NULL DEFAULT 0"],
+    ["country_code", "ALTER TABLE customers ADD COLUMN country_code TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [column, statement] of customerAdditions) {
+    if (!customerColumns.results.some((item: { name: string }) => item.name === column)) {
+      await d1.prepare(statement).run();
+    }
   }
 
   await ensureMiniServicePartCatalogSeed(d1);
