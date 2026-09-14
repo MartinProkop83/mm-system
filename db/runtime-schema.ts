@@ -216,6 +216,24 @@ async function createRuntimeSchema() {
         created_at INTEGER NOT NULL
       )
     `),
+    // Co na závodě reálně jelo. Přiřazení motoru k pilotovi říká jen to, co se naložilo do
+    // dodávky — náhradní motor zůstane celý víkend ve voze a servis nepotřebuje. Tohle je
+    // záznam z place: `raced = 0` znamená „nejel".
+    //
+    // Pravidlo je schválně po kusech, ne po závodě: z fronty vypadne jen motor s výslovným
+    // „nejel". Nedodělané potvrzování na place je pravděpodobné a nesmí ztratit motory,
+    // ke kterým se nikdo nedostal.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS race_engine_runs (
+        id TEXT PRIMARY KEY NOT NULL,
+        race_id TEXT NOT NULL,
+        race_entry_id TEXT NOT NULL,
+        engine_id TEXT NOT NULL,
+        raced INTEGER NOT NULL DEFAULT 1,
+        recorded_by TEXT NOT NULL,
+        recorded_at INTEGER NOT NULL
+      )
+    `),
     // Obecné nastavení aplikace jako klíč/hodnota. Záměrně není pro jednu věc: první je
     // základní adresa pro QR kódy, ale stejným způsobem sem půjde cokoli dalšího, co se
     // nastavuje jednou a platí pro celý systém.
@@ -1125,6 +1143,9 @@ async function createRuntimeSchema() {
     // Na motoru dělá vždycky jeden: částečný unikátní index nedovolí druhé nezavřené zabrání.
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_service_claims_active_idx ON engine_service_claims (engine_id) WHERE released_at IS NULL"),
     d1.prepare("CREATE INDEX IF NOT EXISTS engine_service_claims_engine_idx ON engine_service_claims (engine_id, claimed_at)"),
+    // Jeden motor má na jednom závodě jeden výsledek — dvojí ťuknutí na place nevyrobí dva řádky.
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS race_engine_runs_unique_idx ON race_engine_runs (race_id, engine_id)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS race_engine_runs_race_idx ON race_engine_runs (race_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS service_types_category_idx ON service_types (engine_category_id, sort_order)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_types_category_code_unique_idx ON service_types (engine_category_id, code) WHERE archived_at IS NULL"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS service_type_default_items_unique_idx ON service_type_default_items (service_type_id, service_card_item_id)"),
@@ -1459,6 +1480,13 @@ async function createRuntimeSchema() {
     await d1.prepare("ALTER TABLE service_records ADD COLUMN import_source TEXT NOT NULL DEFAULT ''").run();
   }
   await d1.prepare("CREATE INDEX IF NOT EXISTS service_records_import_source_idx ON service_records (import_source)").run();
+
+  // Předávka zapsaná v RACE MODE může být díl ze skladu. Vazba se drží kvůli vratnosti —
+  // smazání předávky musí kus vrátit na sklad, jinak se stav skladu rozejde s realitou.
+  const deliveryStockColumns = await d1.prepare("PRAGMA table_info(race_deliveries)").all<{ name: string }>();
+  if (!deliveryStockColumns.results.some((column: { name: string }) => column.name === "inventory_part_id")) {
+    await d1.prepare("ALTER TABLE race_deliveries ADD COLUMN inventory_part_id TEXT").run();
+  }
 
   // Krátký identifikátor motoru pro QR štítky (viz app/engine-public-code.ts). Existující
   // motory ho dostanou dodatečně — každý svůj, proto po jednom, ne jedním UPDATE.

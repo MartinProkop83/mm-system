@@ -17,6 +17,7 @@ import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage } from "./commerce-pages";
 import { ServiceQueuePage } from "./service-queue-page";
 import { ChecklistsPage } from "./checklist-pages";
+import Link from "next/link";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
 import { EngineServiceCard } from "./engine-service-card";
@@ -730,10 +731,10 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
           ))}
         </nav>
 
-        <button className="race-mode" type="button" onClick={() => showNotice("Race Mode bude následovat po modulech Motory a Závody.")}>
+        <Link className="race-mode" href="/zavod">
           <span className="live-dot" />
           {t.raceMode}
-        </button>
+        </Link>
 
         <div className="theme-row">
           <div className="theme-toggle">

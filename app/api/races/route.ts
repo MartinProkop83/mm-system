@@ -1,7 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
-import { filterResponseForMechanic } from "../../api-access";
 import { isCountryCode } from "../../countries";
 import { raceLogoUrl } from "../../race-logo";
 import { normalizeRaceCalendarColor } from "../../race-calendar-colors";
@@ -212,7 +211,7 @@ export async function GET(request: Request) {
 
   // Mechanik tenhle endpoint smí, ale jen kvůli názvu a termínu závodu ve frontě na servis —
   // adresy, organizátor a poznámky se mu z odpovědi vyříznou.
-  return Response.json(filterResponseForMechanic(user.role, new URL(request.url).pathname, payload));
+  return auth.json(payload);
 }
 
 export async function POST(request: Request) {

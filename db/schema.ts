@@ -1033,3 +1033,21 @@ export const appSettings = sqliteTable("app_settings", {
   updatedBy: text("updated_by").notNull().default(""),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
+
+/** Co na závodě reálně jelo. Přiřazení motoru k pilotovi říká jen to, co se naložilo do dodávky;
+ *  tohle je záznam z place. `raced: false` znamená „nejel" a takový motor nespadne do servisní
+ *  fronty ani se u MINI nepřepne do přestavby. */
+/** Vazba předávky na skladový díl — kvůli vrácení kusu na sklad při smazání předávky. */
+export const raceDeliveryStockLink = { inventoryPartId: text("inventory_part_id") };
+
+export const raceEngineRuns = sqliteTable("race_engine_runs", {
+  id: text("id").primaryKey(),
+  raceId: text("race_id").notNull().references(() => races.id),
+  raceEntryId: text("race_entry_id").notNull().references(() => raceEntries.id),
+  engineId: text("engine_id").notNull().references(() => engines.id),
+  raced: integer("raced", { mode: "boolean" }).notNull().default(true),
+  recordedBy: text("recorded_by").notNull(),
+  recordedAt: integer("recorded_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("race_engine_runs_unique_idx").on(table.raceId, table.engineId),
+]);

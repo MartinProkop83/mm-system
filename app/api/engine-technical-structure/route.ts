@@ -74,7 +74,7 @@ export async function GET(request: Request) {
 
   const normalizedFields = fields.results.map((field) => ({ ...field, showOnOverview: Boolean(field.showOnOverview) }));
 
-  return Response.json({ layout: layout.results, sections: sections.results, fields: normalizedFields, options: options.results });
+  return auth.json({ layout: layout.results, sections: sections.results, fields: normalizedFields, options: options.results });
 }
 
 /** sort_order po desítkách — stejný krok jako u servisní karty. */

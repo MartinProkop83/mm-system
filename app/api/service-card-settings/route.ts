@@ -129,7 +129,7 @@ export async function GET(request: Request) {
   const categoryId = categories.results.some((category) => category.id === requested)
     ? requested
     : categories.results[0]?.id ?? "";
-  if (!categoryId) return Response.json({ categories: [], categoryId: "", serviceTypes: [], defaultItems: [], cardItems: [], materialCategories: [], materialAttributes: [], materialVariants: [] });
+  if (!categoryId) return auth.json({ categories: [], categoryId: "", serviceTypes: [], defaultItems: [], cardItems: [], materialCategories: [], materialAttributes: [], materialVariants: [] });
 
   const [serviceTypes, cardItems, materialCategories] = await Promise.all([
     d1.prepare(`
@@ -184,7 +184,7 @@ export async function GET(request: Request) {
     ORDER BY s.sort_order, f.sort_order
   `).bind(categoryCode).all();
 
-  return Response.json({
+  return auth.json({
     technicalFields: technicalFields.results,
     categories: categories.results.map((category) => ({ ...category, serviceCardMigrated: Boolean(category.serviceCardMigrated) })),
     categoryId,

@@ -14,6 +14,10 @@ import type { AppRole } from "./server-auth";
 /** Čtení. Zápis je řešený zvlášť — viz `MECHANIC_WRITE`. */
 const MECHANIC_READ = new Set([
   "/api/service-queue",
+  // RACE MODE na place: výběr závodu, piloti a jejich přiřazené motory. Vlastní routa právě
+  // proto, aby mechanik nemusel dostat `/api/race-planning` s organizátorem, logistikou
+  // a obchodním kontextem.
+  "/api/race-mode",
   "/api/service-records",
   // Číselníky, bez kterých nejde zapsat servis: položky karty a katalog materiálu.
   "/api/service-card-settings",
@@ -33,6 +37,8 @@ const MECHANIC_READ = new Set([
 const MECHANIC_WRITE = new Set([
   "/api/service-records",
   "/api/service-queue",
+  // „Jel / nejel" a stav Oppamy zapsaný přímo na place.
+  "/api/race-mode",
 ]);
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
@@ -81,12 +87,94 @@ const MECHANIC_FIELDS: Record<string, { collection: string; fields: string[] }> 
 };
 
 /**
+ * Přísnější varianta whitelistu: popisuje **celou** odpověď, ne jednu kolekci v ní.
+ *
+ * Co tu není vyjmenované, se zahodí — včetně celých větví. Nové pole v dotazu se tak
+ * mechanikovi neprosákne ani tehdy, když ho někdo přidá do SQL a zapomene na oprávnění.
+ */
+type FieldTree = { fields?: string[]; children?: Record<string, FieldTree> };
+
+const MECHANIC_PAYLOADS: Record<string, FieldTree> = {
+  // RACE MODE: název a termín závodu, piloti s kategorií a jejich přiřazené motory. Nic jiného —
+  // žádný organizátor, trať, adresa, poznámky, mechanici, logistika ani obchod.
+  // Časová osa motoru: mechanik vidí, co se s motorem dělo, ale ne kdo to odklikl —
+  // `actor` u systémových a frontových událostí je e-mail interního účtu.
+  "/api/engine-timeline": {
+    children: {
+      engine: { fields: ["id", "code", "family"] },
+      events: { fields: ["id", "kind", "date", "time", "sortAt", "title", "detail", "system", "serviceRecordId", "raceId"] },
+    },
+  },
+  // Fronta na servis je mechanikova vlastní obrazovka; ven jde všechno kromě e-mailu toho,
+  // kdo motor do fronty ručně zařadil.
+  "/api/service-queue": {
+    children: {
+      categories: { fields: ["code", "nameCs", "nameEn", "sortOrder", "serviceCardMigrated"] },
+      engines: { fields: ["id", "code", "family", "inQueue"] },
+      mechanics: { fields: ["id", "name"] },
+      items: {
+        fields: ["engineId", "engineCode", "family", "returnDate", "driverNames", "notes",
+          "serviceCardMigrated", "nextRaceDate", "nextRaceName"],
+        children: {
+          sources: { fields: ["sourceType", "sourceId", "sourceLabel", "returnDate", "driverName", "note"] },
+          claim: { fields: ["id", "byName", "at", "canRelease"] },
+        },
+      },
+    },
+    fields: ["claimNeedsMechanic"],
+  },
+  // Servisní karta motoru. `createdBy` a `cancelledBy` jsou e-maily účtů — mechanik má
+  // u záznamu jméno mechanika, víc nepotřebuje.
+  "/api/service-records": {
+    fields: ["claim", "technicalLinks", "technicalValues", "engine", "category", "serviceTypes",
+      "cardItems", "materialCategories", "materialVariants", "defaultItems", "mechanics"],
+    children: {
+      records: {
+        fields: ["id", "engineId", "serviceTypeId", "serviceTypeSnapshot", "serviceDate", "serviceTime",
+          "counterMinutes", "mechanicId", "mechanicNameSnapshot", "note", "cancelledReason", "cancelledAt",
+          "divergenceNote", "createdAt", "items"],
+      },
+    },
+  },
+  "/api/race-mode": {
+    children: {
+      races: { fields: ["id", "name", "startDate", "endDate", "departureDate", "returnDate", "status"] },
+      race: { fields: ["id", "name", "startDate", "endDate"] },
+      entries: {
+        fields: ["id", "category", "driverName"],
+        children: { engines: { fields: ["engineId", "engineCode", "tracksHours"] } },
+      },
+      engineRuns: { fields: ["engineId", "raced"] },
+    },
+  },
+};
+
+/** Projde hodnotu podle stromu whitelistu; pole, která ve stromu nejsou, vypadnou. */
+function applyFieldTree(value: unknown, tree: FieldTree): unknown {
+  if (Array.isArray(value)) return value.map((item) => applyFieldTree(item, tree));
+  if (!value || typeof value !== "object") return value;
+
+  const source = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const field of tree.fields ?? []) {
+    if (field in source) result[field] = source[field];
+  }
+  for (const [key, child] of Object.entries(tree.children ?? {})) {
+    if (key in source) result[key] = applyFieldTree(source[key], child);
+  }
+  return result;
+}
+
+/**
  * Ořeže odpověď na to, co mechanik smí vidět. Endpointy bez pravidla projdou beze změny —
  * ty, které mechanikovi zůstaly povolené, jsou buď jeho vlastní (fronta, servisní záznamy),
  * nebo číselníky bez obchodních dat.
  */
 export function filterResponseForMechanic(role: AppRole, pathname: string, payload: unknown): unknown {
   if (role !== "mechanic") return payload;
+
+  const shape = MECHANIC_PAYLOADS[routeKey(pathname)];
+  if (shape) return applyFieldTree(payload, shape);
 
   const rule = MECHANIC_FIELDS[routeKey(pathname)];
   if (!rule || !payload || typeof payload !== "object") return payload;

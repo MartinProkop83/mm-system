@@ -1,7 +1,7 @@
 import { getD1 } from "../db";
 import { ensureRuntimeSchema } from "../db/runtime-schema";
 import { getChatGPTUser } from "./chatgpt-auth";
-import { isApiAccessAllowed } from "./api-access";
+import { isApiAccessAllowed, filterResponseForMechanic } from "./api-access";
 import { cookies } from "next/headers";
 
 export type AppRole = "superadmin" | "boss" | "mechanic";
@@ -135,8 +135,13 @@ function mapUser(row: UserRow): AppUser {
  * routy místo holého `getAppUser()`. Mechanik dostane 403 na všem, co není výslovně povolené;
  * ostatní role projdou a případná další omezení si routa řeší sama.
  *
- * Vrací buď `{ user }`, nebo `{ error }` s hotovou odpovědí — stejný tvar, jaký už používají
- * `requireSuperadmin()` helpery v jednotlivých routách.
+ * Vrací buď `{ user, json }`, nebo `{ error }` s hotovou odpovědí — stejný tvar, jaký už
+ * používají `requireSuperadmin()` helpery v jednotlivých routách.
+ *
+ * **`json()` je jediný správný způsob, jak z routy vrátit data.** Ořezání odpovědi podle role
+ * je v něm zabudované, takže routa na něj nemůže zapomenout tím, že ho prostě nezavolá —
+ * dřív se filtr volal ručně a nová routa ho tiše přeskočila. Chybové odpovědi (`{ error }`)
+ * přes něj chodit nemusí, ty žádná data nenesou.
  */
 export async function getApiUser(request: Request) {
   const user = await getAppUser();
@@ -146,5 +151,9 @@ export async function getApiUser(request: Request) {
   if (!isApiAccessAllowed(user.role, pathname, request.method)) {
     return { error: Response.json({ error: "Forbidden" }, { status: 403 }) } as const;
   }
-  return { user } as const;
+  return {
+    user,
+    json: (payload: unknown, init?: ResponseInit) =>
+      Response.json(filterResponseForMechanic(user.role, pathname, payload), init),
+  } as const;
 }

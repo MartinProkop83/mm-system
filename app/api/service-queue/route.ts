@@ -94,6 +94,11 @@ async function loadQueue(d1: ReturnType<typeof getD1>): Promise<QueueRow[]> {
       AND r.end_date < date('now')
       AND eng.archived_at IS NULL
       AND eng.sold_at IS NULL
+      -- Motor označený na place jako „nejel" servis nepotřebuje; bez záznamu se chová jako dřív.
+      AND NOT EXISTS (
+        SELECT 1 FROM race_engine_runs rr
+        WHERE rr.race_id = r.id AND rr.engine_id = eng.id AND rr.raced = 0
+      )
       AND NOT EXISTS (
         SELECT 1 FROM engine_service_queue_resolutions q
         WHERE q.engine_id = eng.id AND q.source_type = 'race' AND q.source_id = r.id
@@ -225,7 +230,7 @@ export async function GET(request: Request) {
   // Motor, který ve frontě už čeká, se nesmí přidat podruhé — nabídka ho proto označí.
   const queuedEngineIds = new Set(queue.map((row) => row.engineId));
 
-  return Response.json({
+  return auth.json({
     categories: categories.results,
     engines: (engines.results as Array<{ id: string }>).map((engine) => ({ ...engine, inQueue: queuedEngineIds.has(engine.id) })),
     mechanics: mechanics.results,

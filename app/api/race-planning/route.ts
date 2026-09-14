@@ -3,7 +3,7 @@ import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser, type AppUser } from "../../server-auth";
 
 const categories = new Set(["BABY", "MINI", "MINI U10", "MINI GR3", "OKJ", "OKN-J", "OKN", "OK", "KZ"]);
-type PlanningKind = "entry" | "mechanic" | "vehicle" | "extra" | "confirmation" | "reorder" | "confirmAll";
+type PlanningKind = "entry" | "mechanic" | "vehicle" | "extra" | "confirmation" | "reorder" | "confirmAll" | "engineRun";
 
 type RaceRow = {
   id: string;
@@ -30,6 +30,9 @@ type PlanningPayload = {
   notes?: string;
   isConfirmed?: boolean | number | string;
   order?: string[];
+  /** Kind "engineRun": který motor a jestli reálně jel. */
+  engineId?: string;
+  raced?: boolean;
 };
 
 function clean(value: unknown, max = 1000) {
@@ -64,15 +67,36 @@ export async function GET(request: Request) {
   const race = await getRace(raceId);
   if (!race) return Response.json({ error: "Race not found" }, { status: 404 });
   const d1 = getD1();
-  const [entries, mechanics, vehicles, extras, equipmentAssignments] = await Promise.all([
-    d1.prepare(`SELECT id, category, driver_id AS driverId, driver_name_snapshot AS driverName, team_id AS teamId, team_name_snapshot AS teamName, engine_1_id AS engine1Id, engine_1_code AS engine1Code, engine_1_configuration AS engine1Configuration, engine_2_id AS engine2Id, engine_2_code AS engine2Code, engine_2_configuration AS engine2Configuration, engine_3_id AS engine3Id, engine_3_code AS engine3Code, engine_3_configuration AS engine3Configuration, carburetor_1_id AS carburetor1Id, carburetor_1_code AS carburetor1Code, carburetor_2_id AS carburetor2Id, carburetor_2_code AS carburetor2Code, carburetor_3_id AS carburetor3Id, carburetor_3_code AS carburetor3Code, is_confirmed AS isConfirmed, notes FROM race_entries WHERE race_id = ? ORDER BY sort_order, driver_name_snapshot`).bind(raceId).all(),
+  const [entries, mechanics, vehicles, extras, equipmentAssignments, engineRuns] = await Promise.all([
+    // Rodina motoru (engine1Family/2Family/3Family) navíc kvůli RACE MODE — pozná se z ní,
+    // které přiřazené motory sledují motohodiny (MINI a OKJ ne), aniž by klient musel tahat
+    // celou kartu motoru.
+    d1.prepare(`
+      SELECT re.id, re.category, re.driver_id AS driverId, re.driver_name_snapshot AS driverName,
+             re.team_id AS teamId, re.team_name_snapshot AS teamName,
+             re.engine_1_id AS engine1Id, re.engine_1_code AS engine1Code, re.engine_1_configuration AS engine1Configuration, e1.family AS engine1Family,
+             re.engine_2_id AS engine2Id, re.engine_2_code AS engine2Code, re.engine_2_configuration AS engine2Configuration, e2.family AS engine2Family,
+             re.engine_3_id AS engine3Id, re.engine_3_code AS engine3Code, re.engine_3_configuration AS engine3Configuration, e3.family AS engine3Family,
+             re.carburetor_1_id AS carburetor1Id, re.carburetor_1_code AS carburetor1Code,
+             re.carburetor_2_id AS carburetor2Id, re.carburetor_2_code AS carburetor2Code,
+             re.carburetor_3_id AS carburetor3Id, re.carburetor_3_code AS carburetor3Code,
+             re.is_confirmed AS isConfirmed, re.notes
+      FROM race_entries re
+      LEFT JOIN engines e1 ON e1.id = re.engine_1_id
+      LEFT JOIN engines e2 ON e2.id = re.engine_2_id
+      LEFT JOIN engines e3 ON e3.id = re.engine_3_id
+      WHERE re.race_id = ? ORDER BY re.sort_order, re.driver_name_snapshot
+    `).bind(raceId).all(),
     d1.prepare("SELECT id, mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicName, vehicle_id AS vehicleId FROM race_mechanics WHERE race_id = ? ORDER BY mechanic_name_snapshot").bind(raceId).all(),
     d1.prepare("SELECT id, vehicle_id AS vehicleId, vehicle_name_snapshot AS vehicleName, license_plate_snapshot AS licensePlate FROM race_vehicles WHERE race_id = ? ORDER BY vehicle_name_snapshot").bind(raceId).all(),
     d1.prepare("SELECT id, category, resource_type AS resourceType, resource_id AS resourceId, resource_code_snapshot AS resourceCode, notes FROM race_extras WHERE race_id = ? ORDER BY category, resource_type, resource_code_snapshot").bind(raceId).all(),
     loadEquipmentAssignments(),
+    // Co z přiřazených motorů na place reálně jelo (RACE MODE) — `raced = 0` je výslovné „nejel".
+    d1.prepare("SELECT engine_id AS engineId, raced, recorded_by AS recordedBy, recorded_at AS recordedAt FROM race_engine_runs WHERE race_id = ?").bind(raceId).all<{ engineId: string; raced: number; recordedBy: string; recordedAt: number }>(),
   ]);
   const normalizedEntries = entries.results.map((entry) => ({ ...entry, isConfirmed: Boolean(entry.isConfirmed) }));
-  return Response.json({ race, entries: normalizedEntries, mechanics: mechanics.results, vehicles: vehicles.results, extras: extras.results, equipmentAssignments });
+  const normalizedEngineRuns = engineRuns.results.map((run) => ({ ...run, raced: Boolean(run.raced) }));
+  return Response.json({ race, entries: normalizedEntries, mechanics: mechanics.results, vehicles: vehicles.results, extras: extras.results, equipmentAssignments, engineRuns: normalizedEngineRuns });
 }
 
 async function loadEquipmentAssignments() {
@@ -115,6 +139,11 @@ export async function POST(request: Request) {
   await ensureRuntimeSchema();
   const race = await getRace(raceId);
   if (!race) return Response.json({ error: "Race not found" }, { status: 404 });
+  // „Jel / nejel" má schválně jiné pravidlo než zbytek plánování: `assertWritable` zamyká
+  // dokončený závod na superadmina, ale RACE MODE potvrzuje přesně to, co se ten den odjelo —
+  // vedení i superadmin s tím musí hnout i hodinu po cíli, ne až následující den. Mechanik se
+  // sem nedostane vůbec, routa pro něj zůstává zavřená stejně jako celý `/api/race-planning`.
+  if (payload.kind === "engineRun") return saveEngineRun(payload, race, user);
   const writeError = await assertWritable(race, user);
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
   if (payload.kind === "entry") return saveEntry(payload, race, user, false);
@@ -155,7 +184,7 @@ export async function DELETE(request: Request) {
   const writeError = await assertWritable(race, user);
   if (writeError) return Response.json({ error: writeError }, { status: 403 });
   if (!payload.id || !payload.kind) return Response.json({ error: "Planning item is required" }, { status: 400 });
-  const table = ({ entry: "race_entries", mechanic: "race_mechanics", vehicle: "race_vehicles", extra: "race_extras" } as const)[payload.kind as Exclude<PlanningKind, "confirmation" | "reorder" | "confirmAll">];
+  const table = ({ entry: "race_entries", mechanic: "race_mechanics", vehicle: "race_vehicles", extra: "race_extras" } as const)[payload.kind as Exclude<PlanningKind, "confirmation" | "reorder" | "confirmAll" | "engineRun">];
   if (!table) return Response.json({ error: "Invalid planning type" }, { status: 400 });
   const d1 = getD1();
   const existing = await d1.prepare(`SELECT * FROM ${table} WHERE id = ? AND race_id = ?`).bind(payload.id, race.id).first<Record<string, unknown>>();
@@ -166,6 +195,43 @@ export async function DELETE(request: Request) {
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'remove_from_race', ?, ?, ?, ?)").bind(crypto.randomUUID(), user.email, payload.kind, payload.id, JSON.stringify(existing), now),
   ]);
   return Response.json({ id: payload.id });
+}
+
+/**
+ * RACE MODE: „jel / nejel" pro jeden přiřazený motor.
+ *
+ * Zapisuje se na dvojici závod + motor, ne na přihlášku — motor může mít v přihlášce jen
+ * jeden slot, ale hlavně díky tomu na to může navázat fronta na servis a automatika MINI
+ * (obě čtou `race_engine_runs` podle `race_id` + `engine_id`, ne podle přihlášky).
+ *
+ * Mechanik sem nesmí — routa je pro něj zavřená celá (viz `app/api-access.ts`), tohle je jen
+ * druhá pojistka, kdyby se to jednou otevřelo jinému volajícímu než dnešnímu UI.
+ */
+async function saveEngineRun(payload: PlanningPayload, race: RaceRow, user: AppUser) {
+  if (user.role === "mechanic") return Response.json({ error: "Forbidden" }, { status: 403 });
+  const entryId = clean(payload.id);
+  const engineId = clean(payload.engineId);
+  if (!entryId || !engineId) return Response.json({ error: "Entry and engine are required" }, { status: 400 });
+  if (typeof payload.raced !== "boolean") return Response.json({ error: "raced must be a boolean" }, { status: 400 });
+
+  const d1 = getD1();
+  // Motor musí být skutečně přiřazený k téhle přihlášce na tomhle závodě — jinak by šlo
+  // zapsat „jel" na motor, který se závodu netýká.
+  const entry = await d1.prepare(`
+    SELECT id FROM race_entries
+    WHERE id = ? AND race_id = ? AND ? IN (engine_1_id, engine_2_id, engine_3_id)
+  `).bind(entryId, race.id, engineId).first<{ id: string }>();
+  if (!entry) return Response.json({ error: "Engine is not assigned to this entry" }, { status: 404 });
+
+  const now = Date.now();
+  await d1.prepare(`
+    INSERT INTO race_engine_runs (id, race_id, race_entry_id, engine_id, raced, recorded_by, recorded_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (race_id, engine_id) DO UPDATE SET
+      raced = excluded.raced, recorded_by = excluded.recorded_by, recorded_at = excluded.recorded_at
+  `).bind(crypto.randomUUID(), race.id, entryId, engineId, payload.raced ? 1 : 0, user.email, now).run();
+
+  return Response.json({ engineId, raced: payload.raced, recordedBy: user.email, recordedAt: now });
 }
 
 async function saveEntry(payload: PlanningPayload, race: RaceRow, user: AppUser, editing: boolean) {

@@ -219,7 +219,7 @@ export async function GET(request: Request) {
     WHERE c.engine_id = ? AND c.released_at IS NULL
   `).bind(engineId).first<{ mechanicId: string | null; name: string }>();
 
-  return Response.json({
+  return auth.json({
     claim: claim ? { mechanicId: claim.mechanicId, name: claim.name } : null,
     technicalLinks: technicalLinks.results,
     technicalValues: technicalValues.results,
@@ -386,6 +386,9 @@ async function resolveQueueForEngine(d1: ReturnType<typeof getD1>, engineId: str
     JOIN races r ON r.id = re.race_id
     WHERE r.status != 'archived' AND r.end_date < date('now')
       AND ? IN (re.engine_1_id, re.engine_2_id, re.engine_3_id)
+      -- Závod, na kterém motor „nejel", ve frontě nikdy nebyl, takže se ani neodbavuje.
+      AND NOT EXISTS (SELECT 1 FROM race_engine_runs rr
+                      WHERE rr.race_id = r.id AND rr.engine_id = ? AND rr.raced = 0)
       AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
                       WHERE q.engine_id = ? AND q.source_type = 'race' AND q.source_id = r.id)
     UNION
@@ -400,7 +403,7 @@ async function resolveQueueForEngine(d1: ReturnType<typeof getD1>, engineId: str
     WHERE m.engine_id = ?
       AND NOT EXISTS (SELECT 1 FROM engine_service_queue_resolutions q
                       WHERE q.engine_id = ? AND q.source_type = 'manual' AND q.source_id = m.id)
-  `).bind(engineId, engineId, engineId, engineId, engineId, engineId).all<{ sourceType: string; sourceId: string }>();
+  `).bind(engineId, engineId, engineId, engineId, engineId, engineId, engineId).all<{ sourceType: string; sourceId: string }>();
   if (open.results.length === 0) return;
 
   const statements = open.results.map((row) => d1.prepare(`

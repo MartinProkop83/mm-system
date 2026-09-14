@@ -43,6 +43,8 @@ export function ServiceQueueScreen({ locale, role, userName, initialEngineId = "
       <header className="queue-screen-bar">
         <img src="/machac-motors-logo.jpg" alt="Macháč Motors" />
         <span className="queue-screen-user">{userName}</span>
+        {/* Jediná cesta mechanika do RACE MODE — do menu se nedostane. */}
+        <Link className="secondary-compact" href="/zavod">⚑ {locale === "cs" ? "Race Mode" : "Race Mode"}</Link>
         {canLeave && (
           <Link className="secondary-compact" href="/">{locale === "cs" ? "Zpět do systému" : "Back to the system"}</Link>
         )}

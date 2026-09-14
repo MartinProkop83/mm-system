@@ -1,7 +1,6 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
-import { filterResponseForMechanic } from "../../api-access";
 import { buildTechnicalChangeLog, type TechnicalValueWrite } from "../../engine-technical-log";
 import { generatePublicCode } from "../../engine-public-code";
 import { applyMiniAutoService } from "../../engine-auto-service";
@@ -200,7 +199,7 @@ export async function GET(request: Request) {
 
   // Mechanik vidí techniku motoru, ne obchod — datum nákupu, prodej, poznámky ani `location`
   // (kde u zapůjčeného motoru figuruje jméno příjemce) se mu z odpovědi vyříznou.
-  return Response.json(filterResponseForMechanic(user.role, new URL(request.url).pathname, {
+  return auth.json({
     engines,
     technicalStructure: {
       layout: layoutResult.results,
@@ -209,7 +208,7 @@ export async function GET(request: Request) {
       options: optionResult.results,
     },
     technicalValues,
-  }));
+  });
 }
 
 export async function POST(request: Request) {

@@ -464,3 +464,35 @@ test("MM Travel shares race records, supports round trips, accommodation routing
   assert.ok(racePages.indexOf('className="panel race-logistics-panel"') < racePages.indexOf("<RaceCircuitPanel"));
   assert.ok(racePages.indexOf("<RaceLogisticsPanel") < racePages.indexOf("<RaceEquipmentOverview"));
 });
+
+/**
+ * Pojistka proti pasti, do které tenhle projekt jednou spadl: ořezání odpovědi pro mechanika
+ * se kdysi volalo ručně v každé routě, takže nově přidaná routa ho tiše přeskočila a mechanik
+ * dostal plná data. Filtr teď žije v `getApiUser()` a routa ho použije tím, že vrátí data
+ * přes `auth.json(...)`.
+ *
+ * Test si seznam rout **odvozuje z `MECHANIC_READ`**, ne z ručního výčtu tady — kdo přidá
+ * mechanikovi novou routu a nechá v ní `Response.json` s daty, shodí tenhle test.
+ */
+test("routy povolené mechanikovi vracejí data přes auth.json", async () => {
+  const accessSource = await readFile(new URL("../app/api-access.ts", import.meta.url), "utf8");
+  const serverAuth = await readFile(new URL("../app/server-auth.ts", import.meta.url), "utf8");
+
+  // Filtr musí být součástí getApiUser, ne volitelný krok v routě.
+  assert.match(serverAuth, /json: \(payload: unknown, init\?: ResponseInit\) =>/);
+  assert.match(serverAuth, /filterResponseForMechanic\(user\.role, pathname, payload\)/);
+
+  const readBlock = accessSource.match(/const MECHANIC_READ = new Set\(\[([\s\S]*?)\]\);/);
+  assert.ok(readBlock, "MECHANIC_READ se nepodařilo najít");
+  const routes = [...readBlock[1].matchAll(/"\/api\/([a-z-]+)"/g)].map((match) => match[1]);
+  assert.ok(routes.length >= 9, `čekal jsem aspoň 9 rout, našel ${routes.length}`);
+
+  for (const route of routes) {
+    const source = await readFile(new URL(`../app/api/${route}/route.ts`, import.meta.url), "utf8");
+    assert.match(
+      source,
+      /return auth\.json\(/,
+      `/api/${route} je povolená mechanikovi, ale nevrací data přes auth.json() — filtr by se přeskočil`,
+    );
+  }
+});

@@ -30,6 +30,12 @@ export async function applyMiniAutoService(d1: ReturnType<typeof getD1>) {
       AND r.end_date < date('now')
       AND eng.archived_at IS NULL
       AND eng.family IN (${placeholders})
+      -- Motor, který na place označili jako „nejel", se přestavovat nemá. Bez záznamu z place
+      -- platí dosavadní pravidlo, tedy přestavba po každém závodě, kde byl přiřazený.
+      AND NOT EXISTS (
+        SELECT 1 FROM race_engine_runs rr
+        WHERE rr.race_id = r.id AND rr.engine_id = eng.id AND rr.raced = 0
+      )
   `).bind(...families).all<DueRow>();
 
   for (const row of due.results) {

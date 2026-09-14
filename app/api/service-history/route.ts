@@ -91,6 +91,11 @@ const QUEUE_ENTRIES = `
   JOIN races r ON r.id = re.race_id
   JOIN engines eng ON eng.id IN (re.engine_1_id, re.engine_2_id, re.engine_3_id)
   WHERE r.status != 'archived' AND eng.archived_at IS NULL AND eng.sold_at IS NULL
+    -- Stejné pravidlo jako ve frontě, jinak by report počítal motory, které nikdy nečekaly.
+      AND NOT EXISTS (
+        SELECT 1 FROM race_engine_runs rr
+        WHERE rr.race_id = r.id AND rr.engine_id = eng.id AND rr.raced = 0
+      )
   UNION
   SELECT eng.id, eng.family, 'loan', l.id, l.actual_return_date
   FROM engine_loans l

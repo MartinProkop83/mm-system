@@ -327,5 +327,5 @@ export async function GET(request: Request) {
   }
 
   events.sort((left, right) => right.sortAt - left.sortAt);
-  return Response.json({ engine, events });
+  return auth.json({ engine, events });
 }

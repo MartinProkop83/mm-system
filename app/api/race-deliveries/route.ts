@@ -100,10 +100,19 @@ export async function DELETE(request: Request) {
   const existing = await d1.prepare("SELECT * FROM race_deliveries WHERE id = ? AND race_id = ?").bind(id, raceId).first<Record<string, unknown>>();
   if (!existing) return Response.json({ error: "Delivery not found" }, { status: 404 });
   const now = Date.now();
-  await d1.batch([
+  const statements = [
     d1.prepare("DELETE FROM race_deliveries WHERE id = ? AND race_id = ?").bind(id, raceId),
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'delete', 'race_delivery', ?, ?, ?)").bind(crypto.randomUUID(), user.email, id, JSON.stringify(existing), now),
-  ]);
+  ];
+  // Předávka zapsaná v RACE MODE mohla odečíst díl ze skladu — smazáním se musí vrátit,
+  // jinak by sklad tiše ztrácel kusy.
+  const partId = typeof existing.inventory_part_id === "string" ? existing.inventory_part_id : "";
+  const quantity = Number(existing.quantity ?? 0);
+  if (partId && Number.isInteger(quantity) && quantity > 0) {
+    statements.push(d1.prepare("UPDATE inventory_parts SET quantity = quantity + ?, updated_at = ? WHERE id = ?")
+      .bind(quantity, now, partId));
+  }
+  await d1.batch(statements);
   return Response.json({ id });
 }
 
