@@ -202,6 +202,14 @@ export async function GET(request: Request) {
 
   if (id) return getOrderDetail(d1, id);
 
+  // Historie jednoho zákaznického motoru napříč všemi jeho zakázkami — karta zákazníka.
+  const customerEngineId = clean(url.searchParams.get("customerEngineId"), 80);
+  if (customerEngineId) return getEngineHistory(d1, customerEngineId);
+
+  // Čtyři čísla pro dashboard + zvoneček. Počítají se na serveru, ať klient nemusí tahat
+  // celý seznam zakázek jen kvůli součtům.
+  if (url.searchParams.get("summary") === "1") return getSummary(d1);
+
   const status = clean(url.searchParams.get("status"), 40);
   const customerId = clean(url.searchParams.get("customerId"), 80);
   const receivedFrom = clean(url.searchParams.get("receivedFrom"), 10);
@@ -241,6 +249,113 @@ export async function GET(request: Request) {
   `).bind(...params).all();
 
   return Response.json({ orders: orders.results });
+}
+
+/** Počet dní, po kterých se zkontrolovaný a nevyzvednutý motor začne hlásit jako ležák. */
+const PICKUP_OVERDUE_DAYS = 14;
+
+/**
+ * Čtyři čísla zákaznického servisu pro dashboard a zvoneček.
+ *
+ * „K mé kontrole" je stav `done` — mechanik domechaničil a čeká se na kontrolu vedení.
+ * „Čeká na vyzvednutí" se počítá od `checked_at`, ne od `completed_at`: lhůta zákazníkovi
+ * běží od chvíle, kdy byl motor opravdu odbavený, ne kdy na něm mechanik dodělal práci.
+ */
+async function getSummary(d1: D1) {
+  const threshold = Date.now() - PICKUP_OVERDUE_DAYS * 24 * 60 * 60 * 1000;
+  const row = await d1.prepare(`
+    SELECT
+      COUNT(CASE WHEN oe.status = 'in_progress' THEN 1 END) AS inProgress,
+      COUNT(CASE WHEN oe.status = 'waiting_part' THEN 1 END) AS waitingPart,
+      COUNT(CASE WHEN oe.status = 'done' THEN 1 END) AS toCheck,
+      COUNT(CASE WHEN oe.status = 'checked' AND oe.checked_at IS NOT NULL AND oe.checked_at <= ? THEN 1 END) AS awaitingPickup
+    FROM service_order_engines oe
+    JOIN service_orders o ON o.id = oe.order_id
+    WHERE o.cancelled_at IS NULL AND o.deleted_at IS NULL
+  `).bind(threshold).first<{ inProgress: number; waitingPart: number; toCheck: number; awaitingPickup: number }>();
+
+  // Do zvonečku jen to, co čeká na člověka: hotové k mé kontrole a ležáky po 14 dnech.
+  const alerts = await d1.prepare(`
+    SELECT oe.id AS orderEngineId, o.id AS orderId, o.number, c.name AS customerName, ce.code AS engineCode,
+           oe.status, oe.checked_at AS checkedAt, oe.completed_at AS completedAt
+    FROM service_order_engines oe
+    JOIN service_orders o ON o.id = oe.order_id
+    JOIN customer_engines ce ON ce.id = oe.customer_engine_id
+    JOIN customers c ON c.id = o.customer_id
+    WHERE o.cancelled_at IS NULL AND o.deleted_at IS NULL
+      AND (oe.status = 'done' OR (oe.status = 'checked' AND oe.checked_at IS NOT NULL AND oe.checked_at <= ?))
+    ORDER BY COALESCE(oe.checked_at, oe.completed_at)
+    LIMIT 20
+  `).bind(threshold).all();
+
+  return Response.json({
+    summary: {
+      inProgress: Number(row?.inProgress ?? 0),
+      waitingPart: Number(row?.waitingPart ?? 0),
+      toCheck: Number(row?.toCheck ?? 0),
+      awaitingPickup: Number(row?.awaitingPickup ?? 0),
+      overdueDays: PICKUP_OVERDUE_DAYS,
+    },
+    alerts: alerts.results,
+  });
+}
+
+/**
+ * Historie jednoho zákaznického motoru — co se kdy dělalo, kdo to dělal a co se použilo.
+ * Motor zůstává v systému napořád, takže se tu skládají i zakázky staré několik sezón.
+ */
+async function getEngineHistory(d1: D1, customerEngineId: string) {
+  const engine = await d1.prepare(`
+    SELECT ce.id, ce.code, ce.note, ce.customer_id AS customerId, c.name AS customerName,
+           t.name_cs AS typeNameCs, t.name_en AS typeNameEn
+    FROM customer_engines ce
+    JOIN service_engine_types t ON t.id = ce.service_engine_type_id
+    JOIN customers c ON c.id = ce.customer_id
+    WHERE ce.id = ?
+  `).bind(customerEngineId).first();
+  if (!engine) return Response.json({ error: "Engine not found" }, { status: 404 });
+
+  const visits = await d1.prepare(`
+    SELECT oe.id AS orderEngineId, o.id AS orderId, o.number, o.currency, o.received_at AS receivedAt,
+           oe.status, oe.engine_minutes AS engineMinutes, oe.scope,
+           oe.completed_by_name AS completedByName, oe.completed_at AS completedAt,
+           oe.handed_over_at AS handedOverAt, o.cancelled_at AS cancelledAt
+    FROM service_order_engines oe
+    JOIN service_orders o ON o.id = oe.order_id
+    WHERE oe.customer_engine_id = ? AND o.deleted_at IS NULL
+    ORDER BY o.received_at DESC
+  `).bind(customerEngineId).all<{ orderEngineId: string }>();
+
+  const engineIds = visits.results.map((visit) => visit.orderEngineId);
+  const [works, materials] = engineIds.length === 0
+    ? [{ results: [] }, { results: [] }]
+    : await Promise.all([
+      d1.prepare(`SELECT id, order_engine_id AS orderEngineId, code_snapshot AS codeSnapshot, name_cs_snapshot AS nameCsSnapshot,
+                    name_en_snapshot AS nameEnSnapshot, quantity, total_czk_cents AS totalCzkCents, total_eur_cents AS totalEurCents,
+                    created_by_name AS createdByName, created_at AS createdAt
+             FROM service_order_works WHERE order_engine_id IN (${engineIds.map(() => "?").join(",")}) ORDER BY created_at`).bind(...engineIds).all(),
+      d1.prepare(`SELECT id, order_engine_id AS orderEngineId, code, name, quantity, source,
+                    total_czk_cents AS totalCzkCents, total_eur_cents AS totalEurCents
+             FROM service_order_materials WHERE order_engine_id IN (${engineIds.map(() => "?").join(",")}) ORDER BY created_at`).bind(...engineIds).all(),
+    ]);
+
+  const worksByEngine = new Map<string, unknown[]>();
+  for (const row of works.results as Array<{ orderEngineId: string }>) {
+    worksByEngine.set(row.orderEngineId, [...(worksByEngine.get(row.orderEngineId) ?? []), row]);
+  }
+  const materialsByEngine = new Map<string, unknown[]>();
+  for (const row of materials.results as Array<{ orderEngineId: string }>) {
+    materialsByEngine.set(row.orderEngineId, [...(materialsByEngine.get(row.orderEngineId) ?? []), row]);
+  }
+
+  return Response.json({
+    engine,
+    visits: visits.results.map((visit) => ({
+      ...visit,
+      works: worksByEngine.get(visit.orderEngineId) ?? [],
+      materials: materialsByEngine.get(visit.orderEngineId) ?? [],
+    })),
+  });
 }
 
 async function getOrderDetail(d1: D1, id: string) {

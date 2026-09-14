@@ -129,11 +129,14 @@ function statusTone(status: OrderStatus | "empty") {
   return "neutral";
 }
 
-export function ServiceOrdersPage({ locale, role, initialOpenOrderId, onInitialOpenOrderIdConsumed }: {
+export function ServiceOrdersPage({ locale, role, initialOpenOrderId, onInitialOpenOrderIdConsumed, initialStatusFilter, onInitialStatusFilterConsumed }: {
   locale: Locale; role: Role;
   /** Deep-link z fronty (zákaznická deska) — otevře detail rovnou po přechodu do sekce. */
   initialOpenOrderId?: string | null;
   onInitialOpenOrderIdConsumed?: () => void;
+  /** Proklik ze čtyř čísel na dashboardu — přednastaví filtr stavu. */
+  initialStatusFilter?: string | null;
+  onInitialStatusFilterConsumed?: () => void;
 }) {
   const t = content[locale];
   const [orders, setOrders] = useState<OrderListItem[]>([]);
@@ -158,6 +161,15 @@ export function ServiceOrdersPage({ locale, role, initialOpenOrderId, onInitialO
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialOpenOrderId]);
+
+  useEffect(() => {
+    if (initialStatusFilter === null || initialStatusFilter === undefined) return;
+    setTrashView(false);
+    setOpenOrderId(null);
+    setStatusFilter(initialStatusFilter as OrderStatus | "");
+    onInitialStatusFilterConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialStatusFilter]);
 
   async function load() {
     setLoadError(false);

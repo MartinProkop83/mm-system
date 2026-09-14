@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ClothingLightbox, ClothingPhoto, type ClothingPhotoPreview } from "./clothing-photo";
 import { CountrySelect } from "./country-select";
+import { CustomerDetail } from "./customer-detail";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
 
@@ -25,12 +26,19 @@ const configs = {
   inventory: { endpoint: "/api/inventory", responseKey: "parts", eyebrow: "MM PARTS STOCK", titleCs: "Sklad dílů", titleEn: "Parts inventory", subtitleCs: "Díly dostupné pro prodej. Uložený prodej množství automaticky odečte.", subtitleEn: "Parts available for sales. A saved sale automatically decrements stock." },
 } as const;
 
-export function CustomersPage(props: { locale: Locale; role: Role }) { return <CommercePage kind="customers" {...props} />; }
+export function CustomersPage(props: { locale: Locale; role: Role; onOpenOrder?: (orderId: string) => void; initialCustomerId?: string | null; initialEngineId?: string | null; onInitialCustomerConsumed?: () => void }) { return <CommercePage kind="customers" {...props} />; }
 export function ServiceCatalogPage(props: { locale: Locale; role: Role }) { return <CommercePage kind="services" {...props} />; }
 export function InventoryPage(props: { locale: Locale; role: Role }) { return <CommercePage kind="inventory" {...props} />; }
 
-function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; role: Role }) {
+function CommercePage({ kind, locale, role, onOpenOrder, initialCustomerId, initialEngineId, onInitialCustomerConsumed }: { kind: PageKind; locale: Locale; role: Role; onOpenOrder?: (orderId: string) => void; initialCustomerId?: string | null; initialEngineId?: string | null; onInitialCustomerConsumed?: () => void }) {
   const config = configs[kind]; const canManage = role !== "mechanic";
+  // Kartu zákazníka má jen sekce Zákazníci — ceník a sklad zůstávají plochý seznam.
+  const [detailCustomerId, setDetailCustomerId] = useState<string | null>(initialCustomerId ?? null);
+  const [detailEngineId, setDetailEngineId] = useState<string | null>(initialEngineId ?? null);
+  // Každý proklik z hledání kartu odmountuje a postaví znovu. Bez toho by druhý proklik
+  // (jiný motor, nebo zpátky na kartu zákazníka) zůstal viset na tom, co bylo otevřené,
+  // protože `useState(initialEngineId)` se vyhodnotí jen při prvním mountu.
+  const [detailNonce, setDetailNonce] = useState(0);
   const [items, setItems] = useState<CommerceRecord[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState(false);
   const [editing, setEditing] = useState<CommerceRecord | "new" | null>(null);
   const [photoPreview, setPhotoPreview] = useState<ClothingPhotoPreview | null>(null);
@@ -40,12 +48,26 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
     catch { setError(true); } finally { setLoading(false); }
   }
   useEffect(() => { const timer = window.setTimeout(() => { void load(); }, 0); return () => window.clearTimeout(timer); }, [kind]);
+  // Proklik z hledání: otevře rovnou kartu zákazníka, případně i historii jeho motoru.
+  useEffect(() => {
+    if (!initialCustomerId) return;
+    setDetailCustomerId(initialCustomerId);
+    setDetailEngineId(initialEngineId ?? null);
+    setDetailNonce((value) => value + 1);
+    onInitialCustomerConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialCustomerId, initialEngineId]);
   async function remove(item: CommerceRecord) {
     if (role !== "superadmin" || !window.confirm(locale === "cs" ? "Opravdu záznam archivovat? Historie prodejů zůstane zachována." : "Archive this record? Sales history remains preserved.")) return;
     const response = await fetch(config.endpoint, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: item.id }) });
     if (!response.ok) return window.alert(locale === "cs" ? "Záznam se nepodařilo archivovat." : "Could not archive the record.");
     await load();
   }
+  if (detailCustomerId) {
+    return <CustomerDetail key={`${detailCustomerId}:${detailNonce}`} customerId={detailCustomerId} locale={locale} initialEngineId={detailEngineId}
+      onClose={() => { setDetailCustomerId(null); setDetailEngineId(null); void load(); }} onOpenOrder={onOpenOrder} />;
+  }
+
   return <div className="commerce-page">
     <section className="dash-panel commerce-summary"><div><span className="eyebrow">{config.eyebrow}</span><h2>{locale === "cs" ? config.titleCs : config.titleEn}</h2><p>{locale === "cs" ? config.subtitleCs : config.subtitleEn}</p></div><div><strong>{items.length}</strong>{canManage && <button className="primary-button" type="button" onClick={() => setEditing("new")}>＋ {locale === "cs" ? "Přidat" : "Add"}</button>}</div></section>
     <section className="dash-panel data-panel commerce-list">
@@ -53,7 +75,7 @@ function CommercePage({ kind, locale, role }: { kind: PageKind; locale: Locale; 
       {!loading && error && <EmptyState variant="error" icon="!" title={locale === "cs" ? "Data se nepodařilo načíst." : "Could not load data."} />}
       {!loading && !error && items.length === 0 && <EmptyState icon="＋" title={locale === "cs" ? "Zatím bez záznamů" : "No records yet"} />}
       {!loading && !error && items.length > 0 && kind === "inventory" && <InventoryGrid locale={locale} role={role} items={items as InventoryPartRecord[]} onEdit={setEditing} onDelete={(item) => { void remove(item); }} onPreview={setPhotoPreview} />}
-      {!loading && !error && items.length > 0 && kind !== "inventory" && <CommerceTable kind={kind} locale={locale} role={role} items={items} onEdit={setEditing} onDelete={(item) => { void remove(item); }} />}
+      {!loading && !error && items.length > 0 && kind !== "inventory" && <CommerceTable kind={kind} locale={locale} role={role} items={items} onEdit={setEditing} onDelete={(item) => { void remove(item); }} onOpenDetail={kind === "customers" ? setDetailCustomerId : undefined} />}
     </section>
     {editing && <CommerceForm key={editing === "new" ? `new-${kind}` : editing.id} kind={kind} locale={locale} item={editing === "new" ? null : editing} onClose={() => setEditing(null)} onSaved={async () => { setEditing(null); await load(); }} />}
     {photoPreview && <ClothingLightbox preview={photoPreview} locale={locale} onClose={() => setPhotoPreview(null)} />}
@@ -69,13 +91,13 @@ function InventoryGrid({ locale, role, items, onEdit, onDelete, onPreview }: { l
   </article>)}</div>;
 }
 
-function CommerceTable({ kind, locale, role, items, onEdit, onDelete }: { kind: PageKind; locale: Locale; role: Role; items: CommerceRecord[]; onEdit: (item: CommerceRecord) => void; onDelete: (item: CommerceRecord) => void }) {
+function CommerceTable({ kind, locale, role, items, onEdit, onDelete, onOpenDetail }: { kind: PageKind; locale: Locale; role: Role; items: CommerceRecord[]; onEdit: (item: CommerceRecord) => void; onDelete: (item: CommerceRecord) => void; onOpenDetail?: (id: string) => void }) {
   const headers = kind === "customers"
     ? [locale === "cs" ? "Zákazník" : "Customer", locale === "cs" ? "Kontakt" : "Contact", "IČO / DIČ", locale === "cs" ? "Adresa" : "Address", locale === "cs" ? "Prodeje" : "Sales"]
     : kind === "services"
       ? [locale === "cs" ? "Servis" : "Service", locale === "cs" ? "Popis" : "Description", "CZK bez DPH", "EUR bez DPH"]
       : [locale === "cs" ? "Kód" : "Code", locale === "cs" ? "Díl" : "Part", locale === "cs" ? "Skladem" : "In stock", "CZK bez DPH", "EUR bez DPH", locale === "cs" ? "Poznámka" : "Notes"];
-  return <div className="table-wrap"><table className="engine-table commerce-table zebra"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
+  return <div className="table-wrap"><table className="engine-table commerce-table zebra"><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}{role !== "mechanic" && <th>{locale === "cs" ? "Akce" : "Actions"}</th>}</tr></thead><tbody>{items.map((item) => <tr key={item.id} className={onOpenDetail ? "clickable-row" : ""} onClick={onOpenDetail ? () => onOpenDetail(item.id) : undefined}>{commerceCells(kind, item, locale).map((cell, index) => <td key={index}>{cell}</td>)}{role !== "mechanic" && <td onClick={(event) => event.stopPropagation()}><div className="record-actions"><button type="button" onClick={() => onEdit(item)}>{locale === "cs" ? "Upravit" : "Edit"}</button>{role === "superadmin" && <button className="delete" type="button" onClick={() => onDelete(item)}>{locale === "cs" ? "Archivovat" : "Archive"}</button>}</div></td>}</tr>)}</tbody></table></div>;
 }
 
 function commerceCells(kind: PageKind, record: CommerceRecord, locale: Locale): React.ReactNode[] {

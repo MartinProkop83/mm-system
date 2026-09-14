@@ -538,7 +538,7 @@ test("customer engines stay out of races and out of the engine section", async (
   // 2. Pravidlo místo seznamu: zákaznické motory smí číst jen soubory, které je mají v názvu.
   //    Nová routa, která je bude potřebovat, se musí jmenovat podle toho — a nikdo je omylem
   //    nepřimíchá do routy o závodech.
-  const allowedName = /(service-order|customer-engine|customer-service)/;
+  const allowedName = /(service-order|customer-engine|customer-service|customer-search|customer-detail)/;
   const entries = await readdir(appDir, { recursive: true });
   const offenders = [];
   for (const entry of entries) {

@@ -25,7 +25,9 @@ export async function GET(request: Request) {
            c.vat_id AS vatId, c.notes, c.country_code AS countryCode,
            c.discount_work_percent AS discountWorkPercent, c.discount_material_percent AS discountMaterialPercent,
            c.created_at AS createdAt, c.updated_at AS updatedAt,
-           COUNT(CASE WHEN s.voided_at IS NULL THEN 1 END) AS saleCount,
+           -- Test na s.id je tu kvůli LEFT JOINu: zákazník bez jediného prodeje má v joinu
+           -- jeden řádek se samými NULL a samotné voided_at IS NULL by ho spočítalo jako prodej.
+           COUNT(CASE WHEN s.id IS NOT NULL AND s.voided_at IS NULL THEN 1 END) AS saleCount,
            COALESCE(SUM(CASE WHEN s.voided_at IS NULL THEN s.total_cents ELSE 0 END), 0) AS totalCents
     FROM customers c LEFT JOIN sales s ON s.customer_id = c.id
     WHERE c.archived_at IS NULL

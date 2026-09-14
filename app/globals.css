@@ -4734,3 +4734,135 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
   .print-footer p { margin: 0 0 1mm; font-size: 8pt; color: #4a4a52; }
   .print-footer-meta { font-style: italic; }
 }
+
+/* ——— Dashboard: čtyři čísla zákaznického servisu ——— */
+
+.customer-summary-grid {
+  display: grid;
+  /* Minimum v px, ne minmax(0, …) — s nulovým minimem se čtyři dlaždice na telefonu
+     zmáčknou vedle sebe na 88 px a popisek se nedá přečíst. */
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--wrc-space-12);
+}
+
+.customer-summary-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--wrc-space-4);
+  padding: var(--wrc-space-16);
+  border: 1px solid var(--wrc-line);
+  border-radius: var(--wrc-radius-lg);
+  background: var(--wrc-surface);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s ease;
+}
+
+.customer-summary-tile:hover { border-color: var(--wrc-ink-soft); }
+
+.customer-summary-tile strong {
+  font-size: var(--wrc-text-2xl);
+  font-weight: var(--wrc-weight-black);
+  line-height: 1;
+}
+
+.customer-summary-tile span {
+  color: var(--wrc-ink-soft);
+  font-size: var(--wrc-text-sm);
+  font-weight: var(--wrc-weight-semibold);
+}
+
+.customer-summary-tile.tone-waiting strong { color: var(--wrc-warning-ink); }
+.customer-summary-tile.tone-check strong { color: var(--wrc-info-ink); }
+.customer-summary-tile.tone-overdue strong { color: var(--wrc-danger-ink); }
+
+/* ——— Karta zákazníka ——— */
+
+.customer-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 200px));
+  gap: var(--wrc-space-16);
+}
+
+.customer-detail-facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--wrc-space-2);
+  min-width: 0;
+}
+
+.customer-detail-facts small {
+  color: var(--wrc-ink-faint);
+  font-size: var(--wrc-text-xs);
+  font-weight: var(--wrc-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.customer-detail-notes { grid-column: 1 / -1; }
+
+.customer-history-visit {
+  margin-top: var(--wrc-space-12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--wrc-space-8);
+}
+
+.customer-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--wrc-space-12);
+  flex-wrap: wrap;
+  padding-bottom: var(--wrc-space-8);
+  border-bottom: 1px solid var(--wrc-line);
+}
+
+.customer-history-head > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wrc-space-8);
+}
+
+.customer-history-head strong { font-size: var(--wrc-text-lg); font-weight: var(--wrc-weight-black); }
+.customer-history-head span { color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); }
+
+.customer-history-head-right {
+  display: flex;
+  align-items: center;
+  gap: var(--wrc-space-8);
+}
+
+.customer-history-lines {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
+  gap: var(--wrc-space-16);
+}
+
+.customer-history-lines h4 {
+  margin: 0 0 var(--wrc-space-4);
+  color: var(--wrc-ink-soft);
+  font-size: var(--wrc-text-sm);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+
+.customer-history-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--wrc-space-4);
+}
+
+.customer-history-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--wrc-space-8);
+  font-size: var(--wrc-text-sm);
+}
+
+.customer-history-list li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+.customer-history-list li small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); }

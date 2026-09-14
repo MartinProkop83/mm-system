@@ -261,6 +261,12 @@ const copy = {
     qrCodes: "QR kódy",
     sales: "Prodej",
     serviceOrders: "Zakázky",
+    customerService: "Zákaznické motory",
+    customerServiceAll: "Všechny zakázky",
+    customerInProgress: "V práci",
+    customerWaitingPart: "Čeká na díl",
+    customerToCheck: "K mé kontrole",
+    customerAwaitingPickup: (days: number) => `Čeká na vyzvednutí déle než ${days} dní`,
     inventory: "Sklad",
     documents: "Dokumenty",
     settings: "Nastavení",
@@ -371,6 +377,12 @@ const copy = {
     qrCodes: "QR codes",
     sales: "Sales",
     serviceOrders: "Orders",
+    customerService: "Customer engines",
+    customerServiceAll: "All orders",
+    customerInProgress: "In progress",
+    customerWaitingPart: "Waiting for part",
+    customerToCheck: "For my check",
+    customerAwaitingPickup: (days: number) => `Awaiting pickup for more than ${days} days`,
     inventory: "Inventory",
     documents: "Documents",
     settings: "Settings",
@@ -485,6 +497,16 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "settings", mark: "⚙" },
 ];
 
+type CustomerServiceAlert = {
+  orderEngineId: string; orderId: string; number: string; customerName: string; engineCode: string;
+  status: string; checkedAt: number | null; completedAt: number | null;
+};
+type CustomerSearchResults = {
+  customers: Array<{ id: string; name: string; email: string; phone: string }>;
+  engines: Array<{ id: string; code: string; customerId: string; customerName: string; typeNameCs: string; typeNameEn: string }>;
+  orders: Array<{ id: string; number: string; receivedAt: string; customerName: string }>;
+};
+
 const navGroups: Array<{ labelCs: string; labelEn: string; items: View[] }> = [
   { labelCs: "Provoz", labelEn: "Operations", items: ["dashboard", "tasks", "calendar"] },
   { labelCs: "Závody", labelEn: "Races", items: ["races", "raceTypes", "circuits"] },
@@ -520,6 +542,10 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
   const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
   // Deep-link ze zákaznické desky ve frontě přímo do detailu zakázky v sekci Zakázky.
   const [deepLinkServiceOrderId, setDeepLinkServiceOrderId] = useState<string | null>(null);
+  // Proklik ze čtyř čísel na dashboardu — otevře Zakázky rovnou s tímhle filtrem stavu.
+  const [deepLinkOrderStatus, setDeepLinkOrderStatus] = useState<string | null>(null);
+  // Proklik z hledání na kartu zákazníka, případně rovnou na historii jeho motoru.
+  const [deepLinkCustomer, setDeepLinkCustomer] = useState<{ customerId: string; engineId: string | null } | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
   const [raceDetailOpen, setRaceDetailOpen] = useState(false);
   const [catalogDetailOpen, setCatalogDetailOpen] = useState(false);
@@ -531,6 +557,11 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [notifOpen, setNotifOpen] = useState(false);
+  // Zakázkový servis do zvonečku: hotové k mé kontrole a ležáky po 14 dnech od kontroly.
+  const [customerAlerts, setCustomerAlerts] = useState<CustomerServiceAlert[]>([]);
+  // Hledání napříč zákaznickým servisem běží na serveru — čísla zakázek ani zákazníky
+  // klient načtené nemá (na rozdíl od motorů a aut).
+  const [customerSearch, setCustomerSearch] = useState<CustomerSearchResults>({ customers: [], engines: [], orders: [] });
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light");
   const t = copy[locale];
   const visibleNavGroups = useMemo(
@@ -554,7 +585,32 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
     if (!query) return [];
     return vehicleRows.filter((vehicle) => vehicle.name.toLowerCase().includes(query) || vehicle.licensePlate.toLowerCase().includes(query)).slice(0, 5);
   }, [searchQuery, vehicleRows]);
-  const searchHasResults = searchSectionResults.length > 0 || searchEngineResults.length > 0 || searchVehicleResults.length > 0;
+  // Zakázkový servis se hledá na serveru; dotaz se posílá až od dvou znaků a s malým
+  // odkladem, ať se při psaní neposílá request na každé písmeno.
+  useEffect(() => {
+    const query = searchQuery.trim();
+    if (query.length < 2) { setCustomerSearch({ customers: [], engines: [], orders: [] }); return; }
+    let active = true;
+    const timer = window.setTimeout(() => {
+      void fetch(`/api/customer-search?q=${encodeURIComponent(query)}`, { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null)
+        .then((data: CustomerSearchResults | null) => { if (active && data) setCustomerSearch(data); })
+        .catch(() => undefined);
+    }, 250);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    let active = true;
+    void fetch("/api/service-orders?summary=1", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { alerts: CustomerServiceAlert[] } | null) => { if (active && data) setCustomerAlerts(data.alerts); })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, [view]);
+
+  const searchHasResults = searchSectionResults.length > 0 || searchEngineResults.length > 0 || searchVehicleResults.length > 0
+    || customerSearch.customers.length > 0 || customerSearch.engines.length > 0 || customerSearch.orders.length > 0;
   const enginesNeedingService = useMemo(
     () => engineRows.filter((engine) => !isSold(engine.soldAt) && engine.status !== "retired" && (engine.status === "service_soon" || engine.status === "service")),
     [engineRows],
@@ -808,6 +864,36 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
                     ))}
                   </div>
                 )}
+                {customerSearch.orders.length > 0 && (
+                  <div className="util-search-group">
+                    <small>{locale === "cs" ? "Zakázky" : "Orders"}</small>
+                    {customerSearch.orders.map((order) => (
+                      <button key={order.id} type="button" onMouseDown={() => { setDeepLinkServiceOrderId(order.id); setView("serviceOrders"); setSearchQuery(""); }}>
+                        <span aria-hidden="true">⚒</span>{order.number} · {order.customerName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {customerSearch.engines.length > 0 && (
+                  <div className="util-search-group">
+                    <small>{locale === "cs" ? "Zákaznické motory" : "Customer engines"}</small>
+                    {customerSearch.engines.map((engine) => (
+                      <button key={engine.id} type="button" onMouseDown={() => { setDeepLinkCustomer({ customerId: engine.customerId, engineId: engine.id }); setView("customers"); setSearchQuery(""); }}>
+                        <span aria-hidden="true">◫</span>{engine.code} · {engine.customerName}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {customerSearch.customers.length > 0 && (
+                  <div className="util-search-group">
+                    <small>{locale === "cs" ? "Zákazníci" : "Customers"}</small>
+                    {customerSearch.customers.map((customer) => (
+                      <button key={customer.id} type="button" onMouseDown={() => { setDeepLinkCustomer({ customerId: customer.id, engineId: null }); setView("customers"); setSearchQuery(""); }}>
+                        <span aria-hidden="true">♧</span>{customer.name}{customer.email ? ` · ${customer.email}` : ""}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {searchSectionResults.length > 0 && (
                   <div className="util-search-group">
                     <small>{locale === "cs" ? "Sekce" : "Sections"}</small>
@@ -828,12 +914,23 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
             </div>
             <div className="util-bell-wrap">
               <button className="util-bell" type="button" onClick={() => setNotifOpen((open) => !open)} aria-expanded={notifOpen}>
-                🔔{(enginesNeedingService.length + vehiclesNeedingService.length) > 0 && <span className="notif-count">{enginesNeedingService.length + vehiclesNeedingService.length}</span>}
+                🔔{(enginesNeedingService.length + vehiclesNeedingService.length + customerAlerts.length) > 0 && <span className="notif-count">{enginesNeedingService.length + vehiclesNeedingService.length + customerAlerts.length}</span>}
               </button>
               {notifOpen && (
                 <div className="notif-panel">
                   <header><strong>{locale === "cs" ? "Upozornění" : "Notifications"}</strong></header>
-                  {enginesNeedingService.length === 0 && vehiclesNeedingService.length === 0 && <EmptyState size="compact" title={locale === "cs" ? "Žádná upozornění" : "Nothing to flag"} />}
+                  {enginesNeedingService.length === 0 && vehiclesNeedingService.length === 0 && customerAlerts.length === 0 && <EmptyState size="compact" title={locale === "cs" ? "Žádná upozornění" : "Nothing to flag"} />}
+                  {customerAlerts.slice(0, 6).map((alert) => (
+                    <button key={alert.orderEngineId} type="button" className="notif-row" onClick={() => { setDeepLinkServiceOrderId(alert.orderId); setView("serviceOrders"); setNotifOpen(false); }}>
+                      <i />
+                      <div>
+                        <strong>{alert.status === "done"
+                          ? (locale === "cs" ? `Motor ${alert.engineCode} čeká na kontrolu` : `Engine ${alert.engineCode} is waiting for a check`)
+                          : (locale === "cs" ? `Motor ${alert.engineCode} čeká na vyzvednutí` : `Engine ${alert.engineCode} is awaiting pickup`)}</strong>
+                        <small>{alert.number} · {alert.customerName}</small>
+                      </div>
+                    </button>
+                  ))}
                   {enginesNeedingService.slice(0, 6).map((engine) => (
                     <button key={engine.id} type="button" className="notif-row" onClick={() => { setView("engines"); setDetailEngineId(engine.id); setNotifOpen(false); }}>
                       <i />
@@ -883,6 +980,7 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
           showNotice={showNotice}
           onOpenView={(nextView) => { setView(nextView); if (nextView !== "engines") setDetailEngineId(null); if (nextView === "races") setRequestedRaceId(null); }}
           onOpenRace={(raceId) => { setRequestedRaceId(raceId); setView("races"); setDetailEngineId(null); }}
+          onOpenCustomerOrders={(status) => { setDeepLinkOrderStatus(status); setView("serviceOrders"); }}
         />}
         {view === "tasks" && <TaskPage locale={locale} role={session?.role ?? "mechanic"} currentUser={session?.fullName ?? "Martin Prokop"} />}
         {view === "engines" && !detailEngine && (
@@ -931,7 +1029,11 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
         {view === "raceTypes" && <CatalogPage kind="raceType" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "circuits" && <CircuitsPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "teams" && <CatalogPage kind="team" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
-        {view === "customers" && <CustomersPage locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "customers" && <CustomersPage locale={locale} role={session?.role ?? "mechanic"}
+          onOpenOrder={(orderId) => { setDeepLinkServiceOrderId(orderId); setView("serviceOrders"); }}
+          initialCustomerId={deepLinkCustomer?.customerId ?? null}
+          initialEngineId={deepLinkCustomer?.engineId ?? null}
+          onInitialCustomerConsumed={() => setDeepLinkCustomer(null)} />}
         {view === "drivers" && <CatalogPage kind="driver" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "carburetors" && <CatalogPage kind="carburetor" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
         {view === "mechanics" && <CatalogPage kind="mechanic" locale={locale} role={session?.role ?? "mechanic"} onDetailOpenChange={setCatalogDetailOpen} />}
@@ -971,7 +1073,9 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
         {view === "serviceOrders" && (
           <ServiceOrdersPage locale={locale} role={session?.role ?? "mechanic"}
             initialOpenOrderId={deepLinkServiceOrderId}
-            onInitialOpenOrderIdConsumed={() => setDeepLinkServiceOrderId(null)} />
+            onInitialOpenOrderIdConsumed={() => setDeepLinkServiceOrderId(null)}
+            initialStatusFilter={deepLinkOrderStatus}
+            onInitialStatusFilterConsumed={() => setDeepLinkOrderStatus(null)} />
         )}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
@@ -1096,13 +1200,16 @@ function profileInitials(name: string) {
   return `${parts[0]?.[0] ?? "U"}${parts.length > 1 ? parts.at(-1)?.[0] ?? "" : ""}`.toUpperCase();
 }
 
-function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { locale: Locale; engines: EngineRecord[]; showNotice: (message: string) => void; onOpenView: (view: View) => void; onOpenRace: (raceId: string) => void }) {
+type CustomerServiceSummary = { inProgress: number; waitingPart: number; toCheck: number; awaitingPickup: number; overdueDays: number };
+
+function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace, onOpenCustomerOrders }: { locale: Locale; engines: EngineRecord[]; showNotice: (message: string) => void; onOpenView: (view: View) => void; onOpenRace: (raceId: string) => void; onOpenCustomerOrders: (status: string) => void }) {
   const t = copy[locale];
   const [dashboardRaces, setDashboardRaces] = useState<DashboardRace[]>([]);
   const [catalog, setCatalog] = useState<DashboardCatalog>({ drivers: [], carburetors: [], vehicles: [] });
   const [dashboardTasks, setDashboardTasks] = useState<WorkItem[]>([]);
   const [dashboardActivity, setDashboardActivity] = useState<ActivityRecord[]>([]);
   const [inventoryCount, setInventoryCount] = useState(0);
+  const [customerSummary, setCustomerSummary] = useState<CustomerServiceSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<EngineFilter>("MINI");
 
@@ -1136,6 +1243,12 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
       }
     }
     void loadDashboard();
+    // Zakázkový servis se načítá zvlášť: je to novější modul a jeho výpadek nesmí shodit
+    // zbytek dashboardu, který tým používá každý den.
+    void fetch("/api/service-orders?summary=1", { cache: "no-store" })
+      .then((response) => response.ok ? response.json() : null)
+      .then((data: { summary: CustomerServiceSummary } | null) => { if (active && data) setCustomerSummary(data.summary); })
+      .catch(() => undefined);
     return () => { active = false; };
   }, [locale]);
 
@@ -1236,6 +1349,29 @@ function Dashboard({ locale, engines, showNotice, onOpenView, onOpenRace }: { lo
           </div>
         )}
       </div>
+
+      {/* Zákaznické motory — čtyři čísla, každé proklikne na ten samý filtr v sekci Zakázky.
+          Sekce se ukáže, jen když modul někdo reálně používá; prázdná zakázková evidence
+          nemá na hlavním přehledu co dělat. */}
+      {customerSummary && (customerSummary.inProgress + customerSummary.waitingPart + customerSummary.toCheck + customerSummary.awaitingPickup) > 0 && (
+        <div>
+          <div className="section-head"><h2><span className="streak"><i /><i /><i /></span>{t.customerService}</h2><a onClick={() => onOpenCustomerOrders("")}>{t.customerServiceAll}</a></div>
+          <div className="customer-summary-grid">
+            <button type="button" className="customer-summary-tile" onClick={() => onOpenCustomerOrders("in_progress")}>
+              <strong>{customerSummary.inProgress}</strong><span>{t.customerInProgress}</span>
+            </button>
+            <button type="button" className="customer-summary-tile tone-waiting" onClick={() => onOpenCustomerOrders("waiting_part")}>
+              <strong>{customerSummary.waitingPart}</strong><span>{t.customerWaitingPart}</span>
+            </button>
+            <button type="button" className="customer-summary-tile tone-check" onClick={() => onOpenCustomerOrders("done")}>
+              <strong>{customerSummary.toCheck}</strong><span>{t.customerToCheck}</span>
+            </button>
+            <button type="button" className="customer-summary-tile tone-overdue" onClick={() => onOpenCustomerOrders("checked")}>
+              <strong>{customerSummary.awaitingPickup}</strong><span>{t.customerAwaitingPickup(customerSummary.overdueDays)}</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="info-grid">
         <section className="dash-panel">
