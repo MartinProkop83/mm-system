@@ -83,3 +83,11 @@ vytváří/upravuje tabulky.
   které vznikly jen přes `runtime-schema.ts`).
 - **Přístup k datům jde přes `getD1()` a raw SQL** (`d1.prepare(...).bind(...)`,
   `d1.batch([...])`), ne přes `getDb()`.
+
+# Git — push hned po commitu
+
+Po každém commitu na `main` rovnou spusť `git push`, bez čekání na dotaz.
+V hlášení po pushi napiš, že je commit na GitHubu.
+
+Platí jen pro běžný `git push` na `main`. Force push, přepis historie nebo
+push na jinou větev než `main` se stále nejdřív ptá.
