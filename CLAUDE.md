@@ -91,3 +91,29 @@ V hlášení po pushi napiš, že je commit na GitHubu.
 
 Platí jen pro běžný `git push` na `main`. Force push, přepis historie nebo
 push na jinou větev než `main` se stále nejdřív ptá.
+
+# Úklid testovacích dat v D1 — žádný DELETE/UPDATE bez WHERE
+
+14. 9. 2026 smazal blanket `DELETE FROM customers;` (bez WHERE) tři existující
+zákazníky včetně aktivního „Martin Prokop" napojeného na reálný prodej — tabulka
+`customers` existovala už před touhle relací, takže úklid testovacích řádků
+smazal i to, co s testem nemělo nic společného. Auditem stejného dne se navíc
+našly dva stejné případy na `engine_service_entries` (legacy tabulka servisní
+historie z prvního release, 23. 8. 2026) — bez zálohy z doby před incidentem,
+takže nešlo ověřit ani vrátit.
+
+Pravidla, ne doporučení:
+
+- **Nikdy `DELETE` ani `UPDATE` bez `WHERE`** na tabulce v D1 (lokální i
+  produkční). Bez výjimky — i „vím jistě, že je prázdná" se ověří dotazem,
+  ne předpokladem.
+- Testovací data maž **jen podle konkrétních ID**, která jsi sám vytvořil.
+  Tahle ID si zapiš hned při vytvoření (proměnná v shellu, komentář v
+  transkriptu) — ne až zpětně, kdy už nejde rozlišit test od zbytku.
+- **Před každým mazáním vypiš, co se smaže** (`SELECT` se stejnou podmínkou,
+  jakou bude mít `DELETE`) a přečti si výstup, než pošleš mazací příkaz.
+- Nová tabulka založená v týhle relaci (viz `runtime-schema.ts`) může být
+  bez rizika kompletně prázdná — i tak ji ale maž podle ID, ne blanketově;
+  jistota bez ověření se časem stává zdrojem přesně týchž chyb.
+- Když si nejsi jistý, co je testovací a co uživatelovo, **nemaž nic a
+  zeptej se.**
