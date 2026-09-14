@@ -15,6 +15,7 @@ import { CircuitsPage } from "./circuits-page";
 import { SettingsPage } from "./settings-page";
 import { ClothingPage } from "./clothing-page";
 import { CustomersPage, InventoryPage } from "./commerce-pages";
+import { ServiceOrdersPage } from "./service-orders-page";
 import { ServiceQueuePage } from "./service-queue-page";
 import { ChecklistsPage } from "./checklist-pages";
 import Link from "next/link";
@@ -28,10 +29,10 @@ import { EngineDocumentsPanel } from "./engine-documents-panel";
 import { QrSheetPage } from "./qr-sheet-page";
 
 type Locale = "cs" | "en";
-type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "qrCodes" | "sales" | "inventory" | "documents" | "settings";
+type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "qrCodes" | "sales" | "serviceOrders" | "inventory" | "documents" | "settings";
 // Views whose own page component already renders its own eyebrow/title/description hero —
 // the shared topbar skips its generic title there instead of repeating it.
-const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "qrCodes", "sales", "inventory", "documents", "settings"];
+const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "qrCodes", "sales", "serviceOrders", "inventory", "documents", "settings"];
 // Views backed by CatalogPage — its own detail sub-view (driver/team/mechanic/vehicle/carburetor card)
 // replaces the list and already carries its own back button + hero, so the topbar hides entirely there.
 const CATALOG_BACKED_VIEWS: View[] = ["raceTypes", "teams", "drivers", "carburetors", "mechanics", "vehicles"];
@@ -258,6 +259,7 @@ const copy = {
     serviceHistory: "Servisní historie",
     qrCodes: "QR kódy",
     sales: "Prodej",
+    serviceOrders: "Zakázky",
     inventory: "Sklad",
     documents: "Dokumenty",
     settings: "Nastavení",
@@ -367,6 +369,7 @@ const copy = {
     serviceHistory: "Service history",
     qrCodes: "QR codes",
     sales: "Sales",
+    serviceOrders: "Orders",
     inventory: "Inventory",
     documents: "Documents",
     settings: "Settings",
@@ -475,6 +478,7 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "serviceHistory", mark: "◈" },
   { id: "qrCodes", mark: "▨" },
   { id: "sales", mark: "¤" },
+  { id: "serviceOrders", mark: "⚒" },
   { id: "inventory", mark: "□" },
   { id: "documents", mark: "≡" },
   { id: "settings", mark: "⚙" },
@@ -486,7 +490,7 @@ const navGroups: Array<{ labelCs: string; labelEn: string; items: View[] }> = [
   { labelCs: "Tým", labelEn: "Team", items: ["drivers", "teams", "customers", "mechanics", "clothing"] },
   { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "serviceHistory", "qrCodes", "inventory"] },
   { labelCs: "Logistika", labelEn: "Logistics", items: ["accommodation", "flights", "rentals"] },
-  { labelCs: "Obchod", labelEn: "Business", items: ["sales", "documents"] },
+  { labelCs: "Obchod", labelEn: "Business", items: ["sales", "serviceOrders", "documents"] },
   { labelCs: "Nastavení", labelEn: "Settings", items: ["settings"] },
 ];
 
@@ -955,6 +959,7 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
         {/* Arch QR štítků pro celou kategorii. Zatím na obrazovku, tisk až podle formátu štítků. */}
         {view === "qrCodes" && <QrSheetPage locale={locale} />}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "serviceOrders" && <ServiceOrdersPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "settings" && session && (
