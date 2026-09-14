@@ -595,3 +595,43 @@ test("service order catalogs live in settings with prices in both currencies", a
   assert.match(engineTypesPage, /api\("PUT", \{ order:/);
   assert.match(pricePage, /api\("PUT", \{ order:/);
 });
+
+/**
+ * Mechanikova úzká routa pro zákaznické motory — nesmí se dát dopočítat sleva ani zjistit
+ * celková cena zakázky z toho, co mechanik dostane, a naše servisní fronta/zápis motorů
+ * (`/api/service-queue`, `/api/service-records`) zůstávají tímhle úplně nedotčené.
+ */
+test("mechanic's customer-service route hides discounts/totals and never touches the engine queue", async () => {
+  const [accessSource, routeSource, serviceQueueSource, serviceRecordsSource] = await Promise.all([
+    readFile(new URL("../app/api-access.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/customer-service/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/service-queue/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/service-records/route.ts", import.meta.url), "utf8"),
+  ]);
+
+  // Mechanik na routu smí — je to jeho jediná cesta k zákaznickému motoru.
+  assert.match(accessSource, /MECHANIC_READ = new Set\(\[[\s\S]*?"\/api\/customer-service"/);
+  assert.match(accessSource, /MECHANIC_WRITE = new Set\(\[[\s\S]*?"\/api\/customer-service"/);
+
+  // Whitelist pro tuhle routu nesmí propustit slevu ani celkovou cenu řádku — z ceny,
+  // množství a celkové ceny by šla sleva zpětně dopočítat, takže se musí vynechat obě
+  // dohromady, ne jen jedna z nich.
+  const payloadMatch = accessSource.match(/"\/api\/customer-service":\s*\{[\s\S]*?\n {2}\},/);
+  assert.ok(payloadMatch, "whitelist pro /api/customer-service nenalezen v MECHANIC_PAYLOADS");
+  const payloadBlock = payloadMatch[0];
+  for (const forbidden of ["discountPercent", "totalCzkCents", "totalEurCents", "orderDiscountWorkPercent", "orderDiscountMaterialPercent", "\"orderId\""]) {
+    assert.equal(payloadBlock.includes(forbidden), false, `whitelist pro /api/customer-service propouští „${forbidden}" — mechanik by z toho dopočítal slevu nebo viděl vnitřní ID zakázky`);
+  }
+  assert.match(payloadBlock, /unitPriceCzkCents/); // ceníkové ceny naopak vidět má
+
+  // Routa nikdy nečte cenu ani slevu z těla požadavku — cena jde z ceníku/skladu podle id,
+  // sleva se vždycky dopočítá na serveru ze zakázky. Klient nemá jak si nadiktovat vlastní.
+  assert.equal(/payload\.discountPercent/.test(routeSource), false);
+  assert.equal(/payload\.unitPriceCzkCents|payload\.unitPriceEurCents/.test(routeSource), false);
+
+  // Naše servisní fronta a zápis servisu o zákaznických motorech nesmí vědět vůbec —
+  // etapa zákaznického servisu je vedle, ne uvnitř.
+  for (const source of [serviceQueueSource, serviceRecordsSource]) {
+    assert.equal(/customer_engines|customerEngines|service_order|customer-service/.test(source), false);
+  }
+});

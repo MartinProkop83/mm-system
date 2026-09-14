@@ -38,6 +38,7 @@ type OrderDetail = {
   handoverType: "personal" | "carrier" | "race"; carrier: string; trackingNumber: string;
   shippingPriceCzkCents: number; shippingPriceEurCents: number; shippedAt: string;
   invoicedAt: number | null; unlockedAt: number | null; cancelledAt: number | null; cancelledReason: string;
+  deletedAt: number | null; deletedBy: string;
   locked: boolean; engines: OrderEngine[]; photos: Photo[];
 };
 type PriceItem = { id: string; code: string; nameCs: string; nameEn: string; priceCzkCents: number; priceEurCents: number; isActive: boolean };
@@ -54,6 +55,15 @@ const t9n = {
     cancelled: "Zakázka je stornovaná", invoiced: "Zakázka je vyfakturovaná a uzavřená pro úpravy",
     unlock: "Odemknout pro úpravu", cancel: "Stornovat zakázku", cancelConfirm: "Opravdu stornovat celou zakázku? Motory na ní zůstanou v historii, jen se zakázka označí jako stornovaná.",
     cancelReason: "Důvod stornování", invoice: "Vyfakturováno", invoiceButton: "Označit jako vyfakturováno",
+    deleteOrder: "Smazat zakázku", inTrash: "Zakázka je v koši — smaže se navždy za 30 dní od smazání.",
+    restoreFromTrash: "Obnovit z koše", restoreError: "Zakázku se nepodařilo obnovit.",
+    deleteTitle: "Smazat zakázku?", deleteIntro: "Zakázka půjde do koše. Po 30 dnech zmizí navždy — do té doby ji superadmin může v koši obnovit.",
+    deleteWillDisappear: "Co zmizí z běžného přehledu:", deleteEngines: (n: number) => `${n} ${n === 1 ? "motor" : n < 5 ? "motory" : "motorů"}`,
+    deleteWorks: (n: number) => `${n} ${n === 1 ? "provedená práce" : n < 5 ? "provedené práce" : "provedených prací"}`,
+    deleteMaterials: (n: number) => `${n} ${n === 1 ? "položka materiálu" : n < 5 ? "položky materiálu" : "položek materiálu"}`,
+    deleteWaiting: (n: number) => `${n} ${n === 1 ? "čekající díl" : n < 5 ? "čekající díly" : "čekajících dílů"}`,
+    deletePhotos: (n: number) => `${n} ${n === 1 ? "fotka" : n < 5 ? "fotky" : "fotek"}`,
+    deleteConfirmButton: "Smazat do koše", deleteError: "Zakázku se nepodařilo smazat.",
     customer: "Zákazník", currency: "Měna", discountWork: "Sleva na práci", discountMaterial: "Sleva na materiál",
     received: "Přijato", deadline: "Termín", deadlineNote: "Poznámka k termínu", customerNote: "Co zákazník řekl", internalNote: "Interní poznámka",
     handover: "Předání", handoverPersonal: "Osobně", handoverCarrier: "Přeprava", handoverRace: "Na závod",
@@ -81,6 +91,15 @@ const t9n = {
     cancelled: "This order is cancelled", invoiced: "This order is invoiced and locked for edits",
     unlock: "Unlock for editing", cancel: "Cancel order", cancelConfirm: "Cancel this whole order? Its engines stay in history, the order is just marked as cancelled.",
     cancelReason: "Cancellation reason", invoice: "Invoiced", invoiceButton: "Mark as invoiced",
+    deleteOrder: "Delete order", inTrash: "This order is in trash — it disappears for good 30 days after deletion.",
+    restoreFromTrash: "Restore from trash", restoreError: "Could not restore the order.",
+    deleteTitle: "Delete this order?", deleteIntro: "The order goes to trash. It disappears for good after 30 days — until then a superadmin can restore it from trash.",
+    deleteWillDisappear: "What disappears from the regular view:", deleteEngines: (n: number) => `${n} engine${n === 1 ? "" : "s"}`,
+    deleteWorks: (n: number) => `${n} work item${n === 1 ? "" : "s"}`,
+    deleteMaterials: (n: number) => `${n} material item${n === 1 ? "" : "s"}`,
+    deleteWaiting: (n: number) => `${n} waiting part${n === 1 ? "" : "s"}`,
+    deletePhotos: (n: number) => `${n} photo${n === 1 ? "" : "s"}`,
+    deleteConfirmButton: "Delete to trash", deleteError: "Could not delete the order.",
     customer: "Customer", currency: "Currency", discountWork: "Work discount", discountMaterial: "Material discount",
     received: "Received", deadline: "Deadline", deadlineNote: "Deadline note", customerNote: "What the customer said", internalNote: "Internal note",
     handover: "Hand-over", handoverPersonal: "In person", handoverCarrier: "Carrier", handoverRace: "To a race",
@@ -103,6 +122,8 @@ const t9n = {
     pickEngine: "Pick an engine…", pickType: "Pick a type…", note: "Note", cancelForm: "Cancel", add: "Add",
   },
 } as const;
+
+type Copy = (typeof t9n)[Locale];
 
 function statusLabel(status: OrderStatus, locale: Locale) {
   const map = {
@@ -154,6 +175,7 @@ export function ServiceOrderDetail({ orderId, locale, role, onClose }: { orderId
   const [loadError, setLoadError] = useState(false);
   const [error, setError] = useState("");
   const [addingEngine, setAddingEngine] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const canManage = role === "superadmin" || role === "boss";
   const canUnlock = role === "superadmin";
 
@@ -217,6 +239,9 @@ export function ServiceOrderDetail({ orderId, locale, role, onClose }: { orderId
   const orderEurTotal = engineTotals.reduce((sum, item) => sum + item.works.eur + item.materials.eur, 0);
   const allLines = order.engines.flatMap((engine) => [...engine.works, ...engine.materials]);
   const orderHasEur = allLines.length === 0 || allLines.every((line) => line.totalEurCents > 0);
+  // V koši je zakázka jen zneviditelněná, ne fyzicky smazaná (viz purgeExpiredTrash na serveru) —
+  // do skutečného smazání za 30 dní se ale nesmí dát editovat ani obnovovat kliknutím na nic jiného.
+  const isTrashed = Boolean(order.deletedAt);
 
   return (
     <div className="service-order-detail">
@@ -225,38 +250,47 @@ export function ServiceOrderDetail({ orderId, locale, role, onClose }: { orderId
       <section className="dash-panel tab-panel-header">
         <div><span className="eyebrow">{t.eyebrow}</span><h2>{order.number}</h2><p>{order.customerName}</p></div>
         <div className="service-order-header-actions">
-          {order.cancelledAt && <span className="status-pill danger">{t.cancelled}</span>}
-          {!order.cancelledAt && order.invoicedAt && !order.locked && <span className="status-pill neutral">{t.invoice}</span>}
-          {!order.cancelledAt && order.locked && <span className="status-pill neutral">{t.invoiced}</span>}
-          {!order.cancelledAt && order.locked && canUnlock && (
+          {isTrashed && <span className="status-pill danger">🗑 {t.inTrash}</span>}
+          {!isTrashed && order.cancelledAt && <span className="status-pill danger">{t.cancelled}</span>}
+          {!isTrashed && !order.cancelledAt && order.invoicedAt && !order.locked && <span className="status-pill neutral">{t.invoice}</span>}
+          {!isTrashed && !order.cancelledAt && order.locked && <span className="status-pill neutral">{t.invoiced}</span>}
+          {isTrashed && role === "superadmin" && (
+            <button className="secondary-compact" type="button" onClick={() => void run(() => api("/api/service-orders", "PUT", { kind: "restore", orderId: order.id }))}>
+              ↺ {t.restoreFromTrash}
+            </button>
+          )}
+          {!isTrashed && order.locked && canUnlock && (
             <button className="secondary-compact" type="button" onClick={() => void run(() => api("/api/service-orders", "PUT", { kind: "unlock", orderId: order.id }))}>{t.unlock}</button>
           )}
-          {!order.cancelledAt && !order.invoicedAt && canManage && (
+          {!isTrashed && !order.cancelledAt && !order.invoicedAt && canManage && (
             <button className="secondary-compact" type="button" onClick={() => void run(() => api("/api/service-orders", "PUT", { kind: "invoice", orderId: order.id }))}>{t.invoiceButton}</button>
           )}
-          {!order.cancelledAt && role === "superadmin" && (
+          {!isTrashed && !order.cancelledAt && role === "superadmin" && (
             <button className="danger-compact" type="button" onClick={() => {
               const reason = window.prompt(t.cancelReason) ?? "";
               if (window.confirm(t.cancelConfirm)) void run(() => api("/api/service-orders", "DELETE", { id: order.id, reason }));
             }}>{t.cancel}</button>
+          )}
+          {!isTrashed && role === "superadmin" && (
+            <button className="danger-compact" type="button" onClick={() => setDeleting(true)}>🗑 {t.deleteOrder}</button>
           )}
         </div>
       </section>
 
       {error && <p className="form-error" role="alert">{error}</p>}
 
-      <OrderHeaderForm order={order} locale={locale} canManage={canManage && !order.locked && !order.cancelledAt} onSaved={() => void load()} onError={setError} />
+      <OrderHeaderForm order={order} locale={locale} canManage={canManage && !order.locked && !order.cancelledAt && !isTrashed} onSaved={() => void load()} onError={setError} />
 
       <section className="dash-panel">
         <header className="settings-section-heading">
           <h3>{t.engines}</h3>
-          {canManage && !order.locked && !order.cancelledAt && <button className="secondary-compact" type="button" onClick={() => setAddingEngine(true)}>{t.addEngine}</button>}
+          {canManage && !order.locked && !order.cancelledAt && !isTrashed && <button className="secondary-compact" type="button" onClick={() => setAddingEngine(true)}>{t.addEngine}</button>}
         </header>
 
         {order.engines.length === 0 && <EmptyState size="inline" title={locale === "cs" ? "Zatím žádný motor" : "No engine yet"} />}
 
         {order.engines.map((engine, index) => (
-          <EngineCard key={engine.id} engine={engine} locale={locale} currency={order.currency} canManage={canManage} locked={order.locked || Boolean(order.cancelledAt)}
+          <EngineCard key={engine.id} engine={engine} locale={locale} currency={order.currency} canManage={canManage} locked={order.locked || Boolean(order.cancelledAt) || isTrashed}
             priceItems={priceItems} inventoryParts={inventoryParts}
             subtotals={engineTotals[index]}
             onChanged={() => void load()} onError={setError} />
@@ -273,11 +307,18 @@ export function ServiceOrderDetail({ orderId, locale, role, onClose }: { orderId
         )}
       </section>
 
-      <PhotosSection order={order} locale={locale} canManage={canManage} onChanged={() => void load()} onError={setError} />
+      <PhotosSection order={order} locale={locale} canManage={canManage && !isTrashed} onChanged={() => void load()} onError={setError} />
 
       {addingEngine && (
         <AddEngineModal locale={locale} orderId={order.id} customerEngines={customerEngines} engineTypes={engineTypes}
           onClose={() => setAddingEngine(false)} onAdded={() => { setAddingEngine(false); void load(); }} onError={setError} />
+      )}
+
+      {deleting && (
+        <DeleteOrderModal t={t} order={order}
+          onClose={() => setDeleting(false)}
+          onDeleted={() => { setDeleting(false); onClose(); }}
+          onError={setError} />
       )}
     </div>
   );
@@ -703,6 +744,57 @@ function PhotosSection({ order, locale, canManage, onChanged, onError }: {
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * Potvrzení smazání zakázky — počty se čtou z už načteného `order`, žádný nový dotaz na
+ * server. Ukazuje přesně to, co po odkliknutí zmizí z běžného přehledu (do koše, ne navždy).
+ */
+function DeleteOrderModal({ t, order, onClose, onDeleted, onError }: {
+  t: Copy; order: OrderDetail; onClose: () => void; onDeleted: () => void; onError: (message: string) => void;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const engineCount = order.engines.length;
+  const workCount = order.engines.reduce((sum, engine) => sum + engine.works.length, 0);
+  const materialCount = order.engines.reduce((sum, engine) => sum + engine.materials.length, 0);
+  const waitingCount = order.engines.reduce((sum, engine) => sum + engine.waitingParts.length, 0);
+  const photoCount = order.photos.length;
+
+  async function submit() {
+    setDeleting(true);
+    try {
+      await api("/api/service-orders", "PUT", { kind: "trash", orderId: order.id });
+      onDeleted();
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "error");
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="modal" role="dialog" aria-modal="true" aria-labelledby="delete-order-title">
+        <header className="modal-header">
+          <div><h2 id="delete-order-title">{t.deleteTitle}</h2></div>
+          <button className="close-button" type="button" onClick={onClose} aria-label={t.cancelForm}>×</button>
+        </header>
+        <p>{t.deleteIntro}</p>
+        <p><strong>{t.deleteWillDisappear}</strong></p>
+        <ul className="service-order-delete-summary">
+          <li>{t.deleteEngines(engineCount)}</li>
+          {workCount > 0 && <li>{t.deleteWorks(workCount)}</li>}
+          {materialCount > 0 && <li>{t.deleteMaterials(materialCount)}</li>}
+          {waitingCount > 0 && <li>{t.deleteWaiting(waitingCount)}</li>}
+          {photoCount > 0 && <li>{t.deletePhotos(photoCount)}</li>}
+        </ul>
+        <footer className="modal-actions">
+          <span className="modal-actions-spacer" />
+          <button className="secondary-compact" type="button" onClick={onClose}>{t.cancelForm}</button>
+          <button className="danger-compact" type="button" disabled={deleting} onClick={() => void submit()}>{t.deleteConfirmButton}</button>
+        </footer>
+      </section>
+    </div>
   );
 }
 

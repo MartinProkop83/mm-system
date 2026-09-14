@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { ServiceQueuePage } from "./service-queue-page";
 import { EngineServiceEntryScreen } from "./engine-service-entry-screen";
+import { CustomerServiceScreen } from "./customer-service-screen";
 
 type Locale = "cs" | "en";
 type AppRole = "superadmin" | "boss" | "mechanic";
@@ -22,6 +23,7 @@ export function ServiceQueueScreen({ locale, role, userName, initialEngineId = "
   initialEngineId?: string;
 }) {
   const [engineId, setEngineId] = useState<string | null>(initialEngineId || null);
+  const [customerOrderEngineId, setCustomerOrderEngineId] = useState<string | null>(null);
   const canLeave = role !== "mechanic";
 
   if (engineId) {
@@ -38,6 +40,12 @@ export function ServiceQueueScreen({ locale, role, userName, initialEngineId = "
     );
   }
 
+  if (customerOrderEngineId) {
+    return <CustomerServiceScreen locale={locale} orderEngineId={customerOrderEngineId} onDone={() => setCustomerOrderEngineId(null)} />;
+  }
+  // Mechanikova fullscreen obrazovka nepotřebuje orderId — jde přímo na jeho jedinou
+  // pracovní obrazovku, ne do sekce Zakázky (tu ani nesmí vidět).
+
   return (
     <main className="queue-screen">
       <header className="queue-screen-bar">
@@ -50,7 +58,7 @@ export function ServiceQueueScreen({ locale, role, userName, initialEngineId = "
         )}
       </header>
       <div className="queue-screen-body">
-        <ServiceQueuePage locale={locale} onOpenEngineService={setEngineId} />
+        <ServiceQueuePage locale={locale} onOpenEngineService={setEngineId} onOpenCustomerService={(orderEngineId) => setCustomerOrderEngineId(orderEngineId)} />
       </div>
     </main>
   );

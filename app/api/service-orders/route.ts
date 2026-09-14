@@ -1,4 +1,4 @@
-import { getD1 } from "../../../db";
+import { getAssetsBucket, getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
 
@@ -109,24 +109,63 @@ async function requireManager(request: Request) {
   return { user: auth.user, json: auth.json } as const;
 }
 
-/** `SERVIS_26-001`, počítadlo v rámci roku podle MAX, ne COUNT — nesmí se po smazání zacyklit. */
+/**
+ * `SERVIS_26-001`, počítadlo v rámci roku podle MAX z `service_order_numbers`, ne z
+ * `service_orders` — ta se po 30 dnech v koši zmenšuje (viz `purgeExpiredTrash`), zatímco
+ * ledger čísel zůstává napořád, takže se číslo nikdy nepřidělí podruhé.
+ */
 async function nextOrderNumber(d1: D1, receivedAt: string) {
   const year = /^\d{4}/.test(receivedAt) ? receivedAt.slice(2, 4) : String(new Date().getFullYear()).slice(2, 4);
   const prefix = `SERVIS_${year}-`;
-  const existing = await d1.prepare("SELECT number FROM service_orders WHERE number LIKE ? ORDER BY number DESC LIMIT 1")
+  const existing = await d1.prepare("SELECT number FROM service_order_numbers WHERE number LIKE ? ORDER BY number DESC LIMIT 1")
     .bind(`${prefix}%`).first<{ number: string }>();
   const lastSeq = existing ? Number.parseInt(existing.number.slice(prefix.length), 10) : 0;
   const nextSeq = (Number.isFinite(lastSeq) ? lastSeq : 0) + 1;
   return `${prefix}${String(nextSeq).padStart(3, "0")}`;
 }
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Lazy sweep koše — spouští se opportunisticky při běžném provozu (GET, DELETE), protože
+ * projekt nemá cron trigger. Po 30 dnech v koši zmizí obsah zakázky skutečně: fotky z R2,
+ * všechny podřízené řádky a samotná zakázka. `service_order_numbers` a `customer_engines`
+ * se nikdy nemažou — číslo zůstává rezervované, motor zůstává v historii zákazníka.
+ */
+async function purgeExpiredTrash(d1: D1) {
+  const threshold = Date.now() - THIRTY_DAYS_MS;
+  const expired = await d1.prepare("SELECT id FROM service_orders WHERE deleted_at IS NOT NULL AND deleted_at <= ?")
+    .bind(threshold).all<{ id: string }>();
+  if (!expired.results.length) return;
+
+  const bucket = getAssetsBucket();
+  for (const { id: orderId } of expired.results) {
+    const photos = await d1.prepare("SELECT object_key AS objectKey FROM service_order_photos WHERE order_id = ?").bind(orderId).all<{ objectKey: string }>();
+    await Promise.all(photos.results.map((photo) => bucket.delete(photo.objectKey).catch(() => undefined)));
+
+    const engines = await d1.prepare("SELECT id FROM service_order_engines WHERE order_id = ?").bind(orderId).all<{ id: string }>();
+    const engineIds = engines.results.map((row) => row.id);
+    const statements = [
+      d1.prepare("DELETE FROM service_order_photos WHERE order_id = ?").bind(orderId),
+      ...(engineIds.length ? [
+        d1.prepare(`DELETE FROM service_order_waiting_parts WHERE order_engine_id IN (${engineIds.map(() => "?").join(",")})`).bind(...engineIds),
+        d1.prepare(`DELETE FROM service_order_materials WHERE order_engine_id IN (${engineIds.map(() => "?").join(",")})`).bind(...engineIds),
+        d1.prepare(`DELETE FROM service_order_works WHERE order_engine_id IN (${engineIds.map(() => "?").join(",")})`).bind(...engineIds),
+      ] : []),
+      d1.prepare("DELETE FROM service_order_engines WHERE order_id = ?").bind(orderId),
+      d1.prepare("DELETE FROM service_orders WHERE id = ?").bind(orderId),
+    ];
+    await d1.batch(statements);
+  }
+}
+
 async function loadOrderEngine(d1: D1, orderEngineId: string) {
   return d1.prepare(`
     SELECT oe.id, oe.order_id AS orderId, oe.status, o.cancelled_at AS orderCancelledAt,
-           o.invoiced_at AS invoicedAt, o.unlocked_at AS unlockedAt
+           o.deleted_at AS orderDeletedAt, o.invoiced_at AS invoicedAt, o.unlocked_at AS unlockedAt
     FROM service_order_engines oe JOIN service_orders o ON o.id = oe.order_id
     WHERE oe.id = ?
-  `).bind(orderEngineId).first<{ id: string; orderId: string; status: Status; orderCancelledAt: number | null; invoicedAt: number | null; unlockedAt: number | null }>();
+  `).bind(orderEngineId).first<{ id: string; orderId: string; status: Status; orderCancelledAt: number | null; orderDeletedAt: number | null; invoicedAt: number | null; unlockedAt: number | null }>();
 }
 
 /** Po vyfakturování se zakázka uzavírá — editace jde jen po odemknutí superadminem. */
@@ -143,6 +182,7 @@ export async function GET(request: Request) {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
+  await purgeExpiredTrash(d1);
   const url = new URL(request.url);
   const id = clean(url.searchParams.get("id"), 80);
 
@@ -152,19 +192,23 @@ export async function GET(request: Request) {
   const customerId = clean(url.searchParams.get("customerId"), 80);
   const receivedFrom = clean(url.searchParams.get("receivedFrom"), 10);
   const receivedTo = clean(url.searchParams.get("receivedTo"), 10);
+  const trash = url.searchParams.get("trash") === "1";
+  // Koš vidí jen superadmin — vedení a mechanik o něm nemají ani vědět.
+  if (trash && auth.user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
 
-  const conditions: string[] = [];
+  const conditions: string[] = [trash ? "o.deleted_at IS NOT NULL" : "o.deleted_at IS NULL"];
   const params: unknown[] = [];
   if (customerId) { conditions.push("o.customer_id = ?"); params.push(customerId); }
   if (receivedFrom) { conditions.push("o.received_at >= ?"); params.push(receivedFrom); }
   if (receivedTo) { conditions.push("o.received_at <= ?"); params.push(receivedTo); }
   if (status) { conditions.push("EXISTS (SELECT 1 FROM service_order_engines oe WHERE oe.order_id = o.id AND oe.status = ?)"); params.push(status); }
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const where = `WHERE ${conditions.join(" AND ")}`;
 
   const orders = await d1.prepare(`
     SELECT o.id, o.number, o.customer_id AS customerId, c.name AS customerName, o.currency,
            o.received_at AS receivedAt, o.deadline_date AS deadlineDate, o.deadline_note AS deadlineNote,
            o.invoiced_at AS invoicedAt, o.cancelled_at AS cancelledAt,
+           o.deleted_at AS deletedAt, o.deleted_by AS deletedBy,
            (SELECT COUNT(*) FROM service_order_engines oe WHERE oe.order_id = o.id) AS engineCount,
            (SELECT COUNT(*) FROM service_order_engines oe WHERE oe.order_id = o.id AND oe.status = 'received') AS receivedCount,
            (SELECT COUNT(*) FROM service_order_engines oe WHERE oe.order_id = o.id AND oe.status = 'in_progress') AS inProgressCount,
@@ -196,6 +240,7 @@ async function getOrderDetail(d1: D1, id: string) {
            o.shipping_price_czk_cents AS shippingPriceCzkCents, o.shipping_price_eur_cents AS shippingPriceEurCents,
            o.shipped_at AS shippedAt, o.invoiced_at AS invoicedAt, o.unlocked_at AS unlockedAt, o.unlocked_by AS unlockedBy,
            o.cancelled_at AS cancelledAt, o.cancelled_by AS cancelledBy, o.cancelled_reason AS cancelledReason,
+           o.deleted_at AS deletedAt, o.deleted_by AS deletedBy,
            o.created_by AS createdBy, o.created_at AS createdAt
     FROM service_orders o JOIN customers c ON c.id = o.customer_id
     WHERE o.id = ?
@@ -360,6 +405,9 @@ export async function POST(request: Request) {
     clean(payload.carrier, 160), clean(payload.trackingNumber, 160), cents(payload.shippingPriceCzkCents), cents(payload.shippingPriceEurCents), clean(payload.shippedAt, 10),
     guard.user.email, now, now,
   );
+  // Rezervace čísla v trvalém ledgeru — ve stejné dávce jako založení zakázky, ať se číslo
+  // nikdy nevydá bez odpovídajícího záznamu (a naopak).
+  const numberLedgerStatement = () => d1.prepare("INSERT INTO service_order_numbers (number, order_id, created_at) VALUES (?, ?, ?)").bind(orderNumber, orderId, now);
 
   resolvedEngines.forEach((resolved, index) => {
     statements.push(d1.prepare(`
@@ -383,7 +431,7 @@ export async function POST(request: Request) {
   // Retry stejně jako u prodejů — souběžný zápis ve stejné vteřině může narazit na unikátní číslo.
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await d1.batch([orderStatement(), ...statements]);
+      await d1.batch([orderStatement(), numberLedgerStatement(), ...statements]);
       return Response.json({ id: orderId, number: orderNumber }, { status: 201 });
     } catch (error) {
       const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -412,6 +460,7 @@ export async function PUT(request: Request) {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
+  await purgeExpiredTrash(d1);
   const kind = payload.kind ?? "";
 
   if (kind === "order") return updateOrder(d1, guard.user, payload);
@@ -422,15 +471,48 @@ export async function PUT(request: Request) {
   if (kind === "waitingPart") return upsertWaitingPart(d1, guard.user, payload);
   if (kind === "invoice") return invoiceOrder(d1, payload);
   if (kind === "unlock") return unlockOrder(d1, guard.user, payload);
+  if (kind === "trash") return trashOrder(d1, guard.user, payload);
+  if (kind === "restore") return restoreOrder(d1, payload);
   return Response.json({ error: "Unknown kind" }, { status: 400 });
+}
+
+/**
+ * Přesun zakázky do koše — jen zviditelnění (`deleted_at`), R2 fotky ani podřízené řádky se
+ * nedotknou. Skutečně zmizí až po 30 dnech přes `purgeExpiredTrash`. Jen superadmin.
+ */
+async function trashOrder(d1: D1, user: { email: string; role: string }, payload: Payload) {
+  if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
+  const id = clean(payload.orderId ?? payload.id, 80);
+  if (!id) return Response.json({ error: "Order id is required" }, { status: 400 });
+  const now = Date.now();
+  const result = await d1.prepare("UPDATE service_orders SET deleted_at = ?, deleted_by = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL")
+    .bind(now, user.email, now, id).run();
+  if (!result.meta.changes) return Response.json({ error: "Order not found or already in trash" }, { status: 409 });
+  await d1.prepare(`
+    INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
+    VALUES (?, ?, 'trash', 'service_order', ?, '{}', ?)
+  `).bind(crypto.randomUUID(), user.email, id, now).run();
+  return Response.json({ id });
+}
+
+/** Obnovení z koše — zakázka se vrátí přesně do stavu, v jakém byla (storno/fakturace se nemění). */
+async function restoreOrder(d1: D1, payload: Payload) {
+  const id = clean(payload.orderId ?? payload.id, 80);
+  if (!id) return Response.json({ error: "Order id is required" }, { status: 400 });
+  const now = Date.now();
+  const result = await d1.prepare("UPDATE service_orders SET deleted_at = NULL, deleted_by = '', updated_at = ? WHERE id = ? AND deleted_at IS NOT NULL")
+    .bind(now, id).run();
+  if (!result.meta.changes) return Response.json({ error: "Order not found or not in trash" }, { status: 409 });
+  return Response.json({ id });
 }
 
 async function updateOrder(d1: D1, user: { email: string }, payload: Payload) {
   const id = clean(payload.id, 80);
   if (!id) return Response.json({ error: "Order id is required" }, { status: 400 });
-  const order = await d1.prepare("SELECT id, invoiced_at AS invoicedAt, unlocked_at AS unlockedAt, cancelled_at AS cancelledAt FROM service_orders WHERE id = ?")
-    .bind(id).first<{ invoicedAt: number | null; unlockedAt: number | null; cancelledAt: number | null }>();
+  const order = await d1.prepare("SELECT id, invoiced_at AS invoicedAt, unlocked_at AS unlockedAt, cancelled_at AS cancelledAt, deleted_at AS deletedAt FROM service_orders WHERE id = ?")
+    .bind(id).first<{ invoicedAt: number | null; unlockedAt: number | null; cancelledAt: number | null; deletedAt: number | null }>();
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
+  if (order.deletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
   if (order.cancelledAt) return Response.json({ error: "Order is cancelled" }, { status: 409 });
   if (isLocked(order)) return Response.json({ error: "Order is locked after invoicing" }, { status: 409 });
 
@@ -463,6 +545,7 @@ async function upsertEngine(d1: D1, user: { email: string }, payload: Payload) {
     const id = clean(payload.orderEngineId, 80);
     const existing = await loadOrderEngine(d1, id);
     if (!existing) return Response.json({ error: "Order engine not found" }, { status: 404 });
+    if (existing.orderDeletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
     if (existing.orderCancelledAt) return Response.json({ error: "Order is cancelled" }, { status: 409 });
     if (isLocked(existing)) return Response.json({ error: "Order is locked after invoicing" }, { status: 409 });
 
@@ -480,9 +563,10 @@ async function upsertEngine(d1: D1, user: { email: string }, payload: Payload) {
 
   const orderId = clean(payload.orderId, 80);
   if (!orderId) return Response.json({ error: "Order id is required" }, { status: 400 });
-  const order = await d1.prepare("SELECT id, customer_id AS customerId, invoiced_at AS invoicedAt, unlocked_at AS unlockedAt, cancelled_at AS cancelledAt FROM service_orders WHERE id = ?")
-    .bind(orderId).first<{ customerId: string; invoicedAt: number | null; unlockedAt: number | null; cancelledAt: number | null }>();
+  const order = await d1.prepare("SELECT id, customer_id AS customerId, invoiced_at AS invoicedAt, unlocked_at AS unlockedAt, cancelled_at AS cancelledAt, deleted_at AS deletedAt FROM service_orders WHERE id = ?")
+    .bind(orderId).first<{ customerId: string; invoicedAt: number | null; unlockedAt: number | null; cancelledAt: number | null; deletedAt: number | null }>();
   if (!order) return Response.json({ error: "Order not found" }, { status: 404 });
+  if (order.deletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
   if (order.cancelledAt) return Response.json({ error: "Order is cancelled" }, { status: 409 });
   if (isLocked(order)) return Response.json({ error: "Order is locked after invoicing" }, { status: 409 });
 
@@ -531,6 +615,7 @@ async function updateEngineStatus(d1: D1, user: { email: string; fullName: strin
 
   const existing = await loadOrderEngine(d1, orderEngineId);
   if (!existing) return Response.json({ error: "Order engine not found" }, { status: 404 });
+  if (existing.orderDeletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
   if (existing.orderCancelledAt) return Response.json({ error: "Order is cancelled" }, { status: 409 });
 
   const now = Date.now();
@@ -588,6 +673,7 @@ async function upsertLine(d1: D1, user: { email: string; fullName: string }, kin
     if (!row) return Response.json({ error: "Line not found" }, { status: 404 });
     const engine = await loadOrderEngine(d1, row.orderEngineId);
     if (!engine) return Response.json({ error: "Order engine not found" }, { status: 404 });
+    if (engine.orderDeletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
     if (engine.orderCancelledAt) return Response.json({ error: "Order is cancelled" }, { status: 409 });
     if (isLocked(engine)) return Response.json({ error: "Order is locked after invoicing" }, { status: 409 });
     const statements = [d1.prepare(`DELETE FROM ${table} WHERE id = ?`).bind(id)];
@@ -607,6 +693,7 @@ async function upsertLine(d1: D1, user: { email: string; fullName: string }, kin
 
   const engine = await loadOrderEngine(d1, targetOrderEngineId);
   if (!engine) return Response.json({ error: "Order engine not found" }, { status: 404 });
+  if (engine.orderDeletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
   if (engine.orderCancelledAt) return Response.json({ error: "Order is cancelled" }, { status: 409 });
   if (isLocked(engine)) return Response.json({ error: "Order is locked after invoicing" }, { status: 409 });
 
@@ -718,6 +805,7 @@ async function upsertWaitingPart(d1: D1, user: { email: string }, payload: Paylo
     const statements = [d1.prepare("UPDATE service_order_waiting_parts SET arrived_at = ?, updated_at = ? WHERE id = ?").bind(now, now, id)];
     // Po dorazení dílu se motor jedním kliknutím vrátí do práce, pokud na něj čekal.
     const engine = await loadOrderEngine(d1, row.orderEngineId);
+    if (engine?.orderDeletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
     if (engine && engine.status === "waiting_part") {
       statements.push(d1.prepare("UPDATE service_order_engines SET status = 'in_progress', updated_at = ? WHERE id = ?").bind(now, row.orderEngineId));
     }
@@ -732,6 +820,9 @@ async function upsertWaitingPart(d1: D1, user: { email: string }, payload: Paylo
 
   const now = Date.now();
   if (action === "create") {
+    const engine = await loadOrderEngine(d1, orderEngineId);
+    if (!engine) return Response.json({ error: "Order engine not found" }, { status: 404 });
+    if (engine.orderDeletedAt) return Response.json({ error: "Order is in trash" }, { status: 409 });
     const id = crypto.randomUUID();
     await d1.prepare(`
       INSERT INTO service_order_waiting_parts (id, order_engine_id, code, name, price_czk_cents, price_eur_cents, expected_date, is_ordered, created_by, created_at, updated_at)
@@ -752,8 +843,8 @@ async function invoiceOrder(d1: D1, payload: Payload) {
   const id = clean(payload.orderId ?? payload.id, 80);
   if (!id) return Response.json({ error: "Order id is required" }, { status: 400 });
   const now = Date.now();
-  const result = await d1.prepare("UPDATE service_orders SET invoiced_at = ?, updated_at = ? WHERE id = ? AND invoiced_at IS NULL AND cancelled_at IS NULL").bind(now, now, id).run();
-  if (!result.meta.changes) return Response.json({ error: "Order not found or already invoiced" }, { status: 409 });
+  const result = await d1.prepare("UPDATE service_orders SET invoiced_at = ?, updated_at = ? WHERE id = ? AND invoiced_at IS NULL AND cancelled_at IS NULL AND deleted_at IS NULL").bind(now, now, id).run();
+  if (!result.meta.changes) return Response.json({ error: "Order not found, already invoiced, cancelled or in trash" }, { status: 409 });
   return Response.json({ id });
 }
 
@@ -762,7 +853,7 @@ async function unlockOrder(d1: D1, user: { email: string; role: string }, payloa
   const id = clean(payload.orderId ?? payload.id, 80);
   if (!id) return Response.json({ error: "Order id is required" }, { status: 400 });
   const now = Date.now();
-  await d1.prepare("UPDATE service_orders SET unlocked_at = ?, unlocked_by = ?, updated_at = ? WHERE id = ?").bind(now, user.email, now, id).run();
+  await d1.prepare("UPDATE service_orders SET unlocked_at = ?, unlocked_by = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL").bind(now, user.email, now, id).run();
   return Response.json({ id });
 }
 
@@ -784,11 +875,13 @@ export async function DELETE(request: Request) {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
+  await purgeExpiredTrash(d1);
   const now = Date.now();
-  // Storno, nikdy skutečné smazání — zakázka i motory na ní zůstávají dohledatelné.
-  const result = await d1.prepare("UPDATE service_orders SET cancelled_at = ?, cancelled_by = ?, cancelled_reason = ?, updated_at = ? WHERE id = ? AND cancelled_at IS NULL")
+  // Storno (tohle DELETE), ne totez jako kos - zakazka i motory na ni zustavaji dohledatelne
+  // a viditelne v beznem seznamu. Kos (kind: "trash" v PUT) je samostatny, ostrejsi krok.
+  const result = await d1.prepare("UPDATE service_orders SET cancelled_at = ?, cancelled_by = ?, cancelled_reason = ?, updated_at = ? WHERE id = ? AND cancelled_at IS NULL AND deleted_at IS NULL")
     .bind(now, auth.user.email, clean(payload.reason, 500), now, id).run();
-  if (!result.meta.changes) return Response.json({ error: "Order not found or already cancelled" }, { status: 409 });
+  if (!result.meta.changes) return Response.json({ error: "Order not found, already cancelled or in trash" }, { status: 409 });
 
   await d1.prepare(`
     INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)

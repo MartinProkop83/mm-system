@@ -1291,6 +1291,17 @@ async function createRuntimeSchema() {
         created_at INTEGER NOT NULL
       )
     `),
+    // Trvalá evidence vydaných čísel zakázek — nezávislá na životě samotné zakázky. Zakázka
+    // se dá po 30 dnech v koši skutečně vymazat (viz purgeExpiredTrash), ale číslo, které
+    // jednou neslo, se nesmí přiřadit znovu. `nextOrderNumber()` proto počítá MAX z týhle
+    // tabulky, ne z `service_orders` — ta se v čase koše zmenšuje, tahle ne.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS service_order_numbers (
+        number TEXT PRIMARY KEY NOT NULL,
+        order_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS checklists (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1825,6 +1836,25 @@ async function createRuntimeSchema() {
       await d1.prepare(statement).run();
     }
   }
+
+  // Koš pro zakázky: „smazat" nejdřív jen skryje (`deleted_at`/`deleted_by`), skutečně
+  // zmizí až po 30 dnech přes lazy sweep v `purgeExpiredTrash()`.
+  const serviceOrderColumns = await d1.prepare("PRAGMA table_info(service_orders)").all<{ name: string }>();
+  if (!serviceOrderColumns.results.some((item: { name: string }) => item.name === "deleted_at")) {
+    await d1.prepare("ALTER TABLE service_orders ADD COLUMN deleted_at INTEGER").run();
+  }
+  if (!serviceOrderColumns.results.some((item: { name: string }) => item.name === "deleted_by")) {
+    await d1.prepare("ALTER TABLE service_orders ADD COLUMN deleted_by TEXT NOT NULL DEFAULT ''").run();
+  }
+  await d1.prepare("CREATE INDEX IF NOT EXISTS service_orders_deleted_idx ON service_orders (deleted_at)").run();
+
+  // Zpětné naplnění ledgeru čísel z existujících zakázek — tabulka `service_order_numbers`
+  // vznikla později než `service_orders`, ať se historická čísla taky chrání proti opakování.
+  await d1.prepare(`
+    INSERT INTO service_order_numbers (number, order_id, created_at)
+    SELECT number, id, created_at FROM service_orders
+    WHERE number NOT IN (SELECT number FROM service_order_numbers)
+  `).run();
 
   await ensureMiniServicePartCatalogSeed(d1);
   await ensureServiceCardSeed(d1);

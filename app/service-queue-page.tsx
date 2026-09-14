@@ -148,6 +148,15 @@ const content = {
     claimMechanicMissing: "Vyber, kdo si motor bere.",
     kindLoan: "Zápůjčka",
     kindManual: "Ručně",
+    customerTitle: "Zákaznické motory",
+    customerIntro: "Zakázkový servis pro zákazníky. Naše motory mají přednost — proto jsou v samostatné desce níž.",
+    customerLoading: "Načítám zákaznické motory…",
+    customerEmpty: "Žádný zákaznický motor nečeká",
+    customerTaken: "Na motoru dělá",
+    customerStatusWaiting: "Čeká na díl",
+    customerDeadline: (date: string) => `Termín ${date}`,
+    customerNoDeadline: "Bez termínu",
+    customerOverdue: "Po termínu",
   },
   en: {
     eyebrow: "SERVICE",
@@ -211,6 +220,15 @@ const content = {
     claimMechanicMissing: "Pick who is taking the engine.",
     kindLoan: "Loan",
     kindManual: "Manual",
+    customerTitle: "Customer engines",
+    customerIntro: "Customer engine service. Our own engines take priority — that's why this board sits below.",
+    customerLoading: "Loading customer engines…",
+    customerEmpty: "No customer engine waiting",
+    customerTaken: "Working on it",
+    customerStatusWaiting: "Waiting for part",
+    customerDeadline: (date: string) => `Deadline ${date}`,
+    customerNoDeadline: "No deadline",
+    customerOverdue: "Overdue",
   },
 } as const;
 
@@ -295,10 +313,15 @@ function itemKey(item: Pick<QueueItem, "engineId">) {
   return item.engineId;
 }
 
-export function ServiceQueuePage({ locale, onOpenEngineService, fullscreenHref }: {
+export function ServiceQueuePage({ locale, onOpenEngineService, onOpenCustomerService, fullscreenHref }: {
   locale: Locale;
   /** Otevře servisní kartu motoru rovnou ve formuláři zápisu. */
   onOpenEngineService: (engineId: string, serviceCardMigrated: boolean) => void;
+  /**
+   * Otevře zákaznický motor. Mechanikova fullscreen obrazovka jde přímo na jeho jedinou
+   * pracovní obrazovku; plná aplikace (superadmin, vedení) na sekci Zakázky, kde je detail.
+   */
+  onOpenCustomerService?: (orderEngineId: string, orderId: string) => void;
   /** Odkaz do režimu bez menu. Uvnitř samotného režimu se nepředává. */
   fullscreenHref?: string;
 }) {
@@ -707,6 +730,98 @@ export function ServiceQueuePage({ locale, onOpenEngineService, fullscreenHref }
       {confirming && confirming.length > 0 && (
         <SkipConfirmModal t={t} items={confirming} busy={busy}
           onClose={() => setConfirming(null)} onConfirm={() => void skip(confirming)} />
+      )}
+
+      {/* Zákaznické motory jdou do stejné fronty, ale jako samostatná deska pod naší —
+          naše motory mají přednost, proto jsou fyzicky výš a tahle deska se nikdy neplete
+          do `items`/`categories` výš, které počítá výhradně `/api/service-queue`. */}
+      {onOpenCustomerService && <CustomerQueueSection t={t} locale={locale} onOpen={onOpenCustomerService} />}
+    </section>
+  );
+}
+
+type CustomerQueueItem = {
+  orderEngineId: string; orderId: string; engineCode: string; typeNameCs: string; typeNameEn: string;
+  customerName: string; deadlineDate: string; status: "received" | "in_progress" | "waiting_part";
+  takenByName: string; takenAt: number | null;
+};
+
+/** Kolik dní do termínu — záporné je po termínu. `null` = bez termínu, řadí se nakonec a je neutrální. */
+function daysUntil(deadlineDate: string): number | null {
+  if (!deadlineDate) return null;
+  const deadline = new Date(`${deadlineDate}T00:00:00`);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((deadline.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+}
+function deadlineTone(days: number | null) {
+  if (days === null) return "neutral";
+  if (days < 0) return "danger";
+  if (days <= 2) return "warning-pill";
+  return "neutral";
+}
+
+/**
+ * Zákaznické motory ve frontě — samostatný zdroj (`/api/customer-service`), samostatný
+ * dotaz, žádné sdílení stavu s hlavní deskou nad ní. Termín řídí zvýraznění a řazení; motor
+ * bez termínu je neutrální a řadí se nakonec (řešeno už na serveru).
+ */
+function CustomerQueueSection({ t, locale, onOpen }: { t: Copy; locale: Locale; onOpen: (orderEngineId: string, orderId: string) => void }) {
+  const [items, setItems] = useState<CustomerQueueItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const response = await fetch("/api/customer-service", { cache: "no-store" });
+      if (!response.ok) throw new Error("load failed");
+      const data = (await response.json()) as { items: CustomerQueueItem[] };
+      setItems(data.items);
+      setLoadError(false);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+    const timer = setInterval(() => { void load(); }, REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [load]);
+
+  return (
+    <section className="customer-queue-section">
+      <header className="customer-queue-header">
+        <h2>{t.customerTitle}</h2>
+        <p>{t.customerIntro}</p>
+      </header>
+      {loading ? (
+        <LoadingState size="inline" label={t.customerLoading} />
+      ) : loadError ? (
+        <EmptyState size="inline" variant="error" icon="!" title={t.loadError}
+          action={<button className="secondary-compact" type="button" onClick={() => void load()}>{t.retry}</button>} />
+      ) : items.length === 0 ? (
+        <EmptyState size="inline" title={t.customerEmpty} />
+      ) : (
+        <div className="customer-queue-tiles">
+          {items.map((item) => {
+            const days = daysUntil(item.deadlineDate);
+            return (
+              <button key={item.orderEngineId} type="button" className={`customer-queue-tile tone-${deadlineTone(days)}`}
+                onClick={() => onOpen(item.orderEngineId, item.orderId)}>
+                <strong>{item.engineCode}</strong>
+                <span className="customer-queue-type">{locale === "cs" ? item.typeNameCs : item.typeNameEn}</span>
+                <span className="customer-queue-customer">{item.customerName}</span>
+                {item.status === "waiting_part" && <i className="customer-queue-waiting">{t.customerStatusWaiting}</i>}
+                {item.takenByName && <small>{t.customerTaken}: {item.takenByName}</small>}
+                <span className="customer-queue-deadline">
+                  {item.deadlineDate ? (days !== null && days < 0 ? t.customerOverdue : t.customerDeadline(item.deadlineDate)) : t.customerNoDeadline}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
     </section>
   );

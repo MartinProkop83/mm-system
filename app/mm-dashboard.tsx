@@ -517,6 +517,8 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
   /** Fronta otevřela motor, jehož kategorie ještě jede po staré servisní kartě. */
   const [legacyEntryFromQueue, setLegacyEntryFromQueue] = useState(false);
   const [notifiedVehicleId, setNotifiedVehicleId] = useState<string | null>(null);
+  // Deep-link ze zákaznické desky ve frontě přímo do detailu zakázky v sekci Zakázky.
+  const [deepLinkServiceOrderId, setDeepLinkServiceOrderId] = useState<string | null>(null);
   const [requestedRaceId, setRequestedRaceId] = useState<string | null>(null);
   const [raceDetailOpen, setRaceDetailOpen] = useState(false);
   const [catalogDetailOpen, setCatalogDetailOpen] = useState(false);
@@ -951,6 +953,12 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
               setDetailEngineId(engineId);
               setView("engines");
             }}
+            // Zákaznický motor nemá servisní kartu jako naše — superadmin/vedení mají jeho
+            // celý detail v sekci Zakázky, takže tam fronta jen přesměruje a rovnou ho otevře.
+            onOpenCustomerService={(_orderEngineId, orderId) => {
+              setDeepLinkServiceOrderId(orderId);
+              setView("serviceOrders");
+            }}
           />
         )}
         {/* Přehled odvedené práce napříč motory. Mechanik se sem nedostane: do aplikace
@@ -959,7 +967,11 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
         {/* Arch QR štítků pro celou kategorii. Zatím na obrazovku, tisk až podle formátu štítků. */}
         {view === "qrCodes" && <QrSheetPage locale={locale} />}
         {view === "sales" && <SalesPage locale={locale} role={session?.role ?? "mechanic"} />}
-        {view === "serviceOrders" && <ServiceOrdersPage locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "serviceOrders" && (
+          <ServiceOrdersPage locale={locale} role={session?.role ?? "mechanic"}
+            initialOpenOrderId={deepLinkServiceOrderId}
+            onInitialOpenOrderIdConsumed={() => setDeepLinkServiceOrderId(null)} />
+        )}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "settings" && session && (

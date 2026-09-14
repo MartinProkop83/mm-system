@@ -820,13 +820,27 @@ export const serviceOrders = sqliteTable("service_orders", {
   cancelledAt: integer("cancelled_at", { mode: "timestamp_ms" }),
   cancelledBy: text("cancelled_by").notNull().default(""),
   cancelledReason: text("cancelled_reason").notNull().default(""),
+  deletedAt: integer("deleted_at", { mode: "timestamp_ms" }),
+  deletedBy: text("deleted_by").notNull().default(""),
   createdBy: text("created_by").notNull(),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [
   uniqueIndex("service_orders_number_unique_idx").on(table.number),
   index("service_orders_customer_idx").on(table.customerId, table.receivedAt),
+  index("service_orders_deleted_idx").on(table.deletedAt),
 ]);
+
+/**
+ * Trvalá evidence vydaných čísel zakázek, nezávislá na `service_orders` — po skutečném
+ * smazání zakázky z koše (`purgeExpiredTrash`) tahle tabulka zůstává, takže se číslo
+ * nepřidělí podruhé.
+ */
+export const serviceOrderNumbers = sqliteTable("service_order_numbers", {
+  number: text("number").primaryKey(),
+  orderId: text("order_id").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+});
 
 export const serviceOrderEngines = sqliteTable("service_order_engines", {
   id: text("id").primaryKey(),

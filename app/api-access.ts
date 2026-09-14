@@ -31,6 +31,10 @@ const MECHANIC_READ = new Set([
   "/api/races",
   // Vlastní session: bez ní se nepozná přihlášený uživatel ani jazyk.
   "/api/session",
+  // Zakázkový servis: zákaznické motory ve frontě a mechanikova jediná obrazovka zápisu.
+  // Úzká routa záměrně, ne `/api/service-orders` — ten je mimo mechanika úplně (sekce
+  // Zakázky je pro superadmina a vedení, viz MECHANIC_PAYLOADS níž pro ořez odpovědi).
+  "/api/customer-service",
 ]);
 
 /** Zápis. Mechanik zapisuje jen servisní záznamy a zařazení motoru do fronty. */
@@ -39,6 +43,8 @@ const MECHANIC_WRITE = new Set([
   "/api/service-queue",
   // „Jel / nejel" a stav Oppamy zapsaný přímo na place.
   "/api/race-mode",
+  // Zápis práce a materiálu na zákaznickém motoru, přepnutí na „čeká na díl" a „hotovo".
+  "/api/customer-service",
 ]);
 
 const READ_METHODS = new Set(["GET", "HEAD"]);
@@ -145,6 +151,28 @@ const MECHANIC_PAYLOADS: Record<string, FieldTree> = {
         children: { engines: { fields: ["engineId", "engineCode", "tracksHours"] } },
       },
       engineRuns: { fields: ["engineId", "raced"] },
+    },
+  },
+  // Zákaznické motory: fronta i mechanikova obrazovka zápisu. Mechanik vidí ceníkové ceny
+  // u položek (`unitPriceCzkCents`/`unitPriceEurCents`), ale ne slevu (`discountPercent`) ani
+  // celkovou cenu řádku (`totalCzkCents`/`totalEurCents`) — ty dvě se musí vynechat spolu,
+  // protože z ceny, množství a celkové ceny by šla sleva zpětně dopočítat. Součet zakázky se
+  // sem vůbec nedostane, protože ho routa v odpovědi nikdy nepočítá.
+  "/api/customer-service": {
+    children: {
+      items: {
+        fields: ["orderEngineId", "engineCode", "typeNameCs", "typeNameEn", "customerName", "deadlineDate", "status", "takenByName", "takenAt", "sortOrder"],
+      },
+      engine: {
+        fields: ["orderEngineId", "engineCode", "typeNameCs", "typeNameEn", "customerName", "scope", "carbService", "customerParts", "customerPartsText", "status", "takenByName", "takenAt"],
+        children: {
+          works: { fields: ["id", "codeSnapshot", "nameCsSnapshot", "nameEnSnapshot", "quantity", "unitPriceCzkCents", "unitPriceEurCents"] },
+          materials: { fields: ["id", "code", "name", "quantity", "unitPriceCzkCents", "unitPriceEurCents", "source"] },
+          waitingParts: { fields: ["id", "code", "name", "priceCzkCents", "priceEurCents", "expectedDate", "isOrdered", "arrivedAt"] },
+        },
+      },
+      priceItems: { fields: ["id", "code", "nameCs", "nameEn", "priceCzkCents", "priceEurCents"] },
+      inventoryParts: { fields: ["id", "code", "name", "priceCzkCents", "priceEurCents"] },
     },
   },
 };

@@ -16,7 +16,7 @@ type EngineTypeOption = { id: string; code: string; nameCs: string; nameEn: stri
 type OrderListItem = {
   id: string; number: string; customerId: string; customerName: string; currency: "CZK" | "EUR";
   receivedAt: string; deadlineDate: string; deadlineNote: string;
-  invoicedAt: number | null; cancelledAt: number | null;
+  invoicedAt: number | null; cancelledAt: number | null; deletedAt: number | null; deletedBy: string;
   engineCount: number; receivedCount: number; inProgressCount: number; waitingPartCount: number;
   doneCount: number; checkedCount: number; handedOverCount: number;
   totalCzkCents: number; totalEurCents: number;
@@ -57,6 +57,14 @@ const content = {
     total: "Celkem bez DPH",
     cancelled: "Stornováno",
     invoiced: "Vyfakturováno",
+    trashFilter: "Koš",
+    trashOn: "Zobrazeny jsou zakázky v koši",
+    deletedAt: "Smazáno",
+    restore: "Obnovit",
+    restoreConfirm: (number: string) => `Obnovit zakázku ${number} z koše?`,
+    restoreError: "Zakázku se nepodařilo obnovit.",
+    emptyTrash: "Koš je prázdný",
+    emptyTrashHelp: "Smazané zakázky sem přibydou na 30 dní, než zmizí navždy.",
   },
   en: {
     eyebrow: "MM CUSTOMER SERVICE",
@@ -82,6 +90,14 @@ const content = {
     total: "Total excl. VAT",
     cancelled: "Cancelled",
     invoiced: "Invoiced",
+    trashFilter: "Trash",
+    trashOn: "Showing orders in trash",
+    deletedAt: "Deleted",
+    restore: "Restore",
+    restoreConfirm: (number: string) => `Restore order ${number} from trash?`,
+    restoreError: "Could not restore the order.",
+    emptyTrash: "The trash is empty",
+    emptyTrashHelp: "Deleted orders stay here for 30 days before they are gone for good.",
   },
 } as const;
 
@@ -113,7 +129,12 @@ function statusTone(status: OrderStatus | "empty") {
   return "neutral";
 }
 
-export function ServiceOrdersPage({ locale, role }: { locale: Locale; role: Role }) {
+export function ServiceOrdersPage({ locale, role, initialOpenOrderId, onInitialOpenOrderIdConsumed }: {
+  locale: Locale; role: Role;
+  /** Deep-link z fronty (zákaznická deska) — otevře detail rovnou po přechodu do sekce. */
+  initialOpenOrderId?: string | null;
+  onInitialOpenOrderIdConsumed?: () => void;
+}) {
   const t = content[locale];
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [customers, setCustomers] = useState<CustomerOption[]>([]);
@@ -125,17 +146,31 @@ export function ServiceOrdersPage({ locale, role }: { locale: Locale; role: Role
   const [fromFilter, setFromFilter] = useState("");
   const [toFilter, setToFilter] = useState("");
   const [creating, setCreating] = useState(false);
-  const [openOrderId, setOpenOrderId] = useState<string | null>(null);
+  const [openOrderId, setOpenOrderId] = useState<string | null>(initialOpenOrderId ?? null);
+  const [trashView, setTrashView] = useState(false);
+  const [restoring, setRestoring] = useState(false);
   const canManage = role === "superadmin" || role === "boss";
+
+  useEffect(() => {
+    if (initialOpenOrderId) {
+      setOpenOrderId(initialOpenOrderId);
+      onInitialOpenOrderIdConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialOpenOrderId]);
 
   async function load() {
     setLoadError(false);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set("status", statusFilter);
-      if (customerFilter) params.set("customerId", customerFilter);
-      if (fromFilter) params.set("receivedFrom", fromFilter);
-      if (toFilter) params.set("receivedTo", toFilter);
+      if (trashView) {
+        params.set("trash", "1");
+      } else {
+        if (statusFilter) params.set("status", statusFilter);
+        if (customerFilter) params.set("customerId", customerFilter);
+        if (fromFilter) params.set("receivedFrom", fromFilter);
+        if (toFilter) params.set("receivedTo", toFilter);
+      }
       const [ordersResponse, customersResponse, typesResponse] = await Promise.all([
         fetch(`/api/service-orders?${params.toString()}`, { cache: "no-store" }),
         fetch("/api/customers", { cache: "no-store" }),
@@ -154,7 +189,21 @@ export function ServiceOrdersPage({ locale, role }: { locale: Locale; role: Role
       setLoading(false);
     }
   }
-  useEffect(() => { void load(); }, [statusFilter, customerFilter, fromFilter, toFilter]);
+  useEffect(() => { void load(); }, [statusFilter, customerFilter, fromFilter, toFilter, trashView]);
+
+  async function restore(order: OrderListItem) {
+    if (!window.confirm(t.restoreConfirm(order.number))) return;
+    setRestoring(true);
+    try {
+      const response = await fetch("/api/service-orders", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ kind: "restore", orderId: order.id }) });
+      if (!response.ok) throw new Error("restore failed");
+      await load();
+    } catch {
+      window.alert(t.restoreError);
+    } finally {
+      setRestoring(false);
+    }
+  }
 
   const customerOptions = useMemo(() => [...customers].sort((a, b) => a.name.localeCompare(b.name, "cs")), [customers]);
 
@@ -173,24 +222,35 @@ export function ServiceOrdersPage({ locale, role }: { locale: Locale; role: Role
     <div className="service-orders-page">
       <section className="dash-panel tab-panel-header">
         <div><span className="eyebrow">{t.eyebrow}</span><h2>{t.heading}</h2><p>{t.subtitle}</p></div>
-        {canManage && <button className="primary-button" type="button" onClick={() => setCreating(true)}>{t.add}</button>}
+        <div className="service-orders-header-actions">
+          {role === "superadmin" && (
+            <button className={trashView ? "secondary-compact active" : "secondary-compact"} type="button" onClick={() => setTrashView((current) => !current)}>
+              🗑 {t.trashFilter}
+            </button>
+          )}
+          {canManage && !trashView && <button className="primary-button" type="button" onClick={() => setCreating(true)}>{t.add}</button>}
+        </div>
       </section>
 
-      <section className="dash-panel service-orders-filters">
-        <label><span>{t.filterStatus}</span>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as OrderStatus | "")}>
-            {STATUS_FILTERS.map((item) => <option key={item.value} value={item.value}>{locale === "cs" ? item.cs : item.en}</option>)}
-          </select>
-        </label>
-        <label><span>{t.filterCustomer}</span>
-          <select value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)}>
-            <option value="">{t.allCustomers}</option>
-            {customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
-          </select>
-        </label>
-        <label><span>{t.filterFrom}</span><input type="date" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} /></label>
-        <label><span>{t.filterTo}</span><input type="date" value={toFilter} onChange={(event) => setToFilter(event.target.value)} /></label>
-      </section>
+      {trashView ? (
+        <p className="form-hint">{t.trashOn}</p>
+      ) : (
+        <section className="dash-panel service-orders-filters">
+          <label><span>{t.filterStatus}</span>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as OrderStatus | "")}>
+              {STATUS_FILTERS.map((item) => <option key={item.value} value={item.value}>{locale === "cs" ? item.cs : item.en}</option>)}
+            </select>
+          </label>
+          <label><span>{t.filterCustomer}</span>
+            <select value={customerFilter} onChange={(event) => setCustomerFilter(event.target.value)}>
+              <option value="">{t.allCustomers}</option>
+              {customerOptions.map((customer) => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
+            </select>
+          </label>
+          <label><span>{t.filterFrom}</span><input type="date" value={fromFilter} onChange={(event) => setFromFilter(event.target.value)} /></label>
+          <label><span>{t.filterTo}</span><input type="date" value={toFilter} onChange={(event) => setToFilter(event.target.value)} /></label>
+        </section>
+      )}
 
       <section className="dash-panel data-panel">
         {loading && <LoadingState label={t.loading} />}
@@ -198,20 +258,26 @@ export function ServiceOrdersPage({ locale, role }: { locale: Locale; role: Role
           <EmptyState variant="error" icon="!" title={t.loadError}
             action={<button className="secondary-compact" type="button" onClick={() => void load()}>{t.retry}</button>} />
         )}
-        {!loading && !loadError && orders.length === 0 && (statusFilter || customerFilter || fromFilter || toFilter
-          ? <EmptyState variant="filtered" title={t.emptyFiltered} />
-          : <EmptyState icon="＋" title={t.empty} description={t.emptyHelp} />)}
+        {!loading && !loadError && orders.length === 0 && (
+          trashView ? <EmptyState icon="🗑" title={t.emptyTrash} description={t.emptyTrashHelp} />
+          : (statusFilter || customerFilter || fromFilter || toFilter
+            ? <EmptyState variant="filtered" title={t.emptyFiltered} />
+            : <EmptyState icon="＋" title={t.empty} description={t.emptyHelp} />)
+        )}
         {!loading && !loadError && orders.length > 0 && (
           <div className="table-wrap">
             <table className="engine-table zebra service-orders-table">
               <thead><tr>
-                <th>{t.number}</th><th>{t.customer}</th><th>{t.engines}</th><th>{t.status}</th><th>{t.deadline}</th><th>{t.total}</th>
+                <th>{t.number}</th><th>{t.customer}</th><th>{t.engines}</th>
+                {trashView ? <th>{t.deletedAt}</th> : <><th>{t.status}</th><th>{t.deadline}</th></>}
+                <th>{t.total}</th>
+                {trashView && <th className="action-column">{t.restore}</th>}
               </tr></thead>
               <tbody>
                 {orders.map((order) => {
                   const status = summaryStatus(order);
                   return (
-                    <tr key={order.id} className="clickable-row" onClick={() => setOpenOrderId(order.id)}>
+                    <tr key={order.id} className={trashView ? "" : "clickable-row"} onClick={trashView ? undefined : () => setOpenOrderId(order.id)}>
                       <td>
                         <strong>{order.number}</strong>
                         {order.cancelledAt && <span className="status-pill danger service-orders-inline-flag">{t.cancelled}</span>}
@@ -219,9 +285,18 @@ export function ServiceOrdersPage({ locale, role }: { locale: Locale; role: Role
                       </td>
                       <td>{order.customerName}</td>
                       <td>{order.engineCount}</td>
-                      <td><span className={`status-pill ${statusTone(status)}`}>{statusLabel(status, locale)}</span></td>
-                      <td>{order.deadlineDate || "—"}</td>
+                      {trashView ? (
+                        <td>{order.deletedAt ? new Date(order.deletedAt).toLocaleDateString(locale === "cs" ? "cs-CZ" : "en-GB") : "—"}</td>
+                      ) : (<>
+                        <td><span className={`status-pill ${statusTone(status)}`}>{statusLabel(status, locale)}</span></td>
+                        <td>{order.deadlineDate || "—"}</td>
+                      </>)}
                       <td className="price-cell">{formatMoney(order.currency === "EUR" ? order.totalEurCents : order.totalCzkCents, order.currency, locale)}</td>
+                      {trashView && (
+                        <td className="action-column">
+                          <button className="secondary-compact" type="button" disabled={restoring} onClick={(event) => { event.stopPropagation(); void restore(order); }}>{t.restore}</button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
