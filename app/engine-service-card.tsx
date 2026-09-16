@@ -281,11 +281,16 @@ export function EngineServiceCard({ engine, locale, currentUserName, openEntryOn
                 ? t.runOf(formatCounterMinutes(status.runMinutes), formatCounterMinutes(status.intervalMinutes))
                 : "";
             const last = status.lastRecord;
+            // Snapshot z okamžiku zápisu, ne živý dotaz do katalogu — přežije i pozdější
+            // přejmenování/archivaci varianty. U zaškrtávacích položek (bez kategorie
+            // materiálu) je vždy null, takže se nic navíc nevykreslí.
+            const materialName = last?.items.find((recordItem) => recordItem.serviceCardItemId === item.id)?.materialSnapshot?.name ?? "";
             return (
               <div key={item.id} className={`${last ? "has-record" : ""} sc-tile-${status.state}`}>
                 <span>{last ? "✓" : "○"}</span>
                 <strong>{localized(locale, item.nameCs, item.nameEn)}</strong>
                 <small>
+                  {materialName && <em className="sc-tile-material">{materialName}</em>}
                   {last
                     ? [`${formatDate(last.serviceDate, locale)}${last.serviceTime ? ` ${last.serviceTime}` : ""}`, last.mechanicNameSnapshot].filter(Boolean).join(" · ")
                     : t.noRecord}

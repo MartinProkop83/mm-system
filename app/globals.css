@@ -3786,6 +3786,7 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .service-checklist.sc-tiles div.sc-tile-warn strong, .service-checklist.sc-tiles div.sc-tile-over strong,
 .service-checklist.sc-tiles div.sc-tile-ok strong { color: inherit; }
 .sc-tile-run { display: block; margin-top: var(--wrc-space-2); font-size: inherit; font-style: normal; font-weight: var(--wrc-weight-bold); }
+.sc-tile-material { display: block; font-size: inherit; font-style: normal; }
 /* U kategorie S počítadlem znamená zelená „v pořádku vůči intervalu". Položka, která se neměří
    (bez intervalu) nebo zatím nemá čím měřit (jen záznamy z doby před počítadlem), proto zelená
    být nesmí — zůstává neutrální, i když záznam má. U kategorií bez počítadla se tohle pravidlo
