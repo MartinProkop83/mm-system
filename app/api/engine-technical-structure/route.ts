@@ -375,6 +375,34 @@ export async function PUT(request: Request) {
   return Response.json({ error: "Invalid kind" }, { status: 400 });
 }
 
+/**
+ * Skutečné (ne archivační) smazání pole s sebou musí uklidit vše, co na ně odkazuje —
+ * jinak by po sobě zůstaly osiřelé řádky mířící na neexistující pole:
+ * - `engine_technical_field_options` (možnosti výběru) patří jen tomuto poli — mažou se s ním.
+ * - `engine_technical_values` drží jen AKTUÁLNÍ hodnotu motoru u pole (žádnou historii) —
+ *   bez živého pole nemá smysl, maže se.
+ * - `engine_technical_value_changes` je HISTORIE změn — ta se nemaže (stejná zásada jako
+ *   všude v appce, viz CLAUDE.md), jen se jí `field_id` nastaví na NULL. Řádek zůstává čitelný
+ *   i bez živého pole, protože si ukládá vlastní snapshot názvu pole i hodnoty jako text
+ *   (viz komentář u `CREATE TABLE engine_technical_value_changes` v runtime-schema.ts) —
+ *   `field_id` je tam nullable přesně pro tento případ.
+ * - `material_attributes.technical_field_id` (propojení materiálu na technický údaj, Nastavení
+ *   → Servisní karta → Materiál) se ze stejného důvodu nastaví na NULL, ne nechá viset na
+ *   smazaném poli.
+ */
+async function deleteFieldsCascade(d1: ReturnType<typeof getD1>, fieldIds: string[]) {
+  for (let offset = 0; offset < fieldIds.length; offset += 50) {
+    const chunk = fieldIds.slice(offset, offset + 50);
+    const placeholders = chunk.map(() => "?").join(", ");
+    await d1.batch([
+      d1.prepare(`DELETE FROM engine_technical_field_options WHERE field_id IN (${placeholders})`).bind(...chunk),
+      d1.prepare(`DELETE FROM engine_technical_values WHERE field_id IN (${placeholders})`).bind(...chunk),
+      d1.prepare(`UPDATE engine_technical_value_changes SET field_id = NULL WHERE field_id IN (${placeholders})`).bind(...chunk),
+      d1.prepare(`UPDATE material_attributes SET technical_field_id = NULL WHERE technical_field_id IN (${placeholders})`).bind(...chunk),
+    ]);
+  }
+}
+
 export async function DELETE(request: Request) {
   const auth = await requireSuperadmin(request);
   if (auth.error) return auth.error;
@@ -387,9 +415,35 @@ export async function DELETE(request: Request) {
   await ensureRuntimeSchema();
   const d1 = getD1();
   const now = Date.now();
-  const table = ({ section: "engine_technical_sections", field: "engine_technical_fields", option: "engine_technical_field_options" } as const)[payload.kind as "section" | "field" | "option"];
-  if (!table) return Response.json({ error: "Invalid kind" }, { status: 400 });
 
-  const result = await d1.prepare(`UPDATE ${table} SET archived_at = ? WHERE id = ? AND archived_at IS NULL`).bind(now, id).run();
-  return result.meta.changes ? Response.json({ id }) : Response.json({ error: "Not found" }, { status: 404 });
+  // Možnosti výběru zůstávají archivací — na rozdíl od sekcí/polí je nikdo výslovně
+  // nepožádal o skutečné smazání a `engine_technical_values` u nich drží jen id volby,
+  // takže archivovaná (ale nesmazaná) volba nechá stará zapsaná data dohledatelná.
+  if (payload.kind === "option") {
+    const result = await d1.prepare("UPDATE engine_technical_field_options SET archived_at = ? WHERE id = ? AND archived_at IS NULL").bind(now, id).run();
+    return result.meta.changes ? Response.json({ id }) : Response.json({ error: "Not found" }, { status: 404 });
+  }
+
+  if (payload.kind === "field") {
+    const field = await d1.prepare("SELECT id FROM engine_technical_fields WHERE id = ?").bind(id).first();
+    if (!field) return Response.json({ error: "Not found" }, { status: 404 });
+    await deleteFieldsCascade(d1, [id]);
+    await d1.prepare("DELETE FROM engine_technical_fields WHERE id = ?").bind(id).run();
+    return Response.json({ id });
+  }
+
+  if (payload.kind === "section") {
+    const section = await d1.prepare("SELECT id FROM engine_technical_sections WHERE id = ?").bind(id).first();
+    if (!section) return Response.json({ error: "Not found" }, { status: 404 });
+    const sectionFields = await d1.prepare("SELECT id FROM engine_technical_fields WHERE section_id = ?").bind(id).all<{ id: string }>();
+    const fieldIds = sectionFields.results.map((row) => row.id);
+    if (fieldIds.length) {
+      await deleteFieldsCascade(d1, fieldIds);
+      await d1.prepare("DELETE FROM engine_technical_fields WHERE section_id = ?").bind(id).run();
+    }
+    await d1.prepare("DELETE FROM engine_technical_sections WHERE id = ?").bind(id).run();
+    return Response.json({ id });
+  }
+
+  return Response.json({ error: "Invalid kind" }, { status: 400 });
 }
