@@ -266,7 +266,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
         {currentRaces.length > 0 && listView === "cards" && <div className="race-cards">{currentRaces.map((race) => <button className="race-card" key={race.id} type="button" onClick={() => setSelectedId(race.id)}>
           <RaceLogoBadge logoUrl={race.logoUrl} name={race.name} fallback={countryFlag(race.countryCode)} size="large" />
           <span className="race-card-main"><small>MM RACE CONTROL{(race.series || race.seriesRound) && ` · ${[race.series, race.seriesRound ? `Round ${race.seriesRound}` : ""].filter(Boolean).join(" · ")}`}</small><strong>{race.name}</strong><span>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}, {race.countryCode}</span><i>{race.categories.join(" · ")}</i></span>
-          <span className="race-card-counts"><b>{race.driverCount}</b><small>{pluralForm(race.driverCount, locale, DRIVER_FORMS)}</small><em className={`race-status ${race.status}`}>{raceStatus(race.status, locale)}</em><em className={`race-readiness-pill ${raceIsBasicallyReady(race) ? "done" : "pending"}`}>{raceIsBasicallyReady(race) ? "✓" : "⚠"} {locale === "cs" ? "Připraveno" : "Ready"}</em></span>
+          <span className="race-card-counts"><b>{race.driverCount}</b><small>{pluralForm(race.driverCount, locale, DRIVER_FORMS)}</small><em className={`race-status ${race.status}`}>{raceStatus(race.status, locale)}</em><em className={`race-readiness-pill ${raceReadinessSummary(listRaceReadinessPoints(race, locale), locale).isReady ? "done" : "pending"}`}>{raceReadinessSummary(listRaceReadinessPoints(race, locale), locale).isReady ? "✓" : "⚠"} {locale === "cs" ? "Připraveno" : "Ready"}</em></span>
         </button>)}</div>}
         {currentRaces.length > 0 && listView === "table" && <div className="results-panel">
           <table className="results">
@@ -279,7 +279,7 @@ export function RacePage({ locale, role, openRaceId = null, onDetailOpenChange }
               <td className="num-col">{race.driverCount}</td>
               <td className="num-col">{race.engineCount}</td>
               <td className="num-col">{race.carburetorCount}</td>
-              <td><em className={`race-readiness-pill ${raceIsBasicallyReady(race) ? "done" : "pending"}`}>{raceIsBasicallyReady(race) ? "✓" : "⚠"}</em></td>
+              <td><em className={`race-readiness-pill ${raceReadinessSummary(listRaceReadinessPoints(race, locale), locale).isReady ? "done" : "pending"}`}>{raceReadinessSummary(listRaceReadinessPoints(race, locale), locale).isReady ? "✓" : "⚠"}</em></td>
               <td><button type="button" className="r-link" onClick={() => setSelectedId(race.id)}>{locale === "cs" ? "Otevřít" : "Open"}</button></td>
             </tr>)}</tbody>
           </table>
@@ -671,7 +671,15 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     const status = vehicleRecord ? vehicleServiceStatus(vehicleRecord) : "unknown";
     return status === "due" || status === "soon" ? count + 1 : count;
   }, 0);
-  const isRaceReady = totalDrivers > 0 && driversWithEngine === totalDrivers && driversWithCarburetor === carbApplicable.length && hasMechanics && hasVehicles && vehiclesNeedingServiceCount === 0;
+  const readinessPoints = raceReadinessPoints({
+    locale, totalDrivers, hasMechanics, hasVehicles, vehiclesNeedingServiceCount,
+    driversConfirmed, driversWithEngine, carbApplicableCount: carbApplicable.length, driversWithCarburetor,
+  });
+  const readiness = raceReadinessSummary(readinessPoints, locale);
+  const readinessPointAction: Record<string, () => void> = {
+    drivers: goToCategories, mechanics: () => setDetailTab("crew"), vehicles: () => setDetailTab("crew"),
+    vehicleService: () => setDetailTab("crew"), driversConfirmed: goToCategories, engines: goToCategories, carburetors: goToCategories,
+  };
 
   return <div className="race-detail print-area">
     <div className="detail-back"><button type="button" onClick={onBack}>← {l.back}</button></div>
@@ -699,15 +707,10 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
     </nav>
     <div id="race-panel-plan" role="tabpanel" aria-labelledby="race-tab-plan" className={`race-plan-section ${detailTab === "plan" ? "active" : "hidden"}`}>
     {!loading && plan && (
-      <section className={`race-readiness no-print ${isRaceReady ? "ok" : "warn"}`}>
-        <div className="race-readiness-status"><b>{isRaceReady ? "✓" : "⚠"}</b><strong>{isRaceReady ? (locale === "cs" ? "Závod je připraven" : "Race is ready") : (locale === "cs" ? "Závod ještě není kompletní" : "Race is not complete yet")}</strong></div>
+      <section className={`race-readiness no-print ${readiness.isReady ? "ok" : "warn"}`}>
+        <div className="race-readiness-status"><b>{readiness.isReady ? "✓" : "⚠"}</b><strong>{readiness.label}</strong></div>
         <div className="race-readiness-checks">
-          <button type="button" className={hasMechanics ? "done" : "pending"} onClick={() => setDetailTab("crew")}>{hasMechanics ? "✓" : "○"} {l.mechanics}</button>
-          <button type="button" className={hasVehicles ? "done" : "pending"} onClick={() => setDetailTab("crew")}>{hasVehicles ? "✓" : "○"} {l.cars}</button>
-          {hasVehicles && <button type="button" className={vehiclesNeedingServiceCount === 0 ? "done" : "pending"} onClick={() => setDetailTab("crew")}>{vehiclesNeedingServiceCount === 0 ? "✓" : "⚠"} {locale === "cs" ? "Servis vozidel" : "Vehicle service"}</button>}
-          {totalDrivers > 0 && <button type="button" className={driversConfirmed === totalDrivers ? "done" : "pending"} onClick={goToCategories}>{driversConfirmed === totalDrivers ? "✓" : "○"} {locale === "cs" ? "Piloti" : "Drivers"}: {driversConfirmed}/{totalDrivers}</button>}
-          {totalDrivers > 0 && <button type="button" className={driversWithEngine === totalDrivers ? "done" : "pending"} onClick={goToCategories}>{driversWithEngine === totalDrivers ? "✓" : "○"} {locale === "cs" ? "Motory" : "Engines"}: {driversWithEngine}/{totalDrivers}</button>}
-          {carbApplicable.length > 0 && <button type="button" className={driversWithCarburetor === carbApplicable.length ? "done" : "pending"} onClick={goToCategories}>{driversWithCarburetor === carbApplicable.length ? "✓" : "○"} {locale === "cs" ? "Karburátory" : "Carburetors"}: {driversWithCarburetor}/{carbApplicable.length}</button>}
+          {readinessPoints.map((point) => <button key={point.key} type="button" className={point.done ? "done" : "pending"} onClick={readinessPointAction[point.key]}>{point.done ? "✓" : (point.key === "vehicleService" ? "⚠" : "○")} {point.label}</button>)}
         </div>
       </section>
     )}
@@ -1326,8 +1329,65 @@ function formatDateRange(start: string, end: string, locale: Locale) {
   return start === end ? formatter.format(parse(start)) : `${formatter.format(parse(start))} – ${formatter.format(parse(end))}`;
 }
 
-function raceIsBasicallyReady(race: RaceRecord) {
-  return race.driverCount > 0 && race.engineCount >= race.driverCount && race.mechanicCount > 0 && race.vehicleCount > 0;
+/**
+ * Jediná definice připravenosti závodu — používá ji detail i seznam. Optional pole se
+ * naplní jen tam, kde má volající granulární data (detail); seznam zná jen souhrnné
+ * počty, takže body závislé na jednotlivých přihláškách (potvrzení, motory, karburátory,
+ * servis vozidel) v seznamu prostě nevzniknou — nevyrábíme za ně přibližný odhad.
+ */
+type RaceReadinessPoint = { key: string; label: string; done: boolean };
+
+type RaceReadinessInput = {
+  locale: Locale;
+  totalDrivers: number;
+  hasMechanics: boolean;
+  hasVehicles: boolean;
+  vehiclesNeedingServiceCount?: number;
+  driversConfirmed?: number;
+  driversWithEngine?: number;
+  carbApplicableCount?: number;
+  driversWithCarburetor?: number;
+};
+
+function raceReadinessPoints(input: RaceReadinessInput): RaceReadinessPoint[] {
+  const cs = input.locale === "cs";
+  const points: RaceReadinessPoint[] = [];
+  points.push({ key: "drivers", label: cs ? "Piloti přihlášeni" : "Drivers entered", done: input.totalDrivers > 0 });
+  points.push({ key: "mechanics", label: cs ? "Mechanici" : "Mechanics", done: input.hasMechanics });
+  points.push({ key: "vehicles", label: cs ? "Auta" : "Cars", done: input.hasVehicles });
+  if (input.hasVehicles && input.vehiclesNeedingServiceCount !== undefined) {
+    points.push({ key: "vehicleService", label: cs ? "Servis vozidel" : "Vehicle service", done: input.vehiclesNeedingServiceCount === 0 });
+  }
+  if (input.driversConfirmed !== undefined) {
+    points.push({ key: "driversConfirmed", label: `${cs ? "Piloti potvrzeni" : "Drivers confirmed"}: ${input.driversConfirmed}/${input.totalDrivers}`, done: input.totalDrivers > 0 && input.driversConfirmed === input.totalDrivers });
+  }
+  if (input.driversWithEngine !== undefined) {
+    points.push({ key: "engines", label: `${cs ? "Motory" : "Engines"}: ${input.driversWithEngine}/${input.totalDrivers}`, done: input.totalDrivers > 0 && input.driversWithEngine === input.totalDrivers });
+  }
+  if (input.carbApplicableCount !== undefined && input.carbApplicableCount > 0 && input.driversWithCarburetor !== undefined) {
+    points.push({ key: "carburetors", label: `${cs ? "Karburátory" : "Carburetors"}: ${input.driversWithCarburetor}/${input.carbApplicableCount}`, done: input.driversWithCarburetor === input.carbApplicableCount });
+  }
+  return points;
+}
+
+const MISSING_READINESS_FORMS: PluralForms = { cs: ["věc", "věci", "věcí"], en: ["thing", "things"] };
+
+function raceReadinessSummary(points: RaceReadinessPoint[], locale: Locale) {
+  const missing = points.filter((point) => !point.done).length;
+  const isReady = missing === 0;
+  const label = isReady
+    ? (locale === "cs" ? "Závod je připraven" : "Race is ready")
+    : `${locale === "cs" ? "Chybí" : "Missing"} ${formatCount(missing, locale, MISSING_READINESS_FORMS)}`;
+  return { isReady, missing, label };
+}
+
+function listRaceReadinessPoints(race: RaceRecord, locale: Locale): RaceReadinessPoint[] {
+  return raceReadinessPoints({
+    locale,
+    totalDrivers: race.driverCount,
+    hasMechanics: race.mechanicCount > 0,
+    hasVehicles: race.vehicleCount > 0,
+  });
 }
 
 function canPrintFromTab(tab: RaceDetailTab) {
