@@ -1093,6 +1093,10 @@ export const serviceCardItems = sqliteTable("service_card_items", {
   intervalMinutes: integer("interval_minutes"),
   warnPercent: integer("warn_percent").notNull().default(80),
   legacyPartKey: text("legacy_part_key"),
+  /** Gufera jsou na motoru čtyři kusy, klidně různých rozměrů; Píst má naopak jen jednu
+   *  aktuální hodnotu. Ovlivňuje jen nové zápisy — vypnutí u položky s existující víc-variantní
+   *  historií na starých záznamech nic nemaže ani neschovává. */
+  allowMultipleVariants: integer("allow_multiple_variants").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
   archivedAt: integer("archived_at", { mode: "timestamp_ms" }),
   createdBy: text("created_by").notNull(),
@@ -1162,6 +1166,11 @@ export const serviceRecords = sqliteTable("service_records", {
   engineId: text("engine_id").notNull().references(() => engines.id),
   serviceTypeId: text("service_type_id").references(() => serviceTypes.id),
   serviceTypeSnapshot: text("service_type_snapshot").notNull().default(""),
+  /** Rozdělené po jazyce — starý sloupec výše slučoval cs/en do jednoho textu, takže podle
+   *  přepínače jazyka nešlo vybrat správnou verzi. Prázdné u záznamů zapsaných před touto
+   *  změnou; ty se dál čtou ze starého sloupce. */
+  serviceTypeSnapshotCs: text("service_type_snapshot_cs").notNull().default(""),
+  serviceTypeSnapshotEn: text("service_type_snapshot_en").notNull().default(""),
   serviceDate: text("service_date").notNull(),
   /** Volitelný čas HH:MM. Prázdný = neznámý; řadí se na začátek dne a nikde se nezobrazuje. */
   serviceTime: text("service_time").notNull().default(""),
@@ -1190,6 +1199,9 @@ export const serviceRecordItems = sqliteTable("service_record_items", {
   itemNameEnSnapshot: text("item_name_en_snapshot").notNull(),
   materialVariantId: text("material_variant_id").references(() => materialVariants.id),
   materialSnapshot: text("material_snapshot"),
+  /** Kolik kusů této varianty. Víc variant u jedné položky karty = víc řádků se stejným
+   *  serviceCardItemId, ne jeden řádek s víc hodnotami. */
+  quantity: integer("quantity").notNull().default(1),
   sortOrder: integer("sort_order").notNull().default(0),
   createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
 }, (table) => [

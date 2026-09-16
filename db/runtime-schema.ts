@@ -1821,6 +1821,37 @@ async function createRuntimeSchema() {
     await d1.prepare("ALTER TABLE material_attributes ADD COLUMN technical_field_id TEXT").run();
   }
 
+  // `allow_multiple_variants` — u položek jako Gufera je na motoru víc kusů, klidně různých
+  // rozměrů; u Pístu má naopak smysl jen jedna hodnota. DEFAULT 0 nechává všechny existující
+  // položky (i budoucí bez explicitní volby) na dnešním jednoduchém výběru jedné varianty.
+  const cardItemColumns = await d1.prepare("PRAGMA table_info(service_card_items)").all<{ name: string }>();
+  if (!cardItemColumns.results.some((column: { name: string }) => column.name === "allow_multiple_variants")) {
+    await d1.prepare("ALTER TABLE service_card_items ADD COLUMN allow_multiple_variants INTEGER NOT NULL DEFAULT 0").run();
+  }
+
+  // `quantity` — kolik kusů této varianty bylo použito. DEFAULT 1 dá všem existujícím řádkům
+  // (vždy přesně jedna varianta na položku) správnou hodnotu bez jediného UPDATE — čtou se
+  // beze změny, jako skupina o jednom řádku.
+  const serviceRecordItemColumns = await d1.prepare("PRAGMA table_info(service_record_items)").all<{ name: string }>();
+  if (!serviceRecordItemColumns.results.some((column: { name: string }) => column.name === "quantity")) {
+    await d1.prepare("ALTER TABLE service_record_items ADD COLUMN quantity INTEGER NOT NULL DEFAULT 1").run();
+  }
+
+  // `service_type_snapshot_cs`/`_en` — starý `service_type_snapshot` sloučil oba jazyky do
+  // jednoho textu (např. „PRE · Přestavba / Rebuild"), takže se podle přepínače jazyka nedalo
+  // vybrat, co zobrazit. Nové sloupce drží každý jazyk samostatně; starý sloupec zůstává
+  // beze změny pro dřívější záznamy (žádný UPDATE), nové zápisy plní všechny tři.
+  const serviceRecordColumnsForType = await d1.prepare("PRAGMA table_info(service_records)").all<{ name: string }>();
+  const serviceTypeSnapshotAdditions: Array<[string, string]> = [
+    ["service_type_snapshot_cs", "ALTER TABLE service_records ADD COLUMN service_type_snapshot_cs TEXT NOT NULL DEFAULT ''"],
+    ["service_type_snapshot_en", "ALTER TABLE service_records ADD COLUMN service_type_snapshot_en TEXT NOT NULL DEFAULT ''"],
+  ];
+  for (const [name, statement] of serviceTypeSnapshotAdditions) {
+    if (!serviceRecordColumnsForType.results.some((column: { name: string }) => column.name === name)) {
+      await d1.prepare(statement).run();
+    }
+  }
+
   // Zákazník u zakázkového servisu: výchozí slevy na práci a na materiál (celá procenta,
   // dají se přepsat na zakázce i na jednotlivé položce) a země. Fakturační údaje — IČO, DIČ,
   // adresa — v tabulce už jsou a zůstávají nepovinné; u zahraničního zákazníka často stačí
@@ -2077,11 +2108,13 @@ async function seedPistonSizes(d1: ReturnType<typeof getD1>, category: { id: str
 
 /** Labels the four hardcoded legacy service types carried, kept only so migrated history
  *  still reads the way it did before. New records store their own snapshot instead. */
-const LEGACY_SERVICE_TYPE_LABELS: Record<string, string> = {
-  inspection: "Kontrola / Inspection",
-  piston_service: "Servis pístu / Piston service",
-  top_end: "Top end",
-  full_service: "Kompletní servis / Full service",
+// Zvlášť pro každý jazyk, ne jeden slepený text — jinak by se podle přepínače jazyka
+// nedalo vybrat, co zobrazit (stejná chyba, jaká byla u `serviceTypeSnapshot` v API zápisu).
+const LEGACY_SERVICE_TYPE_LABELS: Record<string, { cs: string; en: string }> = {
+  inspection: { cs: "Kontrola", en: "Inspection" },
+  piston_service: { cs: "Servis pístu", en: "Piston service" },
+  top_end: { cs: "Top end", en: "Top end" },
+  full_service: { cs: "Kompletní servis", en: "Full service" },
 };
 
 type LegacyEntryRow = {
@@ -2178,13 +2211,13 @@ export async function migrateLegacyServiceEntries(
     let itemCount = 0;
 
     for (const entry of pending.results) {
-      const serviceTypeSnapshot = LEGACY_SERVICE_TYPE_LABELS[entry.serviceType] ?? entry.serviceType;
+      const serviceTypeLabel = LEGACY_SERVICE_TYPE_LABELS[entry.serviceType] ?? { cs: entry.serviceType, en: entry.serviceType };
       statements.push(d1.prepare(`
         INSERT INTO service_records (
-          id, engine_id, service_type_id, service_type_snapshot, service_date, counter_minutes,
-          mechanic_id, mechanic_name_snapshot, note, import_source, created_by, created_at, updated_at
-        ) VALUES (?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
-      `).bind(entry.id, entry.engineId, serviceTypeSnapshot, entry.serviceDate, entry.mechanicId,
+          id, engine_id, service_type_id, service_type_snapshot, service_type_snapshot_cs, service_type_snapshot_en,
+          service_date, counter_minutes, mechanic_id, mechanic_name_snapshot, note, import_source, created_by, created_at, updated_at
+        ) VALUES (?, ?, NULL, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)
+      `).bind(entry.id, entry.engineId, serviceTypeLabel.cs, serviceTypeLabel.cs, serviceTypeLabel.en, entry.serviceDate, entry.mechanicId,
         entry.mechanicName, entry.notes, IMPORT_SOURCE_LEGACY, entry.createdBy, entry.createdAt, entry.createdAt));
 
       // Přednost má snapshot, který starý řádek nesl; teprve pak seznam klíčů + dnešní katalog,
@@ -2209,7 +2242,7 @@ export async function migrateLegacyServiceEntries(
       });
 
       if (samples.length < 5) {
-        samples.push({ engineCode: entry.engineCode, serviceDate: entry.serviceDate, serviceType: serviceTypeSnapshot, items: sampleItems });
+        samples.push({ engineCode: entry.engineCode, serviceDate: entry.serviceDate, serviceType: serviceTypeLabel.cs, items: sampleItems });
       }
     }
 

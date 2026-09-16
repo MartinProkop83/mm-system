@@ -1,6 +1,7 @@
 import { getD1 } from "../../../db";
 import { ensureRuntimeSchema } from "../../../db/runtime-schema";
 import { getApiUser } from "../../server-auth";
+import { formatVariantList, groupServiceRecordItems, type MaterialSnapshot, type ServiceRecordItem } from "../../service-card-shared";
 
 /**
  * Servisní historie napříč všemi motory + denní report.
@@ -39,6 +40,8 @@ type RecordRow = {
   serviceDate: string;
   serviceTime: string;
   typeSnapshot: string;
+  typeSnapshotCs: string | null;
+  typeSnapshotEn: string | null;
   mechanicId: string | null;
   mechanicName: string;
   note: string;
@@ -161,14 +164,16 @@ async function loadRecords(d1: ReturnType<typeof getD1>, params: Params) {
     SELECT * FROM (
       SELECT 'new' AS source, r.id AS id, r.engine_id AS engineId, e.code AS engineCode, e.family AS family,
              r.service_date AS serviceDate, r.service_time AS serviceTime,
-             r.service_type_snapshot AS typeSnapshot, r.mechanic_id AS mechanicId,
+             r.service_type_snapshot AS typeSnapshot,
+             r.service_type_snapshot_cs AS typeSnapshotCs, r.service_type_snapshot_en AS typeSnapshotEn,
+             r.mechanic_id AS mechanicId,
              r.mechanic_name_snapshot AS mechanicName, r.note AS note,
              r.cancelled_at AS cancelledAt, r.cancelled_reason AS cancelledReason, r.created_at AS createdAt
       FROM service_records r
       JOIN engines e ON e.id = r.engine_id
       UNION ALL
       SELECT 'legacy', s.id, s.engine_id, e.code, e.family,
-             s.service_date, '', s.service_type, s.mechanic_id,
+             s.service_date, '', s.service_type, NULL, NULL, s.mechanic_id,
              s.mechanic_name_snapshot, s.notes, NULL, '', s.created_at
       FROM engine_service_entries s
       JOIN engines e ON e.id = s.engine_id
@@ -185,11 +190,17 @@ async function loadRecords(d1: ReturnType<typeof getD1>, params: Params) {
   // případech jako text pořízený v době zápisu, takže pozdější přejmenování historii nepřepíše.
   const [newItems, legacyItems] = await Promise.all([
     newIds.length === 0 ? { results: [] } : d1.prepare(`
-      SELECT service_record_id AS recordId, item_name_cs_snapshot AS nameCs, item_name_en_snapshot AS nameEn,
-             material_snapshot AS materialSnapshot
+      SELECT id, service_record_id AS serviceRecordId, service_card_item_id AS serviceCardItemId,
+             item_name_cs_snapshot AS itemNameCsSnapshot, item_name_en_snapshot AS itemNameEnSnapshot,
+             material_variant_id AS materialVariantId, material_snapshot AS materialSnapshot,
+             quantity, sort_order AS sortOrder
       FROM service_record_items WHERE service_record_id IN (${newIds.map(() => "?").join(", ")})
       ORDER BY sort_order
-    `).bind(...newIds).all<{ recordId: string; nameCs: string; nameEn: string; materialSnapshot: string | null }>(),
+    `).bind(...newIds).all<{
+      id: string; serviceRecordId: string; serviceCardItemId: string | null;
+      itemNameCsSnapshot: string; itemNameEnSnapshot: string;
+      materialVariantId: string | null; materialSnapshot: string | null; quantity: number; sortOrder: number;
+    }>(),
     legacyIds.length === 0 ? { results: [] } : d1.prepare(`
       SELECT id AS recordId, replaced_parts_snapshot AS snapshot, piston_size AS pistonSize
       FROM engine_service_entries WHERE id IN (${legacyIds.map(() => "?").join(", ")})
@@ -197,9 +208,19 @@ async function loadRecords(d1: ReturnType<typeof getD1>, params: Params) {
   ]);
 
   const itemsByRecord = new Map<string, Array<{ nameCs: string; nameEn: string; material: string }>>();
+  // Seskupeno podle položky karty přesně stejně jako v dlaždici a v historii na kartě motoru —
+  // víc variant u jedné položky (Gufera) vypíše jeden řádek se všemi kusy, ne víc řádků.
+  const rawItemsByRecord = new Map<string, ServiceRecordItem[]>();
   for (const item of newItems.results) {
-    const material = parseJson<{ name?: string } | null>(item.materialSnapshot, null)?.name ?? "";
-    itemsByRecord.set(item.recordId, [...(itemsByRecord.get(item.recordId) ?? []), { nameCs: item.nameCs, nameEn: item.nameEn, material }]);
+    const parsed: ServiceRecordItem = { ...item, materialSnapshot: parseJson<MaterialSnapshot | null>(item.materialSnapshot, null) };
+    rawItemsByRecord.set(item.serviceRecordId, [...(rawItemsByRecord.get(item.serviceRecordId) ?? []), parsed]);
+  }
+  for (const [recordId, items] of rawItemsByRecord) {
+    itemsByRecord.set(recordId, groupServiceRecordItems(items).map((group) => ({
+      // Report vypisuje jeden řádek na položku, takže víc variant se musí spojit do jednoho
+      // textu — tečkou s mezerami po stranách, ne čárkou (ta je běžná součást názvů variant).
+      nameCs: group.itemNameCsSnapshot, nameEn: group.itemNameEnSnapshot, material: formatVariantList(group.variants).join(" · "),
+    })));
   }
   for (const item of legacyItems.results) {
     const parts = parseJson<Array<{ labelCs: string; labelEn: string; partKey: string }>>(item.snapshot, []);
@@ -214,8 +235,10 @@ async function loadRecords(d1: ReturnType<typeof getD1>, params: Params) {
   return rows.results.map((row) => ({
     ...row,
     cancelled: Boolean(row.cancelledAt),
-    typeCs: row.source === "legacy" ? LEGACY_TYPE_LABELS[row.typeSnapshot]?.cs ?? row.typeSnapshot : row.typeSnapshot,
-    typeEn: row.source === "legacy" ? LEGACY_TYPE_LABELS[row.typeSnapshot]?.en ?? row.typeSnapshot : row.typeSnapshot,
+    // U nové karty čteme rozdělený snapshot podle jazyka; starší záznamy bez něj (prázdný
+    // řetězec) padnou zpátky na starý, oboujazyčně slepený text — jinou volbu nemají.
+    typeCs: row.source === "legacy" ? LEGACY_TYPE_LABELS[row.typeSnapshot]?.cs ?? row.typeSnapshot : (row.typeSnapshotCs || row.typeSnapshot),
+    typeEn: row.source === "legacy" ? LEGACY_TYPE_LABELS[row.typeSnapshot]?.en ?? row.typeSnapshot : (row.typeSnapshotEn || row.typeSnapshot),
     items: itemsByRecord.get(row.id) ?? [],
   }));
 }

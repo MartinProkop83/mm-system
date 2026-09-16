@@ -1,11 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
+import { formatCount, type PluralForms } from "./pluralize";
 import {
   formatCounterMinutes,
+  formatVariantList,
+  groupServiceRecordItems,
   isWithinEditWindow,
+  localizedServiceTypeSnapshot,
   tileStatus,
   type CounterUnit,
   type MaterialVariant,
@@ -15,6 +19,8 @@ import {
 } from "./service-card-shared";
 
 type Locale = "cs" | "en";
+
+const HISTORY_ITEM_FORMS: PluralForms = { cs: ["položka", "položky", "položek"], en: ["item", "items"] };
 
 type CardData = {
   engine: { id: string; code: string; family: string; totalMinutes: number };
@@ -56,6 +62,8 @@ const content = {
     mechanic: "Mechanik",
     counter: "Motohodiny",
     items: "Položky",
+    expandRow: "Zobrazit položky a materiál",
+    collapseRow: "Skrýt položky a materiál",
     note: "Poznámka",
     actions: "Akce",
     cancelled: "Stornováno",
@@ -82,6 +90,10 @@ const content = {
     material: "Materiál",
     selectVariant: "Vyber variantu",
     noVariants: "Katalog pro tuto kategorii je prázdný",
+    addVariant: "Přidat variantu",
+    decreaseQty: "Méně kusů",
+    increaseQty: "Více kusů",
+    removeVariant: "Odebrat tuto variantu",
     notePlaceholder: "Například naměřené hodnoty nebo co bylo potřeba navíc…",
     syncTitle: "Technické údaje se liší",
     syncRow: (field: string, from: string, to: string) => `${field}: ${from || "—"} → ${to}`,
@@ -124,6 +136,8 @@ const content = {
     mechanic: "Mechanic",
     counter: "Running hours",
     items: "Items",
+    expandRow: "Show items and material",
+    collapseRow: "Hide items and material",
     note: "Note",
     actions: "Actions",
     cancelled: "Cancelled",
@@ -150,6 +164,10 @@ const content = {
     material: "Material",
     selectVariant: "Select a variant",
     noVariants: "The catalogue for this category is empty",
+    addVariant: "Add a variant",
+    decreaseQty: "Fewer pieces",
+    increaseQty: "More pieces",
+    removeVariant: "Remove this variant",
     notePlaceholder: "For example measured values or anything extra that was needed…",
     syncTitle: "The technical data differs",
     syncRow: (field: string, from: string, to: string) => `${field}: ${from || "—"} → ${to}`,
@@ -282,15 +300,16 @@ export function EngineServiceCard({ engine, locale, currentUserName, openEntryOn
                 : "";
             const last = status.lastRecord;
             // Snapshot z okamžiku zápisu, ne živý dotaz do katalogu — přežije i pozdější
-            // přejmenování/archivaci varianty. U zaškrtávacích položek (bez kategorie
-            // materiálu) je vždy null, takže se nic navíc nevykreslí.
-            const materialName = last?.items.find((recordItem) => recordItem.serviceCardItemId === item.id)?.materialSnapshot?.name ?? "";
+            // přejmenování/archivaci varianty. Seskupuje se podle toho, co je v záznamu
+            // SKUTEČNĚ uložené (víc řádků = víc variant), ne podle dnešní hodnoty přepínače
+            // „Povolit více variant" — starý i později přepnutý záznam se tak vždy zobrazí celý.
+            const materialLines = last ? formatVariantList(groupServiceRecordItems(last.items).find((group) => group.serviceCardItemId === item.id)?.variants ?? []) : [];
             return (
               <div key={item.id} className={`${last ? "has-record" : ""} sc-tile-${status.state}`}>
                 <span>{last ? "✓" : "○"}</span>
                 <strong>{localized(locale, item.nameCs, item.nameEn)}</strong>
                 <small>
-                  {materialName && <em className="sc-tile-material">{materialName}</em>}
+                  {materialLines.map((line, lineIndex) => <em key={lineIndex} className="sc-tile-material">{line}</em>)}
                   {last
                     ? [`${formatDate(last.serviceDate, locale)}${last.serviceTime ? ` ${last.serviceTime}` : ""}`, last.mechanicNameSnapshot].filter(Boolean).join(" · ")
                     : t.noRecord}
@@ -341,59 +360,117 @@ function ServiceHistory({ t, locale, records, tracksCounter, onEdit, onCancel }:
   onEdit: (record: ServiceRecord) => void;
   onCancel: (record: ServiceRecord) => void;
 }) {
+  // Jeden zdroj pravdy pro hlavičku i pro colSpan rozbaleného detailu — vykreslují se ze
+  // stejného pole, takže se přidání/odebrání sloupce v `<thead>` nemůže s colSpanem rozejít.
+  const headerCells = [
+    <th key="expand" className="sc-history-expand-col" aria-hidden="true" />,
+    <th key="date">{t.date}</th>,
+    <th key="type">{t.type}</th>,
+    <th key="mechanic">{t.mechanic}</th>,
+    ...(tracksCounter ? [<th key="counter">{t.counter}</th>] : []),
+    <th key="items">{t.items}</th>,
+    <th key="note">{t.note}</th>,
+    <th key="actions" className="action-column">{t.actions}</th>,
+  ];
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  function toggleExpanded(id: string) {
+    setExpandedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
   return (
     <div className="records-table-wrap">
       <div className="records-title"><h3>{t.history}</h3><small>{t.editWindowNote}</small></div>
       <div className="table-wrap">
-        <table className="records-table zebra">
-          <thead><tr>
-            <th>{t.date}</th><th>{t.type}</th><th>{t.mechanic}</th>
-            {tracksCounter && <th>{t.counter}</th>}
-            <th>{t.items}</th><th>{t.note}</th><th className="action-column">{t.actions}</th>
-          </tr></thead>
+        <table className="records-table zebra sc-history-table">
+          <thead><tr>{headerCells}</tr></thead>
           <tbody>
-            {records.map((record) => {
+            {records.map((record, index) => {
               const cancelled = Boolean(record.cancelledAt);
               const canEdit = !cancelled && isWithinEditWindow(record);
+              // Seskupeno podle položky karty, aby víc variant u jedné položky (Gufera) tvořilo
+              // jednu položku s víc řádky materiálu, ne víc řádků se stejným názvem — beze
+              // změny pro starou historii s jednou variantou.
+              const groups = groupServiceRecordItems(record.items);
+              const hasItems = groups.length > 0;
+              const isExpanded = hasItems && expandedIds.has(record.id);
+              // Vlastní pruhování podle pořadí ZÁZNAMU, ne podle pořadí <tr> v DOM — jinak by
+              // rozbalený detail (druhý <tr> navíc) posunul sudost/lichost všem řádkům pod ním
+              // a pruh by najednou patřil opačnému řádku, než ze kterého vyjel.
+              const isAlt = index % 2 === 1;
+              const rowClass = [
+                "sc-history-row",
+                isAlt ? "sc-history-row-alt" : "",
+                cancelled ? "sc-record-cancelled" : "",
+                hasItems ? "sc-history-row-clickable" : "",
+                isExpanded ? "sc-history-row-expanded" : "",
+              ].filter(Boolean).join(" ");
               return (
-                <tr key={record.id} className={cancelled ? "sc-record-cancelled" : ""}>
-                  <td>
-                    {/* Čas se ukáže jen když ho někdo zadal — u starých a přenesených záznamů
-                        by prázdná hodnota vypadala, jako by se dělaly o půlnoci. */}
-                    <strong>{formatDate(record.serviceDate, locale)}{record.serviceTime && ` ${record.serviceTime}`}</strong>
-                    {cancelled && <small className="cell-note sc-cancel-reason">{t.cancelled}: {record.cancelledReason}</small>}
-                  </td>
-                  <td>{record.serviceTypeSnapshot || <span className="cell-note">{t.noType}</span>}</td>
-                  <td>{record.mechanicNameSnapshot || <span className="cell-note">{record.createdBy}</span>}</td>
-                  {/* Sloupec zůstane prázdný u záznamů z doby bez počítadla — řádek se nijak neznevýrazňuje. */}
-                  {tracksCounter && <td className="num">{record.counterMinutes === null ? "" : formatCounterMinutes(record.counterMinutes)}</td>}
-                  <td>
-                    {record.items.length === 0 ? <span className="cell-note">—</span> : (
-                      <ul className="sc-record-items">
-                        {record.items.map((item) => (
-                          <li key={item.id}>
-                            {localized(locale, item.itemNameCsSnapshot, item.itemNameEnSnapshot)}
-                            {item.materialSnapshot && <small>{item.materialSnapshot.name}</small>}
-                          </li>
-                        ))}
-                      </ul>
-                    )}
-                  </td>
-                  <td>
-                    {record.note || (record.divergenceNote ? "" : <span className="cell-note">—</span>)}
-                    {record.divergenceNote && <small className="cell-note sc-divergence-note">⚠ {record.divergenceNote}</small>}
-                  </td>
-                  <td className="action-column">
-                    {/* Oprávnění ke stornu (autor nebo superadmin) vyhodnocuje server — klient
-                        nezná e-mail přihlášeného, tak tlačítko nabídne a případné 403 ohlásí. */}
-                    {!cancelled && (
-                      <div className="record-actions">
-                        {canEdit && <button type="button" onClick={() => onEdit(record)}>{t.edit}</button>}
-                        <button className="delete" type="button" onClick={() => onCancel(record)}>{t.cancelRecord}</button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={record.id}>
+                  <tr className={rowClass} onClick={hasItems ? () => toggleExpanded(record.id) : undefined}>
+                    <td className="sc-history-expand-col">
+                      {hasItems && (
+                        <button
+                          type="button"
+                          className={`sc-expand-toggle ${isExpanded ? "expanded" : ""}`}
+                          aria-expanded={isExpanded}
+                          aria-label={isExpanded ? t.collapseRow : t.expandRow}
+                          onClick={(event) => { event.stopPropagation(); toggleExpanded(record.id); }}
+                        >
+                          <span aria-hidden="true">▸</span>
+                        </button>
+                      )}
+                    </td>
+                    <td>
+                      {/* Čas se ukáže jen když ho někdo zadal — u starých a přenesených záznamů
+                          by prázdná hodnota vypadala, jako by se dělaly o půlnoci. */}
+                      <strong>{formatDate(record.serviceDate, locale)}{record.serviceTime && ` ${record.serviceTime}`}</strong>
+                      {cancelled && <small className="cell-note sc-cancel-reason">{t.cancelled}: {record.cancelledReason}</small>}
+                    </td>
+                    <td>{localizedServiceTypeSnapshot(record, locale) || <span className="cell-note">{t.noType}</span>}</td>
+                    <td>{record.mechanicNameSnapshot || <span className="cell-note">{record.createdBy}</span>}</td>
+                    {/* Sloupec zůstane prázdný u záznamů z doby bez počítadla — řádek se nijak neznevýrazňuje. */}
+                    {tracksCounter && <td className="num">{record.counterMinutes === null ? "" : formatCounterMinutes(record.counterMinutes)}</td>}
+                    {/* Krátký souhrn, aby šlo i bez rozbalení na první pohled poznat, že se něco
+                        dělalo — celý seznam položek a materiálu je až v rozbaleném detailu. */}
+                    <td>{hasItems ? formatCount(groups.length, locale, HISTORY_ITEM_FORMS) : <span className="cell-note">—</span>}</td>
+                    <td>
+                      {record.note || (record.divergenceNote ? "" : <span className="cell-note">—</span>)}
+                      {record.divergenceNote && <small className="cell-note sc-divergence-note">⚠ {record.divergenceNote}</small>}
+                    </td>
+                    <td className="action-column">
+                      {/* Oprávnění ke stornu (autor nebo superadmin) vyhodnocuje server — klient
+                          nezná e-mail přihlášeného, tak tlačítko nabídne a případné 403 ohlásí.
+                          Zastavení probublání, aby klik na tlačítko neotevřel/nezavřel detail. */}
+                      {!cancelled && (
+                        <div className="record-actions" onClick={(event) => event.stopPropagation()}>
+                          {canEdit && <button type="button" onClick={() => onEdit(record)}>{t.edit}</button>}
+                          <button className="delete" type="button" onClick={() => onCancel(record)}>{t.cancelRecord}</button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                  {isExpanded && (
+                    <tr className={`sc-history-detail ${isAlt ? "sc-history-detail-alt" : ""} ${cancelled ? "sc-record-cancelled" : ""}`}>
+                      <td className="sc-history-detail-cell" colSpan={headerCells.length}>
+                        {/* `columnCount` je horní mez — u 2-3 položek se tak nikdy nerozteče
+                            do víc sloupců, než má co ukázat. Šířku dál hlídá `column-width`
+                            v CSS; prohlížeč použije menší z obou omezení. */}
+                        <ul className="sc-record-items" style={{ columnCount: groups.length }}>
+                          {groups.map((group) => (
+                            <li key={group.key}>
+                              {localized(locale, group.itemNameCsSnapshot, group.itemNameEnSnapshot)}
+                              {formatVariantList(group.variants).map((line, lineIndex) => <small key={lineIndex}>{line}</small>)}
+                            </li>
+                          ))}
+                        </ul>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>
@@ -403,7 +480,8 @@ function ServiceHistory({ t, locale, records, tracksCounter, onEdit, onCancel }:
   );
 }
 
-type SelectedItem = { itemId: string; variantId: string };
+type SelectedVariant = { variantId: string; quantity: number };
+type SelectedItem = { itemId: string; variants: SelectedVariant[] };
 
 function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHours, onClose, onSaved }: {
   t: Copy; locale: Locale; data: CardData; record: ServiceRecord | null; currentUserName: string;
@@ -420,8 +498,22 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
   // Nový záznam dostane aktuální čas; u opravy se drží to, co je uložené (i prázdné).
   const [serviceTime, setServiceTime] = useState(record ? record.serviceTime : nowTimeInputValue());
   const [note, setNote] = useState(record?.note ?? "");
-  const [selected, setSelected] = useState<SelectedItem[]>(() =>
-    (record?.items ?? []).map((item) => ({ itemId: item.serviceCardItemId ?? "", variantId: item.materialVariantId ?? "" })).filter((item) => item.itemId));
+  const [selected, setSelected] = useState<SelectedItem[]>(() => {
+    // Vlastní seskupení, ne `groupServiceRecordItems` — formulář potřebuje `materialVariantId`
+    // pro předvýběr v selectu, ne jen zobrazovaný název varianty.
+    const byItem = new Map<string, SelectedVariant[]>();
+    for (const recordItem of record?.items ?? []) {
+      if (!recordItem.serviceCardItemId || !recordItem.materialVariantId) continue;
+      const list = byItem.get(recordItem.serviceCardItemId) ?? [];
+      list.push({ variantId: recordItem.materialVariantId, quantity: recordItem.quantity });
+      byItem.set(recordItem.serviceCardItemId, list);
+    }
+    // Zaškrtnuté položky bez materiálu (checked, žádná varianta) taky patří do výběru.
+    for (const recordItem of record?.items ?? []) {
+      if (recordItem.serviceCardItemId && !byItem.has(recordItem.serviceCardItemId)) byItem.set(recordItem.serviceCardItemId, []);
+    }
+    return Array.from(byItem.entries()).map(([itemId, variants]) => ({ itemId, variants }));
+  });
   // Pořadí předvyplnění: u opravy ten, kdo je v záznamu; u nového zápisu ten, kdo si motor
   // zabral ve frontě; jinak přihlášený uživatel, pokud je mezi mechaniky. Vždycky jde přepsat —
   // motor mohl dodělat někdo jiný, než kdo si ho vzal.
@@ -447,16 +539,24 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
     return map;
   }, [data.materialVariants]);
 
-  // Rozdíly mezi vybraným materiálem a technickými údaji motoru — jen u propojených atributů.
+  // Rozdíly mezi vybraným materiálem a technickými údaji motoru — jen u propojených atributů,
+  // a jen když je v zápisu na tuhle kategorii materiálu jasno (přesně jedna odlišná varianta).
+  // U víc kusů různých variant (víc gufer) se nedá hádat, která je „ta" pro technický údaj —
+  // stejné pravidlo jako na serveru (`reconcilableVariantIds`).
   const divergences = useMemo(() => {
+    const distinctVariantIdsByCategory = new Map<string, Set<string>>();
+    for (const entry of selected) {
+      const item = data.cardItems.find((cardItem) => cardItem.id === entry.itemId);
+      if (!item?.materialCategoryId) continue;
+      const set = distinctVariantIdsByCategory.get(item.materialCategoryId) ?? new Set<string>();
+      for (const variant of entry.variants) if (variant.variantId) set.add(variant.variantId);
+      distinctVariantIdsByCategory.set(item.materialCategoryId, set);
+    }
     const rows: Array<{ field: string; from: string; to: string }> = [];
     for (const link of data.technicalLinks) {
-      const picked = selected.find((entry) => {
-        const item = data.cardItems.find((cardItem) => cardItem.id === entry.itemId);
-        return item?.materialCategoryId === link.materialCategoryId && entry.variantId;
-      });
-      if (!picked) continue;
-      const variant = data.materialVariants.find((item) => item.id === picked.variantId);
+      const variantIds = distinctVariantIdsByCategory.get(link.materialCategoryId);
+      if (!variantIds || variantIds.size !== 1) continue;
+      const variant = data.materialVariants.find((item) => item.id === Array.from(variantIds)[0]);
       const wanted = variant?.attributeValues[link.attributeId];
       if (!wanted) continue;
       const current = data.technicalValues.find((item) => item.fieldId === link.technicalFieldId)?.value ?? "";
@@ -473,19 +573,66 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
     const defaults = data.defaultItems.filter((link) => link.serviceTypeId === nextTypeId).map((link) => link.serviceCardItemId);
     setSelected((current) => defaults.map((itemId) => ({
       itemId,
-      // Už vybranou variantu u položky, která zůstává zaškrtnutá, zachováme.
-      variantId: current.find((item) => item.itemId === itemId)?.variantId ?? "",
+      // Už vybrané varianty u položky, která zůstává zaškrtnutá, zachováme.
+      variants: current.find((item) => item.itemId === itemId)?.variants ?? [],
     })));
   }
 
   function toggleItem(itemId: string) {
     setSelected((current) => current.some((item) => item.itemId === itemId)
       ? current.filter((item) => item.itemId !== itemId)
-      : [...current, { itemId, variantId: "" }]);
+      // Rovnou s jedním prázdným řádkem — stejný start pro jednoduchý i opakovatelný výběr.
+      : [...current, { itemId, variants: [{ variantId: "", quantity: 1 }] }]);
   }
 
-  function setVariant(itemId: string, variantId: string) {
-    setSelected((current) => current.map((item) => item.itemId === itemId ? { ...item, variantId } : item));
+  /** Jeden select, vždy přesně jeden řádek — pro položky bez „Povolit více variant". */
+  function setSingleVariant(itemId: string, variantId: string) {
+    setSelected((current) => current.map((item) => item.itemId === itemId
+      ? { ...item, variants: [{ variantId, quantity: 1 }] }
+      : item));
+  }
+
+  /** Přidá prázdný řádek do opakovatelného seznamu — vyplní se až výběrem varianty. */
+  function addVariantRow(itemId: string) {
+    setSelected((current) => current.map((item) => item.itemId === itemId
+      ? { ...item, variants: [...item.variants, { variantId: "", quantity: 1 }] }
+      : item));
+  }
+
+  /**
+   * Výběr varianty na daném řádku. Zvolí-li mechanik variantu, která už u téhle položky na
+   * jiném řádku je, řádky se sloučí (počty se sečtou) a tenhle prázdný zmizí — nikdy nesmí
+   * vzniknout dvakrát tatáž varianta jako dva samostatné řádky.
+   */
+  function pickVariantRow(itemId: string, rowIndex: number, variantId: string) {
+    setSelected((current) => current.map((item) => {
+      if (item.itemId !== itemId) return item;
+      const duplicateAt = variantId ? item.variants.findIndex((variant, index) => index !== rowIndex && variant.variantId === variantId) : -1;
+      if (duplicateAt === -1) {
+        return { ...item, variants: item.variants.map((variant, index) => index === rowIndex ? { ...variant, variantId } : variant) };
+      }
+      const movedQuantity = item.variants[rowIndex].quantity;
+      return {
+        ...item,
+        variants: item.variants
+          .map((variant, index) => index === duplicateAt ? { ...variant, quantity: variant.quantity + movedQuantity } : variant)
+          .filter((_, index) => index !== rowIndex),
+      };
+    }));
+  }
+
+  /** Krok +/- na počtu kusů. Nikdy pod 1 — na nulu ani níž se nedá sjet tlačítkem. */
+  function stepVariantQuantity(itemId: string, rowIndex: number, delta: 1 | -1) {
+    setSelected((current) => current.map((item) => item.itemId === itemId
+      ? { ...item, variants: item.variants.map((variant, index) => index === rowIndex ? { ...variant, quantity: Math.max(1, variant.quantity + delta) } : variant) }
+      : item));
+  }
+
+  /** Odebrání řádku má vlastní tlačítko (×) — samotné snížení počtu na 1 variantu nikdy nesmaže. */
+  function removeVariantRow(itemId: string, rowIndex: number) {
+    setSelected((current) => current.map((item) => item.itemId === itemId
+      ? { ...item, variants: item.variants.filter((_, index) => index !== rowIndex) }
+      : item));
   }
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -513,7 +660,10 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
           items: data.cardItems
             .map((cardItem) => selected.find((item) => item.itemId === cardItem.id))
             .filter((item): item is SelectedItem => Boolean(item))
-            .map((item) => ({ itemId: item.itemId, variantId: item.variantId || null })),
+            .map((item) => ({
+              itemId: item.itemId,
+              variants: item.variants.filter((variant) => variant.variantId).map((variant) => ({ variantId: variant.variantId, quantity: variant.quantity })),
+            })),
         }),
       });
       const payload = (await response.json()) as { records?: ServiceRecord[]; error?: string };
@@ -577,6 +727,10 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
                 {data.cardItems.map((item) => {
                   const picked = selected.find((entry) => entry.itemId === item.id);
                   const variants = item.materialCategoryId ? variantsByCategory.get(item.materialCategoryId) ?? [] : [];
+                  // I s vypnutým přepínačem se otevře opakovatelný seznam, pokud starší záznam
+                  // (zapsaný, dokud byl přepínač zapnutý) už má víc než jednu variantu — jinak
+                  // by je jednoduchý select ukázal jen zčásti a uložení by tiše zahodilo zbytek.
+                  const isMultiVariant = item.allowMultipleVariants || (picked?.variants.length ?? 0) > 1;
                   return (
                     <div key={item.id} className={`sc-record-item ${picked ? "selected" : ""}`}>
                       <label>
@@ -584,18 +738,50 @@ function ServiceRecordForm({ t, locale, data, record, currentUserName, onOpenHou
                         <span>✓</span>
                         <strong>{localized(locale, item.nameCs, item.nameEn)}</strong>
                       </label>
-                      {/* Dropdown s variantami jen u zaškrtnuté položky, která má kategorii materiálu.
+                      {/* Výběr materiálu jen u zaškrtnuté položky, která má kategorii materiálu.
                           Mechanik nikdy nevyplňuje atributy ručně — vybírá hotovou variantu z katalogu. */}
                       {picked && item.materialCategoryId && (
-                        <label className="sc-record-variant">
-                          <span>{t.material}</span>
-                          {variants.length === 0 ? <small className="cell-note">{t.noVariants}</small> : (
-                            <select value={picked.variantId} onChange={(event) => setVariant(item.id, event.target.value)}>
-                              <option value="">{t.selectVariant}</option>
-                              {variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name}</option>)}
-                            </select>
-                          )}
-                        </label>
+                        isMultiVariant ? (
+                          <div className="sc-record-variant sc-record-variant-multi">
+                            <span>{t.material}</span>
+                            {variants.length === 0 ? <small className="cell-note">{t.noVariants}</small> : (
+                              <div className="sc-variant-rows">
+                                {picked.variants.map((row, rowIndex) => (
+                                  <div key={rowIndex} className="sc-variant-row">
+                                    <select value={row.variantId} onChange={(event) => pickVariantRow(item.id, rowIndex, event.target.value)}>
+                                      <option value="">{t.selectVariant}</option>
+                                      {variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name}</option>)}
+                                    </select>
+                                    <div className="sc-qty-stepper">
+                                      <button type="button" className="sc-qty-btn" disabled={row.quantity <= 1}
+                                        onClick={() => stepVariantQuantity(item.id, rowIndex, -1)} aria-label={t.decreaseQty}>−</button>
+                                      <span className="sc-qty-value">{row.quantity}</span>
+                                      <button type="button" className="sc-qty-btn"
+                                        onClick={() => stepVariantQuantity(item.id, rowIndex, 1)} aria-label={t.increaseQty}>+</button>
+                                    </div>
+                                    <button type="button" className="sc-variant-remove"
+                                      onClick={() => removeVariantRow(item.id, rowIndex)} aria-label={t.removeVariant}>×</button>
+                                  </div>
+                                ))}
+                                {/* Přibývat smí jen tam, kde je přepínač zapnutý — jinak je vidět
+                                    jen proto, aby staré víc-variantní záznamy nešly zkrátit omylem. */}
+                                {item.allowMultipleVariants && (
+                                  <button type="button" className="secondary-compact sc-add-variant" onClick={() => addVariantRow(item.id)}>＋ {t.addVariant}</button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <label className="sc-record-variant">
+                            <span>{t.material}</span>
+                            {variants.length === 0 ? <small className="cell-note">{t.noVariants}</small> : (
+                              <select value={picked.variants[0]?.variantId ?? ""} onChange={(event) => setSingleVariant(item.id, event.target.value)}>
+                                <option value="">{t.selectVariant}</option>
+                                {variants.map((variant) => <option key={variant.id} value={variant.id}>{variant.name}</option>)}
+                              </select>
+                            )}
+                          </label>
+                        )
                       )}
                     </div>
                   );

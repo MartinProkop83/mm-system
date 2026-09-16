@@ -28,8 +28,15 @@ type TimelineEvent = {
   time: string;
   /** Řadicí klíč v ms — události bez vlastního času padnou na začátek svého dne. */
   sortAt: number;
+  /** Výchozí (česká) podoba — použije se, pokud událost nemá vlastní jazykové verze níž. */
   title: string;
   detail: string;
+  /** Jen u `kind: "service"` — typ servisu i seznam položek se ukládají zvlášť pro každý
+   *  jazyk, takže je má smysl vybrat podle aktuálního jazyka appky, ne natvrdo česky. */
+  titleCs?: string;
+  titleEn?: string;
+  detailCs?: string;
+  detailEn?: string;
   actor: string;
   system: boolean;
   /** Na co se dá z události prokliknout. */
@@ -87,11 +94,14 @@ export async function GET(request: Request) {
 
   const [records, legacy, races, loans, queueManual, queueSkipped, technical, usage, audit, loanAudit] = await Promise.all([
     d1.prepare(`
-      SELECT r.id, r.service_date AS serviceDate, r.service_time AS serviceTime, r.service_type_snapshot AS typeSnapshot,
+      SELECT r.id, r.service_date AS serviceDate, r.service_time AS serviceTime,
+             r.service_type_snapshot AS typeSnapshot,
+             r.service_type_snapshot_cs AS typeSnapshotCs, r.service_type_snapshot_en AS typeSnapshotEn,
              r.mechanic_name_snapshot AS mechanicName, r.note, r.counter_minutes AS counterMinutes,
              r.cancelled_at AS cancelledAt, r.cancelled_reason AS cancelledReason, r.cancelled_by AS cancelledBy,
              r.created_by AS createdBy, r.created_at AS createdAt,
-             (SELECT GROUP_CONCAT(i.item_name_cs_snapshot, ', ') FROM service_record_items i WHERE i.service_record_id = r.id) AS items,
+             (SELECT GROUP_CONCAT(i.item_name_cs_snapshot, ', ') FROM service_record_items i WHERE i.service_record_id = r.id) AS itemsCs,
+             (SELECT GROUP_CONCAT(i.item_name_en_snapshot, ', ') FROM service_record_items i WHERE i.service_record_id = r.id) AS itemsEn,
              (SELECT GROUP_CONCAT(json_extract(i.material_snapshot, '$.name'), ', ') FROM service_record_items i
               WHERE i.service_record_id = r.id AND i.material_snapshot IS NOT NULL) AS materials
       FROM service_records r WHERE r.engine_id = ?
@@ -150,15 +160,24 @@ export async function GET(request: Request) {
   for (const row of records.results as Array<Record<string, string | number | null>>) {
     const date = String(row.serviceDate ?? "");
     const time = String(row.serviceTime ?? "");
-    const items = String(row.items ?? "");
+    const itemsCs = String(row.itemsCs ?? "");
+    const itemsEn = String(row.itemsEn ?? "");
     const materials = String(row.materials ?? "");
+    const note = String(row.note ?? "");
+    // Typ servisu i názvy položek se ukládají zvlášť pro každý jazyk — u záznamu zapsaného
+    // před rozdělením podle jazyka (prázdné sloupce) padne titulek zpátky na starý slepený text.
+    const titleCs = String(row.typeSnapshotCs || row.typeSnapshot || "Servis");
+    const titleEn = String(row.typeSnapshotEn || row.typeSnapshot || "Service");
     events.push({
       id: `service-${row.id}`,
       kind: "service",
       date, time,
       sortAt: sortKey(date, time, Number(row.createdAt ?? 0)),
-      title: String(row.typeSnapshot || "Servis"),
-      detail: [items, materials && `materiál: ${materials}`, String(row.note ?? "")].filter(Boolean).join(" · "),
+      title: titleCs,
+      titleCs, titleEn,
+      detail: [itemsCs, materials && `materiál: ${materials}`, note].filter(Boolean).join(" · "),
+      detailCs: [itemsCs, materials && `materiál: ${materials}`, note].filter(Boolean).join(" · "),
+      detailEn: [itemsEn, materials && `material: ${materials}`, note].filter(Boolean).join(" · "),
       actor: String(row.mechanicName || row.createdBy || ""),
       system: false,
       serviceRecordId: String(row.id),

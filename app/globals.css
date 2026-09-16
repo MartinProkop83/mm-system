@@ -1124,6 +1124,46 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .record-actions button:hover { color: var(--wrc-red); border-color: var(--wrc-red); }
 .record-actions button.delete { color: var(--wrc-red); }
 .record-actions button.delete:hover { background: var(--wrc-red-glow); }
+
+/* Historie servisů — rozbalovací řádek. Pruhování je řízené vlastní třídou podle pořadí
+   ZÁZNAMU (JS), ne podle nth-child: rozbalený detailní <tr> je v DOM navíc, takže by
+   nth-child posunul sudost/lichost všem řádkům pod sebou a pruh by najednou patřil
+   opačnému řádku, než ze kterého vyjel. Specificita (3 třídy) je záměrně vyšší než
+   obecné pravidlo `table.zebra tbody tr:nth-child(even) td`, aby ho tu úplně nahradila. */
+.sc-history-expand-col { width: 36px; padding-right: 0; }
+.sc-expand-toggle { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--wrc-ink-faint); border: 0; border-radius: var(--wrc-radius-circle); background: transparent; cursor: pointer; }
+.sc-expand-toggle:hover { color: var(--wrc-ink); background: var(--wrc-surface-3); }
+.sc-expand-toggle span { display: inline-block; transition: transform .15s ease; }
+.sc-expand-toggle.expanded span { transform: rotate(90deg); }
+.sc-history-row-clickable { cursor: pointer; }
+.sc-history-table.zebra tbody tr.sc-history-row td,
+.sc-history-table.zebra tbody tr.sc-history-detail td { background: transparent; }
+.sc-history-table.zebra tbody tr.sc-history-row-alt td,
+.sc-history-table.zebra tbody tr.sc-history-detail-alt td { background: var(--wrc-surface-2); }
+.sc-history-table.zebra tbody tr.sc-history-row-clickable:hover td { background: var(--wrc-surface-3); }
+/* Bez spodní čáry na rozbaleném řádku — detail pod ním má vypadat jako jeho pokračování,
+   ne jako samostatný, oddělený řádek. */
+.sc-history-table tbody tr.sc-history-row-expanded td { border-bottom-color: transparent; }
+.sc-history-detail-cell { padding-top: 0; }
+/* Přes celý colSpan tabulky, ale rozložené do víc sloupců, ne jednoho úzkého — u devíti
+   položek by jinak jeden sloupec zabral půl obrazovky. `column-width` sama nechá prohlížeč
+   spočítat, kolik sloupců se vejde na aktuální šířku okna. `break-inside: avoid` na položce
+   garantuje, že se položka se svými variantami nikdy nerozdělí mezi dva sloupce. */
+.sc-history-detail-cell .sc-record-items {
+  display: block;
+  padding-top: var(--wrc-space-4);
+  column-width: 260px;
+  column-gap: var(--wrc-space-24);
+}
+.sc-history-detail-cell .sc-record-items li {
+  font-size: inherit;
+  break-inside: avoid;
+  margin-bottom: var(--wrc-space-12);
+}
+.sc-history-detail-cell .sc-record-items li:last-child { margin-bottom: 0; }
+/* Řádek s variantou zůstává o stupeň menší než název položky (hierarchie), ale ne drobný
+   tisk — obsah, kvůli kterému uživatel řádek rozbalil. */
+.sc-history-detail-cell .sc-record-items li small { font-size: var(--wrc-text-sm); }
 .record-modal { width: min(680px, 100%); }
 .service-modal { width: min(820px, 100%); }
 .modal-header p { max-width: 600px; margin: var(--wrc-space-6) 0 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-xs); line-height: 1.45; }
@@ -3811,6 +3851,24 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .sc-record-item > label strong { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }
 .sc-record-variant { display: flex; align-items: center; gap: var(--wrc-space-8); min-width: 0; }
 .sc-record-variant > span { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); letter-spacing: var(--wrc-tracking-wide); text-transform: uppercase; }
+
+/* Víc variant u jedné položky (např. Gufera) — repeatable seznam řádků, ne jeden select. */
+.sc-record-variant-multi { flex-direction: column; align-items: stretch; width: 100%; gap: var(--wrc-space-8); }
+.sc-variant-rows { display: flex; flex-direction: column; gap: var(--wrc-space-8); }
+.sc-variant-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wrc-space-8); }
+.sc-variant-row select { flex: 1; min-width: 160px; }
+/* Krok tlačítky, ne textové pole — v rukavicích se do políčka nepohodlně píše. Neutrální
+   tmavý styl, ne červený (červená je vyhrazená pro identitu/aktivní stav/kritický stav). */
+.sc-qty-stepper { display: flex; align-items: center; gap: var(--wrc-space-4); }
+.sc-qty-btn { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--wrc-ink); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-sm); background: var(--wrc-surface); font-size: var(--wrc-text-lg); font-weight: var(--wrc-weight-bold); cursor: pointer; }
+.sc-qty-btn:hover:not(:disabled) { background: var(--wrc-surface-3); }
+.sc-qty-btn:disabled { color: var(--wrc-ink-faint); cursor: not-allowed; }
+.sc-qty-value { min-width: 28px; text-align: center; color: var(--wrc-ink); font-size: var(--wrc-text-base); font-weight: var(--wrc-weight-bold); }
+/* Odebrání varianty je vlastní tlačítko, jen s křížkem — jedna akce, jeden význam, nejde
+   smazat omylem při zvyšování/snižování počtu. Červený jen obrys, pozadí zůstává neutrální. */
+.sc-variant-remove { min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; padding: 0; color: var(--wrc-ink-faint); border: 1px solid var(--wrc-danger-ink); border-radius: var(--wrc-radius-sm); background: var(--wrc-surface); font-size: var(--wrc-text-lg); cursor: pointer; }
+.sc-variant-remove:hover { color: var(--wrc-danger-ink); background: var(--wrc-surface-3); }
+.sc-add-variant { align-self: flex-start; }
 
 .sc-inline-link { padding: 0; color: var(--wrc-red); border: 0; background: transparent; cursor: pointer; font-size: inherit; font-weight: var(--wrc-weight-semibold); text-decoration: underline; }
 

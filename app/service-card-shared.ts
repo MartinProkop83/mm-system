@@ -42,6 +42,10 @@ export type ServiceCardItem = {
   intervalMinutes: number | null;
   warnPercent: number;
   legacyPartKey: string | null;
+  /** Ovlivňuje jen NOVÉ zápisy — jestli formulář nabídne jednu variantu, nebo opakovatelný
+   *  seznam „varianta + počet kusů". Staré záznamy se čtou podle toho, co je v nich skutečně
+   *  uložené, ne podle aktuální hodnoty tohoto přepínače. */
+  allowMultipleVariants: boolean;
   sortOrder: number;
   archivedAt: number | null;
 };
@@ -93,6 +97,9 @@ export type ServiceRecordItem = {
   itemNameEnSnapshot: string;
   materialVariantId: string | null;
   materialSnapshot: MaterialSnapshot | null;
+  /** Kolik kusů této varianty. Víc variant u jedné položky = víc řádků se stejným
+   *  serviceCardItemId, seskup je podle toho, ne podle tohoto pole. */
+  quantity: number;
   sortOrder: number;
 };
 
@@ -100,7 +107,11 @@ export type ServiceRecord = {
   id: string;
   engineId: string;
   serviceTypeId: string | null;
+  /** Starý, oboujazyčně slepený text — dřívější záznamy bez `serviceTypeSnapshotCs/En`. */
   serviceTypeSnapshot: string;
+  /** Prázdné u záznamů zapsaných před rozdělením podle jazyka — pak se čte `serviceTypeSnapshot`. */
+  serviceTypeSnapshotCs: string;
+  serviceTypeSnapshotEn: string;
   serviceDate: string;
   /** Volitelný čas HH:MM. Prázdný = neznámý, takový záznam patří na začátek svého dne. */
   serviceTime: string;
@@ -207,6 +218,19 @@ export function isWithinEditWindow(record: Pick<ServiceRecord, "createdAt" | "ca
   return !record.cancelledAt && now - record.createdAt <= EDIT_WINDOW_MS;
 }
 
+/**
+ * „Typ servisu" v aktuálním jazyce. Záznamy zapsané před rozdělením snapshotu podle jazyka
+ * mají `serviceTypeSnapshotCs`/`En` prázdné — u nich se vrátí starý, oboujazyčně slepený
+ * text (jinou volbu nemají, žádný jazyk z něj nejde zpětně bezpečně rozdělit).
+ */
+export function localizedServiceTypeSnapshot(
+  record: Pick<ServiceRecord, "serviceTypeSnapshot" | "serviceTypeSnapshotCs" | "serviceTypeSnapshotEn">,
+  locale: "cs" | "en",
+): string {
+  const perLocale = locale === "cs" ? record.serviceTypeSnapshotCs : record.serviceTypeSnapshotEn;
+  return perLocale || record.serviceTypeSnapshot;
+}
+
 /** Minuty → „16:29". Stejný formát, jaký používá záložka Motohodiny. */
 export function formatCounterMinutes(minutes: number | null | undefined): string {
   if (minutes === null || minutes === undefined) return "";
@@ -232,4 +256,57 @@ export function suggestVariantName(attributes: MaterialAttribute[], values: Reco
     .map((attribute) => values[attribute.id]?.trim())
     .filter((value): value is string => Boolean(value))
     .join(" ");
+}
+
+export type ServiceRecordItemGroup = {
+  /** Klíč skupiny — `serviceCardItemId ?? id` prvního řádku, viz níže proč. */
+  key: string;
+  serviceCardItemId: string | null;
+  itemNameCsSnapshot: string;
+  itemNameEnSnapshot: string;
+  variants: Array<{ name: string; quantity: number }>;
+};
+
+/**
+ * Seskupí řádky jednoho servisního záznamu podle položky karty — víc variant u jedné položky
+ * (Gufera) jsou v datech víc řádků se stejným `serviceCardItemId`, tahle funkce je spojí
+ * zpátky do jedné položky se seznamem variant. Používá se stejně v dlaždici, v historii na
+ * kartě motoru i v reportu servisní historie, aby všechna tři místa četla víc-variantní
+ * záznam identicky bez ohledu na to, jak je dnes nastavený přepínač u položky karty.
+ *
+ * Řádky bez `serviceCardItemId` (stará historie s nerozpoznaným dílem) se nikdy neslučují
+ * mezi sebou — každá je vlastní skupina podle svého `id`, i kdyby jich v jednom záznamu bylo
+ * víc s null `serviceCardItemId` zároveň.
+ */
+export function groupServiceRecordItems(items: ServiceRecordItem[]): ServiceRecordItemGroup[] {
+  const order: string[] = [];
+  const groups = new Map<string, ServiceRecordItemGroup>();
+  for (const item of items) {
+    const key = item.serviceCardItemId ?? `row:${item.id}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { key, serviceCardItemId: item.serviceCardItemId, itemNameCsSnapshot: item.itemNameCsSnapshot, itemNameEnSnapshot: item.itemNameEnSnapshot, variants: [] };
+      groups.set(key, group);
+      order.push(key);
+    }
+    if (item.materialSnapshot) group.variants.push({ name: item.materialSnapshot.name, quantity: item.quantity });
+  }
+  return order.map((key) => groups.get(key) as ServiceRecordItemGroup);
+}
+
+/**
+ * Řádky pro zobrazení variant jedné položky — jeden řetězec na variantu, ne jeden spojený
+ * text: „41.82" u jednoho kusu jedné varianty (beze změny oproti dřívějšímu jednoduchému
+ * zápisu), „3× 41.82" u víc kusů, dvě položky pole „1× …" a „2× …" u víc variant zároveň.
+ * Prázdné pole (zaškrtávací položka bez materiálu) vrátí prázdné pole.
+ *
+ * Volající si řádky poskládá podle místa, které má k dispozici — každý na vlastní řádek
+ * (dlaždice, rozbalená historie), nebo je spojí oddělovačem, který se v názvech variant
+ * nevyskytuje (report, kde na víc řádků není místo) — NIKDY čárkou, ta je běžnou součástí
+ * názvů v katalogu materiálu (např. „OIL SEAL, 25 X 38 X 7 MM").
+ */
+export function formatVariantList(variants: Array<{ name: string; quantity: number }>): string[] {
+  if (variants.length === 0) return [];
+  if (variants.length === 1 && variants[0].quantity === 1) return [variants[0].name];
+  return variants.map((variant) => `${variant.quantity}× ${variant.name}`);
 }

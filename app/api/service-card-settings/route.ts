@@ -48,6 +48,7 @@ type Payload = {
   materialCategory?: string | null;
   intervalMinutes?: number | null;
   warnPercent?: number;
+  allowMultipleVariants?: boolean;
   counterUnit?: string | null;
   technicalFieldId?: string | null;
   isActive?: boolean;
@@ -142,6 +143,7 @@ export async function GET(request: Request) {
       SELECT id, engine_category_id AS engineCategoryId, name_cs AS nameCs, name_en AS nameEn,
              material_category_id AS materialCategoryId, interval_minutes AS intervalMinutes,
              warn_percent AS warnPercent, legacy_part_key AS legacyPartKey,
+             allow_multiple_variants AS allowMultipleVariants,
              sort_order AS sortOrder, archived_at AS archivedAt
       FROM service_card_items WHERE engine_category_id = ? ORDER BY sort_order
     `).bind(categoryId).all(),
@@ -190,7 +192,7 @@ export async function GET(request: Request) {
     categoryId,
     serviceTypes: serviceTypes.results,
     defaultItems: defaults.results,
-    cardItems: cardItems.results,
+    cardItems: (cardItems.results as Array<{ allowMultipleVariants: number }>).map((item) => ({ ...item, allowMultipleVariants: Boolean(item.allowMultipleVariants) })),
     materialCategories: materialCategories.results,
     materialAttributes: (attributes.results as Array<{ options: string }>).map((attribute) => ({ ...attribute, options: parseJson<string[]>(attribute.options, []) })),
     materialVariants: (variants.results as Array<{ attributeValues: string }>).map((variant) => ({ ...variant, attributeValues: parseJson<Record<string, string>>(variant.attributeValues, {}) })),
@@ -233,10 +235,13 @@ export async function POST(request: Request) {
     const nameEn = clean(payload.nameEn) || nameCs;
     if (!categoryId || !nameCs) return Response.json({ error: "Category and name are required" }, { status: 400 });
 
+    const materialCategoryId = clean(payload.materialCategory, 80) || null;
+    // Bez kategorie materiálu je položka jen zaškrtávací — víc variant nemá co nabídnout.
+    const allowMultipleVariants = materialCategoryId && payload.allowMultipleVariants ? 1 : 0;
     await d1.prepare(`
-      INSERT INTO service_card_items (id, engine_category_id, name_cs, name_en, material_category_id, interval_minutes, warn_percent, legacy_part_key, sort_order, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)
-    `).bind(id, categoryId, nameCs, nameEn, clean(payload.materialCategory, 80) || null, normalizeInterval(payload.intervalMinutes), normalizeWarnPercent(payload.warnPercent), await nextSortOrder(d1, "service_card_items", "engine_category_id", categoryId), actor, now, now).run();
+      INSERT INTO service_card_items (id, engine_category_id, name_cs, name_en, material_category_id, interval_minutes, warn_percent, legacy_part_key, allow_multiple_variants, sort_order, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?)
+    `).bind(id, categoryId, nameCs, nameEn, materialCategoryId, normalizeInterval(payload.intervalMinutes), normalizeWarnPercent(payload.warnPercent), allowMultipleVariants, await nextSortOrder(d1, "service_card_items", "engine_category_id", categoryId), actor, now, now).run();
     return Response.json({ id }, { status: 201 });
   }
 
@@ -370,9 +375,10 @@ export async function PUT(request: Request) {
     // potichu zahodil vazbu na materiál nebo interval.
     const existing = await d1.prepare(`
       SELECT name_cs AS nameCs, name_en AS nameEn, material_category_id AS materialCategoryId,
-             interval_minutes AS intervalMinutes, warn_percent AS warnPercent, archived_at AS archivedAt
+             interval_minutes AS intervalMinutes, warn_percent AS warnPercent,
+             allow_multiple_variants AS allowMultipleVariants, archived_at AS archivedAt
       FROM service_card_items WHERE id = ?
-    `).bind(id).first<{ nameCs: string; nameEn: string; materialCategoryId: string | null; intervalMinutes: number | null; warnPercent: number; archivedAt: number | null }>();
+    `).bind(id).first<{ nameCs: string; nameEn: string; materialCategoryId: string | null; intervalMinutes: number | null; warnPercent: number; allowMultipleVariants: number; archivedAt: number | null }>();
     if (!existing) return Response.json({ error: "Card item not found" }, { status: 404 });
 
     const nameCs = payload.nameCs !== undefined ? clean(payload.nameCs) : existing.nameCs;
@@ -381,10 +387,13 @@ export async function PUT(request: Request) {
     const materialCategoryId = payload.materialCategory !== undefined ? clean(payload.materialCategory, 80) || null : existing.materialCategoryId;
     const intervalMinutes = payload.intervalMinutes !== undefined ? normalizeInterval(payload.intervalMinutes) : existing.intervalMinutes;
     const warnPercent = payload.warnPercent !== undefined ? normalizeWarnPercent(payload.warnPercent) : existing.warnPercent;
+    // Bez kategorie materiálu nemá přepínač smysl — vypne se sám, ať nezůstane tiše zapnutý
+    // u položky, které se zrovna materiál odebral.
+    const allowMultipleVariants = materialCategoryId && (payload.allowMultipleVariants !== undefined ? payload.allowMultipleVariants : Boolean(existing.allowMultipleVariants)) ? 1 : 0;
 
     await d1.prepare(`
-      UPDATE service_card_items SET name_cs = ?, name_en = ?, material_category_id = ?, interval_minutes = ?, warn_percent = ?, archived_at = ?, updated_at = ? WHERE id = ?
-    `).bind(nameCs, nameEn, materialCategoryId, intervalMinutes, warnPercent, activeFlagToArchivedAt(payload.isActive, now, existing.archivedAt), now, id).run();
+      UPDATE service_card_items SET name_cs = ?, name_en = ?, material_category_id = ?, interval_minutes = ?, warn_percent = ?, allow_multiple_variants = ?, archived_at = ?, updated_at = ? WHERE id = ?
+    `).bind(nameCs, nameEn, materialCategoryId, intervalMinutes, warnPercent, allowMultipleVariants, activeFlagToArchivedAt(payload.isActive, now, existing.archivedAt), now, id).run();
     return Response.json({ ok: true });
   }
 
@@ -540,9 +549,9 @@ async function migrateCategory(d1: ReturnType<typeof getD1>, categoryId: string,
       for (const [counterMinutes, entries] of groups) {
         const recordId = crypto.randomUUID();
         statements.push(d1.prepare(`
-          INSERT INTO service_records (id, engine_id, service_type_id, service_type_snapshot, service_date, counter_minutes, mechanic_id, mechanic_name_snapshot, note, import_source, created_by, created_at, updated_at)
-          VALUES (?, ?, NULL, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?)
-        `).bind(recordId, engine.id, "Převzato z motohodin / Carried over from running hours", today, counterMinutes,
+          INSERT INTO service_records (id, engine_id, service_type_id, service_type_snapshot, service_type_snapshot_cs, service_type_snapshot_en, service_date, counter_minutes, mechanic_id, mechanic_name_snapshot, note, import_source, created_by, created_at, updated_at)
+          VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?)
+        `).bind(recordId, engine.id, "Převzato z motohodin", "Převzato z motohodin", "Carried over from running hours", today, counterMinutes,
           "Výchozí stav dopočítaný při přechodu na novou servisní kartu.", IMPORT_SOURCE_COUNTER_CARRYOVER, actor, now, now));
         entries.forEach((entry, index) => {
           statements.push(d1.prepare(`

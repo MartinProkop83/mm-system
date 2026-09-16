@@ -88,6 +88,9 @@ const content = {
     materialCategory: "Kategorie materiálu",
     noMaterial: "— bez materiálu —",
     materialHint: "Vyplněná kategorie znamená, že mechanik dostane u položky dropdown s variantami. Prázdná = jen zaškrtávátko.",
+    allowMultipleVariants: "Povolit více variant",
+    allowMultipleVariantsHint: "U položky, kde může být víc kusů (třeba čtyři gufera), umožní vybrat víc variant zároveň, každou s počtem kusů. Ovlivní jen nové zápisy — dřívější historie se nezmění.",
+    multipleVariantsBadge: "více variant",
     interval: "Interval",
     intervalHint: "Ve tvaru HH:MM, stejně jako motohodiny. Prázdné = položka se nehlídá.",
     warnPercent: "Varovný práh",
@@ -214,6 +217,9 @@ const content = {
     materialCategory: "Material category",
     noMaterial: "— no material —",
     materialHint: "A material category means the mechanic gets a variant dropdown for this item. Empty means a plain tick box.",
+    allowMultipleVariants: "Allow multiple variants",
+    allowMultipleVariantsHint: "For an item that can have several pieces (say, four seals), lets the mechanic pick more than one variant, each with a quantity. Affects only new records — earlier history stays unchanged.",
+    multipleVariantsBadge: "multiple variants",
     interval: "Interval",
     intervalHint: "As HH:MM, same as running hours. Empty means the item is not tracked.",
     warnPercent: "Warning threshold",
@@ -708,7 +714,7 @@ function CardItemsTab({ t, locale, data, category, categoryId, saving, run }: {
                   <DragRow key={item.id} id={item.id} dragged={dragged} setDragged={setDragged} onDrop={reorder} title={t.dragHint}>
                     <td><strong>{item.nameCs}</strong></td>
                     <td>{item.nameEn}</td>
-                    <td>{material ? localized(locale, material.nameCs, material.nameEn) : <span className="cell-note">—</span>}</td>
+                    <td>{material ? <>{localized(locale, material.nameCs, material.nameEn)}{item.allowMultipleVariants && <small className="cell-note"> · {t.multipleVariantsBadge}</small>}</> : <span className="cell-note">—</span>}</td>
                     {tracksCounter && <td className="num">{item.intervalMinutes ? formatCounterMinutes(item.intervalMinutes) : <span className="cell-note">—</span>}</td>}
                     {tracksCounter && <td className="num">{item.intervalMinutes ? `${item.warnPercent} %` : <span className="cell-note">—</span>}</td>}
                     <ActiveCell t={t} archivedAt={item.archivedAt} />
@@ -736,6 +742,7 @@ function CardItemsTab({ t, locale, data, category, categoryId, saving, run }: {
               kind: "cardItem", id: editing === "new" ? undefined : editing.id, categoryId,
               nameCs: values.nameCs, nameEn: values.nameEn, materialCategory: values.materialCategoryId || null,
               intervalMinutes: values.intervalMinutes, warnPercent: values.warnPercent, isActive: values.isActive,
+              allowMultipleVariants: values.allowMultipleVariants,
             }));
             setEditing(null);
           }}
@@ -745,7 +752,7 @@ function CardItemsTab({ t, locale, data, category, categoryId, saving, run }: {
   );
 }
 
-type CardItemValues = { nameCs: string; nameEn: string; materialCategoryId: string; intervalMinutes: number | null; warnPercent: number; isActive: boolean };
+type CardItemValues = { nameCs: string; nameEn: string; materialCategoryId: string; intervalMinutes: number | null; warnPercent: number; allowMultipleVariants: boolean; isActive: boolean };
 
 function CardItemModal({ t, saving, data, tracksCounter, item, onClose, onSubmit }: {
   t: Copy; saving: boolean; data: SettingsData; tracksCounter: boolean; item: ServiceCardItem | null;
@@ -758,6 +765,7 @@ function CardItemModal({ t, saving, data, tracksCounter, item, onClose, onSubmit
   const [materialCategoryId, setMaterialCategoryId] = useState(item?.materialCategoryId ?? "");
   const [interval, setInterval] = useState(formatCounterMinutes(item?.intervalMinutes ?? null));
   const [warnPercent, setWarnPercent] = useState(item?.warnPercent ?? 80);
+  const [allowMultipleVariants, setAllowMultipleVariants] = useState(item?.allowMultipleVariants ?? false);
   const [isActive, setIsActive] = useState(!item?.archivedAt);
   const [formError, setFormError] = useState("");
 
@@ -770,7 +778,10 @@ function CardItemModal({ t, saving, data, tracksCounter, item, onClose, onSubmit
       setFormError(t.invalidInterval);
       return;
     }
-    void onSubmit({ nameCs, nameEn, materialCategoryId, intervalMinutes: tracksCounter ? intervalMinutes : null, warnPercent, isActive });
+    void onSubmit({
+      nameCs, nameEn, materialCategoryId, intervalMinutes: tracksCounter ? intervalMinutes : null, warnPercent,
+      allowMultipleVariants: Boolean(materialCategoryId) && allowMultipleVariants, isActive,
+    });
   }
 
   return (
@@ -793,6 +804,13 @@ function CardItemModal({ t, saving, data, tracksCounter, item, onClose, onSubmit
             </select>
             <small>{t.materialHint}</small>
           </label>
+          {materialCategoryId && (
+            <label className="settings-active-field">
+              <span>{t.allowMultipleVariants}</span>
+              <span className="settings-check"><input type="checkbox" checked={allowMultipleVariants} onChange={(event) => setAllowMultipleVariants(event.target.checked)} />{t.allowMultipleVariants}</span>
+              <small>{t.allowMultipleVariantsHint}</small>
+            </label>
+          )}
           {tracksCounter && (
             <label><span>{t.interval}</span>
               <input value={interval} inputMode="numeric" pattern="[0-9]{1,4}:[0-5][0-9]" placeholder="10:00" onChange={(event) => setInterval(event.target.value)} />

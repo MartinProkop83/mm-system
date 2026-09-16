@@ -28,8 +28,9 @@ type Payload = {
   serviceTime?: string;
   mechanicId?: string;
   note?: string;
-  /** `itemId` → `variantId` (prázdné, když položka materiál nemá). */
-  items?: Array<{ itemId?: string; variantId?: string | null }>;
+  /** `itemId` + seznam variant s počtem kusů (prázdné pole, když položka materiál nemá,
+   *  nebo je zaškrtnutá bez výběru). U položky bez `allowMultipleVariants` smí mít nejvýš 1 prvek. */
+  items?: Array<{ itemId?: string; variants?: Array<{ variantId?: string; quantity?: number }> }>;
   cancelledReason?: string;
   /** Varianta C: srovnat technické údaje podle vybraného materiálu (výchozí ano). */
   syncTechnicalValues?: boolean;
@@ -37,12 +38,14 @@ type Payload = {
 
 type EngineRow = { id: string; code: string; family: string; totalMinutes: number };
 type CategoryRow = { id: string; code: string; counterUnit: string | null; serviceCardMigrated: number };
-type CardItemRow = { id: string; nameCs: string; nameEn: string; materialCategoryId: string | null };
+type CardItemRow = { id: string; nameCs: string; nameEn: string; materialCategoryId: string | null; allowMultipleVariants: number };
 type RecordRow = {
   id: string;
   engineId: string;
   serviceTypeId: string | null;
   serviceTypeSnapshot: string;
+  serviceTypeSnapshotCs: string;
+  serviceTypeSnapshotEn: string;
   serviceDate: string;
   serviceTime: string;
   counterMinutes: number | null;
@@ -64,6 +67,7 @@ type RecordItemRow = {
   itemNameEnSnapshot: string;
   materialVariantId: string | null;
   materialSnapshot: string | null;
+  quantity: number;
   sortOrder: number;
 };
 
@@ -71,11 +75,17 @@ function clean(value: unknown, max = 200) {
   return String(value ?? "").trim().slice(0, max);
 }
 
-/** „1.A" když se kód a oba názvy shodují, jinak „PRE · Přestavba / Rebuild". */
-function serviceTypeSnapshot(type: { code: string; nameCs: string; nameEn: string } | null) {
-  if (!type) return "";
-  const names = type.nameCs === type.nameEn ? type.nameCs : `${type.nameCs} / ${type.nameEn}`;
-  return names === type.code ? type.code : `${type.code} · ${names}`;
+/**
+ * „1.A" když se kód a název shodují, jinak „PRE · Přestavba" — zvlášť pro každý jazyk, ne
+ * jeden text se slepenými oběma najednou (to se dřív ukládalo do `service_type_snapshot`
+ * a nedalo se to podle přepínače jazyka rozlišit). `cs` se navíc uloží i do starého sloupce,
+ * pro cokoliv, co by ho ještě čekalo jako jediný zdroj.
+ */
+function serviceTypeSnapshots(type: { code: string; nameCs: string; nameEn: string } | null) {
+  if (!type) return { cs: "", en: "" };
+  const cs = type.nameCs === type.code ? type.code : `${type.code} · ${type.nameCs}`;
+  const en = type.nameEn === type.code ? type.code : `${type.code} · ${type.nameEn}`;
+  return { cs, en };
 }
 
 function isDate(value: string) {
@@ -124,6 +134,7 @@ async function loadEngineContext(d1: ReturnType<typeof getD1>, engineId: string)
 async function loadRecords(d1: ReturnType<typeof getD1>, engineId: string) {
   const records = await d1.prepare(`
     SELECT id, engine_id AS engineId, service_type_id AS serviceTypeId, service_type_snapshot AS serviceTypeSnapshot,
+           service_type_snapshot_cs AS serviceTypeSnapshotCs, service_type_snapshot_en AS serviceTypeSnapshotEn,
            service_date AS serviceDate, service_time AS serviceTime, counter_minutes AS counterMinutes, mechanic_id AS mechanicId,
            mechanic_name_snapshot AS mechanicNameSnapshot, note, cancelled_reason AS cancelledReason,
            cancelled_at AS cancelledAt, cancelled_by AS cancelledBy, divergence_note AS divergenceNote,
@@ -135,7 +146,8 @@ async function loadRecords(d1: ReturnType<typeof getD1>, engineId: string) {
   const items = await d1.prepare(`
     SELECT i.id, i.service_record_id AS serviceRecordId, i.service_card_item_id AS serviceCardItemId,
            i.item_name_cs_snapshot AS itemNameCsSnapshot, i.item_name_en_snapshot AS itemNameEnSnapshot,
-           i.material_variant_id AS materialVariantId, i.material_snapshot AS materialSnapshot, i.sort_order AS sortOrder
+           i.material_variant_id AS materialVariantId, i.material_snapshot AS materialSnapshot,
+           i.quantity AS quantity, i.sort_order AS sortOrder
     FROM service_record_items i
     JOIN service_records r ON r.id = i.service_record_id
     WHERE r.engine_id = ? ORDER BY i.sort_order
@@ -171,7 +183,8 @@ export async function GET(request: Request) {
     `).bind(category.id).all(),
     d1.prepare(`
       SELECT id, name_cs AS nameCs, name_en AS nameEn, material_category_id AS materialCategoryId,
-             interval_minutes AS intervalMinutes, warn_percent AS warnPercent, sort_order AS sortOrder
+             interval_minutes AS intervalMinutes, warn_percent AS warnPercent,
+             allow_multiple_variants AS allowMultipleVariants, sort_order AS sortOrder
       FROM service_card_items WHERE engine_category_id = ? AND archived_at IS NULL ORDER BY sort_order
     `).bind(category.id).all(),
     d1.prepare("SELECT id, name_cs AS nameCs, name_en AS nameEn FROM material_categories WHERE engine_category_id = ? AND archived_at IS NULL ORDER BY sort_order")
@@ -226,7 +239,7 @@ export async function GET(request: Request) {
     engine: { id: engine.id, code: engine.code, family: engine.family, totalMinutes: engine.totalMinutes },
     category: { ...category, serviceCardMigrated: Boolean(category.serviceCardMigrated) },
     serviceTypes: serviceTypes.results,
-    cardItems: cardItems.results,
+    cardItems: (cardItems.results as Array<{ allowMultipleVariants: number }>).map((item) => ({ ...item, allowMultipleVariants: Boolean(item.allowMultipleVariants) })),
     materialCategories: materialCategories.results,
     materialVariants: (variants.results as Array<{ attributeValues: string }>).map((variant) => ({ ...variant, attributeValues: parseJson<Record<string, string>>(variant.attributeValues, {}) })),
     defaultItems: defaults.results,
@@ -239,17 +252,55 @@ export async function GET(request: Request) {
  * Sestaví položky záznamu i se snapshoty. Zaškrtnutí od klienta se ověří proti aktivním
  * definicím — neaktivní položka ani varianta se do nového zápisu nedostane.
  */
+type PreparedItem = { itemId: string; nameCs: string; nameEn: string; materialCategoryId: string | null; variantId: string | null; snapshot: MaterialSnapshot | null; quantity: number };
+
+/**
+ * Sestaví řádky `service_record_items` k zápisu. Jedna položka karty (`itemId`) může nést víc
+ * variant zároveň (`variants`) — každá dostane vlastní řádek se svým počtem kusů, všechny
+ * se stejným `service_card_item_id`. Duplicitní `variantId` u jedné položky se sloučí do
+ * jednoho řádku (počty se sečtou) — server to hlídá i pro případ, že by klient poslal dvě
+ * varianty se stejným id, ne jen kvůli UI.
+ */
 async function buildRecordItems(d1: ReturnType<typeof getD1>, categoryId: string, requested: Payload["items"]) {
-  const selected = (requested ?? []).map((item) => ({ itemId: clean(item.itemId, 80), variantId: clean(item.variantId, 80) })).filter((item) => item.itemId);
+  const selected = (requested ?? [])
+    .map((item) => ({ itemId: clean(item.itemId, 80), variants: Array.isArray(item.variants) ? item.variants : [] }))
+    .filter((item) => item.itemId);
   if (selected.length === 0) return { error: Response.json({ error: "At least one card item must be selected" }, { status: 400 }) } as const;
 
   const cardItems = await d1.prepare(`
-    SELECT id, name_cs AS nameCs, name_en AS nameEn, material_category_id AS materialCategoryId
+    SELECT id, name_cs AS nameCs, name_en AS nameEn, material_category_id AS materialCategoryId, allow_multiple_variants AS allowMultipleVariants
     FROM service_card_items WHERE engine_category_id = ? AND archived_at IS NULL ORDER BY sort_order
   `).bind(categoryId).all<CardItemRow>();
   const cardItemById = new Map(cardItems.results.map((item) => [item.id, item]));
 
-  const variantIds = Array.from(new Set(selected.map((item) => item.variantId).filter(Boolean)));
+  // Vyčistí, ověří celá čísla ≥ 1 a sloučí duplicitní variantId v rámci jedné položky —
+  // dřív, než se cokoli dotáže do katalogu materiálu.
+  type CleanedEntry = { cardItem: CardItemRow; variants: Array<{ variantId: string; quantity: number }> };
+  const cleanedEntries: CleanedEntry[] = [];
+  for (const entry of selected) {
+    const cardItem = cardItemById.get(entry.itemId);
+    if (!cardItem) return { error: Response.json({ error: "Unknown or inactive card item" }, { status: 400 }) } as const;
+
+    const variants: Array<{ variantId: string; quantity: number }> = [];
+    for (const raw of entry.variants) {
+      const variantId = clean(raw?.variantId, 80);
+      if (!variantId) continue;
+      // Číslo, ne zaokrouhlené na číslo — 1.5 musí spadnout na chybu, ne se ztichlo zaokrouhlit na 2.
+      const quantity = Number(raw?.quantity);
+      if (!Number.isInteger(quantity) || quantity < 1) {
+        return { error: Response.json({ error: "Quantity must be a whole number of at least 1" }, { status: 400 }) } as const;
+      }
+      const existing = variants.find((item) => item.variantId === variantId);
+      if (existing) existing.quantity += quantity;
+      else variants.push({ variantId, quantity });
+    }
+    // `allowMultipleVariants` se nevynucuje tady — jen řídí, co formulář nabídne k NOVÉMU
+    // výběru (jeden select vs. opakovatelný seznam). Vynucovat to i tady by po vypnutí
+    // přepínače zablokovalo i pouhé znovu-uložení staršího záznamu, který má víc variant.
+    cleanedEntries.push({ cardItem, variants });
+  }
+
+  const variantIds = Array.from(new Set(cleanedEntries.flatMap((entry) => entry.variants.map((item) => item.variantId))));
   const variants = variantIds.length === 0 ? { results: [] } : await d1.prepare(`
     SELECT id, material_category_id AS materialCategoryId, name, attribute_values AS attributeValues
     FROM material_variants WHERE id IN (${variantIds.map(() => "?").join(", ")}) AND archived_at IS NULL
@@ -263,31 +314,47 @@ async function buildRecordItems(d1: ReturnType<typeof getD1>, categoryId: string
     WHERE c.engine_category_id = ? AND a.archived_at IS NULL ORDER BY a.sort_order
   `).bind(categoryId).all<{ id: string; materialCategoryId: string; nameCs: string; nameEn: string; unit: string }>();
 
-  const prepared: Array<{ itemId: string; nameCs: string; nameEn: string; variantId: string | null; snapshot: MaterialSnapshot | null }> = [];
-  for (const entry of selected) {
-    const cardItem = cardItemById.get(entry.itemId);
-    if (!cardItem) return { error: Response.json({ error: "Unknown or inactive card item" }, { status: 400 }) } as const;
-
-    let snapshot: MaterialSnapshot | null = null;
-    let variantId: string | null = null;
-    if (entry.variantId) {
-      const variant = variantById.get(entry.variantId);
+  const prepared: PreparedItem[] = [];
+  for (const entry of cleanedEntries) {
+    const { cardItem } = entry;
+    if (entry.variants.length === 0) {
+      prepared.push({ itemId: cardItem.id, nameCs: cardItem.nameCs, nameEn: cardItem.nameEn, materialCategoryId: cardItem.materialCategoryId, variantId: null, snapshot: null, quantity: 1 });
+      continue;
+    }
+    for (const picked of entry.variants) {
+      const variant = variantById.get(picked.variantId);
       if (!variant) return { error: Response.json({ error: "Unknown or inactive material variant" }, { status: 400 }) } as const;
       if (variant.materialCategoryId !== cardItem.materialCategoryId) {
         return { error: Response.json({ error: "Material variant does not belong to this item's category" }, { status: 400 }) } as const;
       }
       const values = parseJson<Record<string, string>>(variant.attributeValues, {});
-      variantId = variant.id;
-      snapshot = {
+      const snapshot: MaterialSnapshot = {
         name: variant.name,
         values: attributes.results
           .filter((attribute) => attribute.materialCategoryId === variant.materialCategoryId && values[attribute.id])
           .map((attribute) => ({ nameCs: attribute.nameCs, nameEn: attribute.nameEn, value: values[attribute.id], unit: attribute.unit })),
       };
+      prepared.push({ itemId: cardItem.id, nameCs: cardItem.nameCs, nameEn: cardItem.nameEn, materialCategoryId: cardItem.materialCategoryId, variantId: variant.id, snapshot, quantity: picked.quantity });
     }
-    prepared.push({ itemId: cardItem.id, nameCs: cardItem.nameCs, nameEn: cardItem.nameEn, variantId, snapshot });
   }
   return { items: prepared } as const;
+}
+
+/**
+ * Které varianty jít srovnat s technickými údaji (varianta C) — jen tam, kde je v zápisu na
+ * danou kategorii materiálu jasno, tedy přesně jedna odlišná vybraná varianta. Když je jich
+ * u jedné kategorie víc (víc kusů různých rozměrů u položky s povolenými víc variantami),
+ * nedá se hádat, která je „ta" pro technický údaj — kategorie se pak beze slova přeskočí.
+ */
+function reconcilableVariantIds(items: PreparedItem[]) {
+  const byCategory = new Map<string, Set<string>>();
+  for (const item of items) {
+    if (!item.variantId || !item.materialCategoryId) continue;
+    const set = byCategory.get(item.materialCategoryId) ?? new Set<string>();
+    set.add(item.variantId);
+    byCategory.set(item.materialCategoryId, set);
+  }
+  return Array.from(byCategory.values()).filter((set) => set.size === 1).map((set) => Array.from(set)[0]);
 }
 
 /**
@@ -458,25 +525,25 @@ export async function POST(request: Request) {
   const now = Date.now();
   // Stav počítadla se bere ze serveru, ne z klienta; bez counter_unit zůstává NULL.
   const counterMinutes = category.counterUnit ? engine.totalMinutes : null;
+  const typeSnapshots = serviceTypeSnapshots(serviceType);
 
   // Technické údaje se srovnají podle vybraného materiálu, ledaže to mechanik odškrtl —
   // pak se k záznamu uloží, že rozchod je vědomý.
   const divergenceNote = await reconcileTechnicalValues(
-    d1, engine.id, category.id,
-    built.items.map((item) => item.variantId).filter((variantId): variantId is string => Boolean(variantId)),
+    d1, engine.id, category.id, reconcilableVariantIds(built.items),
     payload.syncTechnicalValues !== false, user.email, now, id,
   );
 
   await d1.batch([
     d1.prepare(`
-      INSERT INTO service_records (id, engine_id, service_type_id, service_type_snapshot, service_date, service_time, counter_minutes, mechanic_id, mechanic_name_snapshot, note, divergence_note, created_by, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(id, engine.id, serviceType?.id ?? null, serviceTypeSnapshot(serviceType),
+      INSERT INTO service_records (id, engine_id, service_type_id, service_type_snapshot, service_type_snapshot_cs, service_type_snapshot_en, service_date, service_time, counter_minutes, mechanic_id, mechanic_name_snapshot, note, divergence_note, created_by, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(id, engine.id, serviceType?.id ?? null, typeSnapshots.cs, typeSnapshots.cs, typeSnapshots.en,
       serviceDate, serviceTime.time, counterMinutes, mechanic.id, mechanic.name, clean(payload.note, 2000), divergenceNote, user.email, now, now),
     ...built.items.map((item, index) => d1.prepare(`
-      INSERT INTO service_record_items (id, service_record_id, service_card_item_id, item_name_cs_snapshot, item_name_en_snapshot, material_variant_id, material_snapshot, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(crypto.randomUUID(), id, item.itemId, item.nameCs, item.nameEn, item.variantId, item.snapshot ? JSON.stringify(item.snapshot) : null, (index + 1) * SORT_STEP, now)),
+      INSERT INTO service_record_items (id, service_record_id, service_card_item_id, item_name_cs_snapshot, item_name_en_snapshot, material_variant_id, material_snapshot, quantity, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(crypto.randomUUID(), id, item.itemId, item.nameCs, item.nameEn, item.variantId, item.snapshot ? JSON.stringify(item.snapshot) : null, item.quantity, (index + 1) * SORT_STEP, now)),
     d1.prepare(`
       INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
       VALUES (?, ?, 'log_service_record', 'engine', ?, ?, ?)
@@ -535,16 +602,17 @@ export async function PATCH(request: Request) {
   if (built.error) return built.error;
 
   const now = Date.now();
+  const typeSnapshots = serviceTypeSnapshots(serviceType);
   await d1.batch([
     d1.prepare(`
-      UPDATE service_records SET service_type_id = ?, service_type_snapshot = ?, service_date = ?, service_time = ?, mechanic_id = ?, mechanic_name_snapshot = ?, note = ?, updated_at = ? WHERE id = ?
-    `).bind(serviceType?.id ?? null, serviceTypeSnapshot(serviceType),
+      UPDATE service_records SET service_type_id = ?, service_type_snapshot = ?, service_type_snapshot_cs = ?, service_type_snapshot_en = ?, service_date = ?, service_time = ?, mechanic_id = ?, mechanic_name_snapshot = ?, note = ?, updated_at = ? WHERE id = ?
+    `).bind(serviceType?.id ?? null, typeSnapshots.cs, typeSnapshots.cs, typeSnapshots.en,
       serviceDate, serviceTime.time, mechanic.id, mechanic.name, clean(payload.note, 2000), now, recordId),
     d1.prepare("DELETE FROM service_record_items WHERE service_record_id = ?").bind(recordId),
     ...built.items.map((item, index) => d1.prepare(`
-      INSERT INTO service_record_items (id, service_record_id, service_card_item_id, item_name_cs_snapshot, item_name_en_snapshot, material_variant_id, material_snapshot, sort_order, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).bind(crypto.randomUUID(), recordId, item.itemId, item.nameCs, item.nameEn, item.variantId, item.snapshot ? JSON.stringify(item.snapshot) : null, (index + 1) * SORT_STEP, now)),
+      INSERT INTO service_record_items (id, service_record_id, service_card_item_id, item_name_cs_snapshot, item_name_en_snapshot, material_variant_id, material_snapshot, quantity, sort_order, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).bind(crypto.randomUUID(), recordId, item.itemId, item.nameCs, item.nameEn, item.variantId, item.snapshot ? JSON.stringify(item.snapshot) : null, item.quantity, (index + 1) * SORT_STEP, now)),
   ]);
 
   return Response.json({ records: await loadRecords(d1, existing.engineId) });

@@ -19,6 +19,11 @@ type TimelineEvent = {
   sortAt: number;
   title: string;
   detail: string;
+  /** Jen u `kind: "service"` — typ servisu i položky se ukládají zvlášť pro každý jazyk. */
+  titleCs?: string;
+  titleEn?: string;
+  detailCs?: string;
+  detailEn?: string;
   actor: string;
   system: boolean;
   serviceRecordId?: string;
@@ -201,8 +206,11 @@ export function EngineTimeline({ engineId, locale, onOpenServiceRecord }: {
                         )}
                         {event.actor && <span className="timeline-actor">{event.actor}</span>}
                       </div>
-                      <strong className="timeline-title">{event.title}</strong>
-                      {event.detail && <span className="timeline-detail">{event.detail}</span>}
+                      <strong className="timeline-title">{(locale === "cs" ? event.titleCs : event.titleEn) ?? event.title}</strong>
+                      {(() => {
+                        const detail = (locale === "cs" ? event.detailCs : event.detailEn) ?? event.detail;
+                        return detail && <span className="timeline-detail">{detail}</span>;
+                      })()}
                       {fromService && onOpenServiceRecord && (
                         <button className="timeline-link" type="button"
                           onClick={() => onOpenServiceRecord(event.serviceRecordId as string)}>

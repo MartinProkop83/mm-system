@@ -108,7 +108,7 @@ const MECHANIC_PAYLOADS: Record<string, FieldTree> = {
   "/api/engine-timeline": {
     children: {
       engine: { fields: ["id", "code", "family"] },
-      events: { fields: ["id", "kind", "date", "time", "sortAt", "title", "detail", "system", "serviceRecordId", "raceId"] },
+      events: { fields: ["id", "kind", "date", "time", "sortAt", "title", "detail", "titleCs", "titleEn", "detailCs", "detailEn", "system", "serviceRecordId", "raceId"] },
     },
   },
   // Fronta na servis je mechanikova vlastní obrazovka; ven jde všechno kromě e-mailu toho,
@@ -136,7 +136,7 @@ const MECHANIC_PAYLOADS: Record<string, FieldTree> = {
       "cardItems", "materialCategories", "materialVariants", "defaultItems", "mechanics"],
     children: {
       records: {
-        fields: ["id", "engineId", "serviceTypeId", "serviceTypeSnapshot", "serviceDate", "serviceTime",
+        fields: ["id", "engineId", "serviceTypeId", "serviceTypeSnapshot", "serviceTypeSnapshotCs", "serviceTypeSnapshotEn", "serviceDate", "serviceTime",
           "counterMinutes", "mechanicId", "mechanicNameSnapshot", "note", "cancelledReason", "cancelledAt",
           "divergenceNote", "createdAt", "items"],
       },
