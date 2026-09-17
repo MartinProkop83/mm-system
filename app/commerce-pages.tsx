@@ -22,7 +22,7 @@ type CommerceRecord = CustomerRecord | ServiceCatalogRecord | InventoryPartRecor
 
 const configs = {
   customers: { endpoint: "/api/customers", responseKey: "customers", eyebrow: "MM CUSTOMER DIRECTORY", titleCs: "Zákazníci", titleEn: "Customers", subtitleCs: "Kontakty a historie odběratelů vytvořených ručně i automaticky z prodeje.", subtitleEn: "Contacts and buyer history created manually or automatically from sales." },
-  services: { endpoint: "/api/service-catalog", responseKey: "services", eyebrow: "MM SERVICE PRICING", titleCs: "Servisní ceník", titleEn: "Service price list", subtitleCs: "Předdefinované servisní práce a pevné ceny bez DPH v CZK a EUR.", subtitleEn: "Preset service work and fixed net prices in CZK and EUR." },
+  services: { endpoint: "/api/service-catalog", responseKey: "services", eyebrow: "MM SERVICE PRICING", titleCs: "Předdefinovaný servis v Prodeji", titleEn: "Predefined services in Sales", subtitleCs: "Servisní práce k rychlému výběru při vytváření prodeje — pevné ceny bez DPH v CZK a EUR.", subtitleEn: "Service work for quick selection when creating a sale — fixed net prices in CZK and EUR." },
   inventory: { endpoint: "/api/inventory", responseKey: "parts", eyebrow: "MM PARTS STOCK", titleCs: "Sklad dílů", titleEn: "Parts inventory", subtitleCs: "Díly dostupné pro prodej. Uložený prodej množství automaticky odečte.", subtitleEn: "Parts available for sales. A saved sale automatically decrements stock." },
 } as const;
 

@@ -9,6 +9,7 @@ import { GeneralSettings } from "./settings-general";
 import { DocumentTypesSettings } from "./settings-document-types";
 import { ServiceEngineTypesSettings } from "./settings-service-engine-types";
 import { ServicePriceListSettings } from "./settings-price-list";
+import { ServiceCatalogPage } from "./commerce-pages";
 
 type Locale = "cs" | "en";
 type AppRole = "superadmin" | "boss" | "mechanic";
@@ -43,12 +44,12 @@ const emptyForm: UserForm = {
 const roleOrder: AppRole[] = ["superadmin", "boss", "mechanic"];
 
 /** Sekce Nastavení. Nová položka se přidá sem a do `content.cs/en.sections`. */
-type SettingsSection = "access" | "serviceCard" | "technicalData" | "documentTypes" | "serviceEngineTypes" | "priceList" | "general";
-const sectionOrder: SettingsSection[] = ["access", "serviceCard", "technicalData", "documentTypes", "serviceEngineTypes", "priceList", "general"];
+type SettingsSection = "access" | "serviceCard" | "technicalData" | "documentTypes" | "serviceEngineTypes" | "priceList" | "salesCatalog" | "general";
+const sectionOrder: SettingsSection[] = ["access", "serviceCard", "technicalData", "documentTypes", "serviceEngineTypes", "priceList", "salesCatalog", "general"];
 
 const content = {
   cs: {
-    sections: { access: "Přístupy a role", serviceCard: "Servisní karta", technicalData: "Technické údaje", documentTypes: "Typy dokumentů", serviceEngineTypes: "Typy motorů pro servis", priceList: "Ceník prací", general: "Obecné" },
+    sections: { access: "Přístupy a role", serviceCard: "Servisní karta", technicalData: "Technické údaje", documentTypes: "Typy dokumentů", serviceEngineTypes: "Typy motorů pro servis", priceList: "Ceník prací pro zakázky", salesCatalog: "Předdefinovaný servis v Prodeji", general: "Obecné" },
     sectionsLabel: "Sekce nastavení",
     title: "Přístupy a role",
     intro: "Řiďte, kdo se může přihlásit do MM SYSTEM a jaké má oprávnění.",
@@ -102,7 +103,7 @@ const content = {
     forbidden: "Tuto část může spravovat pouze superadmin.",
   },
   en: {
-    sections: { access: "Access and roles", serviceCard: "Service card", technicalData: "Technical data", documentTypes: "Document types", serviceEngineTypes: "Service engine types", priceList: "Price list", general: "General" },
+    sections: { access: "Access and roles", serviceCard: "Service card", technicalData: "Technical data", documentTypes: "Document types", serviceEngineTypes: "Service engine types", priceList: "Price list for service orders", salesCatalog: "Predefined services in Sales", general: "General" },
     sectionsLabel: "Settings section",
     title: "Access and roles",
     intro: "Control who can sign in to MM SYSTEM and what they are allowed to do.",
@@ -287,6 +288,7 @@ export function SettingsPage({
       {section === "documentTypes" && <DocumentTypesSettings locale={locale} role={role} />}
       {section === "serviceEngineTypes" && <ServiceEngineTypesSettings locale={locale} role={role} />}
       {section === "priceList" && <ServicePriceListSettings locale={locale} role={role} />}
+      {section === "salesCatalog" && <ServiceCatalogPage locale={locale} role={role} />}
       {section === "general" && <GeneralSettings locale={locale} role={role} />}
 
       {section === "access" && (<>

@@ -28,6 +28,8 @@ import { ServiceHistoryPage } from "./service-history-page";
 import { EngineQrPanel } from "./engine-qr-panel";
 import { EngineDocumentsPanel } from "./engine-documents-panel";
 import { QrSheetPage } from "./qr-sheet-page";
+import { CalendarColorSelect } from "./calendar-color-select";
+import { raceCalendarColorAccent } from "./race-calendar-colors";
 
 type Locale = "cs" | "en";
 type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "qrCodes" | "sales" | "serviceOrders" | "inventory" | "documents" | "settings";
@@ -125,18 +127,9 @@ type TechnicalStructureData = {
 };
 const EMPTY_TECHNICAL_STRUCTURE: TechnicalStructureData = { layout: [], sections: [], fields: [], options: [] };
 
-const engineLabelPalette = [
-  "#FFFFFF", "#F2F4F7", "#D0D5DD", "#98A2B3", "#667085", "#475467", "#101828", "#000000",
-  "#FEE4E2", "#FCA5A5", "#EF4444", "#D52F2D", "#B42318", "#7A271A",
-  "#FFF4E5", "#FDB022", "#F79009", "#DC6803", "#B54708", "#7A2E0E",
-  "#FEF3C7", "#FDE047", "#EAB308", "#A16207", "#854D0E",
-  "#ECFDF3", "#86EFAC", "#22C55E", "#039855", "#067647", "#14532D",
-  "#CCFBF1", "#2DD4BF", "#14B8A6", "#0F766E", "#134E4A",
-  "#E0F2FE", "#38BDF8", "#0BA5EC", "#0284C7", "#175CD3", "#1E3A8A",
-  "#EEF2FF", "#818CF8", "#6366F1", "#4F46E5", "#3730A3",
-  "#F5F3FF", "#C084FC", "#A855F7", "#7E22CE", "#581C87",
-  "#FDF2F8", "#F9A8D4", "#F472B6", "#DB2777", "#9D174D",
-] as const;
+/** `engines.label_color` je od teď jméno z `raceCalendarColors` (nebo "" bez barvy), ne hex —
+ *  tady se převede na skutečnou barvu pro `style`. */
+const engineLabelAccent = raceCalendarColorAccent;
 
 type UsageRecord = {
   id: string;
@@ -308,6 +301,17 @@ const copy = {
     deleteEngine: "Smazat motor",
     deleting: "Mažu…",
     deleted: "Motor byl odstraněn.",
+    deleteConfirmTitle: (code: string) => `Smazat motor ${code}?`,
+    deleteConfirmIntro: (code: string) => `Motor se archivuje — zmizí ze seznamu, ale historie (servis, technické údaje, dokumenty, časová osa) zůstane zachovaná. Jeho kód (${code}) se tím uvolní, půjde ho použít pro nový motor.`,
+    deleteConfirmLoading: "Zjišťuju, co je na motoru navázané…",
+    deleteConfirmLoadError: "Přehled vazeb se nepodařilo načíst.",
+    deleteConfirmServiceRecords: (count: number) => formatCount(count, "cs", { cs: ["servisní záznam", "servisní záznamy", "servisních záznamů"], en: ["service record", "service records"] }),
+    deleteConfirmRaceEntries: (count: number) => formatCount(count, "cs", { cs: ["přihláška na závod", "přihlášky na závod", "přihlášek na závod"], en: ["race entry", "race entries"] }),
+    deleteConfirmDocuments: (count: number) => formatCount(count, "cs", { cs: ["dokument", "dokumenty", "dokumentů"], en: ["document", "documents"] }),
+    deleteConfirmLoan: (name: string) => `Momentálně zapůjčený: ${name}`,
+    deleteConfirmNotLoaned: "Nezapůjčený",
+    deleteConfirmCodeLabel: (code: string) => `Pro potvrzení napiš kód motoru „${code}"`,
+    deleteConfirmButton: "Smazat motor",
     backToEngines: "Zpět na motory",
     overviewTab: "Přehled",
     technicalTab: "Technické údaje",
@@ -424,6 +428,17 @@ const copy = {
     deleteEngine: "Delete engine",
     deleting: "Deleting…",
     deleted: "Engine removed.",
+    deleteConfirmTitle: (code: string) => `Delete engine ${code}?`,
+    deleteConfirmIntro: (code: string) => `The engine gets archived — it disappears from the list, but its history (service, technical data, documents, timeline) is kept. Its code (${code}) is freed up and can be used for a new engine.`,
+    deleteConfirmLoading: "Checking what's linked to this engine…",
+    deleteConfirmLoadError: "Could not load the linked-data overview.",
+    deleteConfirmServiceRecords: (count: number) => formatCount(count, "en", { cs: ["servisní záznam", "servisní záznamy", "servisních záznamů"], en: ["service record", "service records"] }),
+    deleteConfirmRaceEntries: (count: number) => formatCount(count, "en", { cs: ["přihláška na závod", "přihlášky na závod", "přihlášek na závod"], en: ["race entry", "race entries"] }),
+    deleteConfirmDocuments: (count: number) => formatCount(count, "en", { cs: ["dokument", "dokumenty", "dokumentů"], en: ["document", "documents"] }),
+    deleteConfirmLoan: (name: string) => `Currently on loan to: ${name}`,
+    deleteConfirmNotLoaned: "Not on loan",
+    deleteConfirmCodeLabel: (code: string) => `Type the engine code "${code}" to confirm`,
+    deleteConfirmButton: "Delete engine",
     backToEngines: "Back to engines",
     overviewTab: "Overview",
     technicalTab: "Technical data",
@@ -1610,8 +1625,8 @@ function Engines({
                 const variant = engine.family === "KZ" ? engine.kzGeneration : engine.family === "MINI" ? engine.currentConfiguration : null;
                 const familyTone = engine.family === "OKN-J" ? "OKN" : engine.family;
                 return (
-                  <tr key={engine.id} className={`clickable-row family-${familyTone.toLowerCase()}`} style={engine.labelColor ? { "--engine-label-color": engine.labelColor } as React.CSSProperties : undefined} onClick={() => onOpen(engine)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(engine); }}>
-                    <td><span className="engine-code-title">{engine.labelColor && <i className="engine-label-swatch" style={{ backgroundColor: engine.labelColor }} />}<strong>{engine.code}</strong></span><small className="cell-note">{engine.upgradeCode ? `${t.upgrade}: ${engine.upgradeCode}` : "—"}</small></td>
+                  <tr key={engine.id} className={`clickable-row family-${familyTone.toLowerCase()}`} style={engineLabelAccent(engine.labelColor) ? { "--engine-label-color": engineLabelAccent(engine.labelColor) } as React.CSSProperties : undefined} onClick={() => onOpen(engine)} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onOpen(engine); }}>
+                    <td><span className="engine-code-title">{engineLabelAccent(engine.labelColor) && <i className="engine-label-swatch" style={{ backgroundColor: engineLabelAccent(engine.labelColor) }} />}<strong>{engine.code}</strong></span><small className="cell-note">{engine.upgradeCode ? `${t.upgrade}: ${engine.upgradeCode}` : "—"}</small></td>
                     <td><span className={`carb-category-badge tone-${familyTone.toLowerCase()}`}>{engine.family}</span>{variant && <small className="cell-note">{variant}</small>}</td>
                     <td>{ignitionLabel(engine.ignition, locale)}</td>
                     <td>{usesHours ? formatHours(engine.totalMinutes) : t.byRaces}</td>
@@ -1917,14 +1932,14 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
   const locationKind = engine.location?.kind ?? "workshop";
 
   return (
-    <div className={`engine-detail family-${familyTone}`} style={engine.labelColor ? { "--engine-accent": engine.labelColor } as React.CSSProperties : undefined}>
+    <div className={`engine-detail family-${familyTone}`} style={engineLabelAccent(engine.labelColor) ? { "--engine-accent": engineLabelAccent(engine.labelColor) } as React.CSSProperties : undefined}>
       <button className="back-button" type="button" onClick={onBack}>← {t.backToEngines}</button>
       <section className="dash-panel engine-detail-hero">
         <div className="race-hero-title">
           <span className="engine-detail-mark">{engine.family}</span>
           <div>
             <span className="eyebrow"><span className="streak"><i /><i /><i /></span>MM ENGINE CARD</span>
-            <div className="engine-title-line">{engine.labelColor && <i className="engine-label-swatch large" style={{ backgroundColor: engine.labelColor }} />}<h2>{engine.code}</h2><span className={`status-pill ${engine.status === "ready" ? "success" : "warning-pill"}`}>{engineStatusLabel(engine.status, locale)}</span></div>
+            <div className="engine-title-line">{engineLabelAccent(engine.labelColor) && <i className="engine-label-swatch large" style={{ backgroundColor: engineLabelAccent(engine.labelColor) }} />}<h2>{engine.code}</h2><span className={`status-pill ${engine.status === "ready" ? "success" : "warning-pill"}`}>{engineStatusLabel(engine.status, locale)}</span></div>
             <p>TM Racing · {engine.family}{variant ? ` · ${variant}` : ""} · {ignitionLabel(engine.ignition, locale)}</p>
           </div>
         </div>
@@ -2074,6 +2089,7 @@ function EngineDetail({ locale, engine, technicalStructure, technicalValues, onT
           onSaved={onServiceSaved}
           locale={locale}
           currentUserName={role === "mechanic" ? currentUserName : ""}
+          isSuperadmin={role === "superadmin"}
           onOpenHours={() => setTab("hours")}
           renderLegacy={() => (
         <section className="dash-panel tab-panel">
@@ -2638,7 +2654,7 @@ function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { loc
   const dialogRef = useModalA11y(onClose);
   const t = copy[locale];
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [family, setFamily] = useState<EngineRecord["family"]>(engine?.family ?? "OKN");
   const [labelColor, setLabelColor] = useState(engine?.labelColor ?? "");
@@ -2679,30 +2695,6 @@ function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { loc
     }
   }
 
-  async function removeEngine() {
-    if (!engine || role !== "superadmin") return;
-    const question = locale === "cs"
-      ? `Opravdu chceš smazat motor ${engine.code}? Motor zmizí ze seznamu, ale jeho historie zůstane zachována.`
-      : `Delete engine ${engine.code}? It will disappear from the list, but its history will be preserved.`;
-    if (!window.confirm(question)) return;
-
-    setDeleting(true);
-    setError(null);
-    try {
-      const response = await fetch("/api/engines", {
-        method: "DELETE",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ id: engine.id }),
-      });
-      const data = (await response.json()) as { id?: string; error?: string };
-      if (!response.ok || !data.id) throw new Error(data.error || "Delete failed");
-      onDeleted(data.id);
-    } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
-      setDeleting(false);
-    }
-  }
-
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="engine-form-title" tabIndex={-1}>
@@ -2722,24 +2714,109 @@ function EngineForm({ locale, engine, role, onClose, onSaved, onDeleted }: { loc
             {editing && <label><span>{t.status}</span><select name="status" defaultValue={engine?.status ?? "ready"}><option value="ready">{t.ready}</option><option value="service_soon">{t.due}</option><option value="service">{t.service}</option><option value="rebuild">{t.rebuild}</option><option value="storage">{t.storage}</option><option value="retired">{locale === "cs" ? "Vyřazen" : "Retired"}</option></select></label>}
             <div className="form-readonly"><span>{t.hoursTracking}</span><strong>{NO_HOUR_TRACKING_ENGINE_FAMILIES.includes(family) ? t.byRaces : t.byHours}</strong></div>
             <div className="engine-color-field full-field">
-              <div className="engine-color-field-heading"><span>{locale === "cs" ? "Barevné označení motoru" : "Engine colour label"}</span><div className="engine-color-preview">{labelColor && <i style={{ backgroundColor: labelColor }} />}<strong>{engine?.code || (locale === "cs" ? "Náhled motoru" : "Engine preview")}</strong>{engine?.upgradeCode && <small>· {engine.upgradeCode}</small>}</div></div>
-              <div className="engine-color-picker" aria-label={locale === "cs" ? "Paleta barev motoru" : "Engine colour palette"}>
-                <button className={`engine-no-color ${!labelColor ? "selected" : ""}`} type="button" onClick={() => setLabelColor("")}>{locale === "cs" ? "Bez barvy" : "No colour"}</button>
-                {engineLabelPalette.map((color) => <button key={color} className={`engine-color-swatch ${labelColor === color ? "selected" : ""}`} style={{ backgroundColor: color }} type="button" title={color} aria-label={`${locale === "cs" ? "Barva" : "Colour"} ${color}`} onClick={() => setLabelColor(color)} />)}
-                <label className="engine-custom-color"><span>{locale === "cs" ? "Vlastní" : "Custom"}</span><input type="color" value={labelColor || "#D52F2D"} onChange={(event) => setLabelColor(event.target.value.toUpperCase())} /></label>
-              </div>
+              <div className="engine-color-field-heading"><span>{locale === "cs" ? "Barevné označení motoru" : "Engine colour label"}</span><div className="engine-color-preview">{engineLabelAccent(labelColor) && <i style={{ backgroundColor: engineLabelAccent(labelColor) }} />}<strong>{engine?.code || (locale === "cs" ? "Náhled motoru" : "Engine preview")}</strong>{engine?.upgradeCode && <small>· {engine.upgradeCode}</small>}</div></div>
+              <CalendarColorSelect name="labelColor" defaultValue={engine?.labelColor ?? ""} locale={locale} allowNone onChange={setLabelColor} />
             </div>
             {editing && <p className="form-hint full-field">{canEditPermanent ? t.superadminFields : t.permanentFields}</p>}
             <label className="full-field"><span>{t.notes}</span><textarea name="notes" rows={3} defaultValue={engine?.notes ?? ""} placeholder={locale === "cs" ? "Základní informace o motoru…" : "Basic engine information…"} /></label>
           </div>
           {error && <p className="form-error">{friendlyEngineError(error, locale)}</p>}
           <div className="modal-actions">
-            {editing && role === "superadmin" && <button className="danger-button" type="button" onClick={removeEngine} disabled={saving || deleting}>{deleting ? t.deleting : t.deleteEngine}</button>}
+            {editing && role === "superadmin" && <button className="danger-button" type="button" onClick={() => setConfirmingDelete(true)} disabled={saving}>{t.deleteEngine}</button>}
             <span className="modal-actions-spacer" />
-            <button className="secondary-compact" type="button" onClick={onClose} disabled={saving || deleting}>{t.cancel}</button>
-            <button className="primary-button" type="submit" disabled={saving || deleting}>{saving ? t.saving : editing ? t.saveChanges : t.saveEngine}</button>
+            <button className="secondary-compact" type="button" onClick={onClose} disabled={saving}>{t.cancel}</button>
+            <button className="primary-button" type="submit" disabled={saving}>{saving ? t.saving : editing ? t.saveChanges : t.saveEngine}</button>
           </div>
         </form>
+      </section>
+      {confirmingDelete && engine && (
+        <EngineDeleteConfirmModal locale={locale} engine={engine} onClose={() => setConfirmingDelete(false)} onDeleted={onDeleted} />
+      )}
+    </div>
+  );
+}
+
+type EngineLinkSummary = { serviceRecords: number; raceEntries: number; documents: number; activeLoanRecipient: string | null };
+
+/**
+ * Potvrzení mazání motoru — jedno kliknutí dřív stačilo, teď se musí přesně opsat kód motoru
+ * a je vidět přehled toho, co je na motoru navázané, ať je jasné, co ze seznamu mizí (i když
+ * na motoru není vůbec nic — pak se to řekne výslovně, ne prázdným místem).
+ */
+function EngineDeleteConfirmModal({ locale, engine, onClose, onDeleted }: {
+  locale: Locale; engine: EngineRecord;
+  onClose: () => void;
+  onDeleted: (engineId: string) => void;
+}) {
+  const t = copy[locale];
+  const dialogRef = useModalA11y(onClose);
+  const [links, setLinks] = useState<EngineLinkSummary | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  const [confirmCode, setConfirmCode] = useState("");
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(`/api/engines?linkedTo=${encodeURIComponent(engine.id)}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("load failed");
+        const data = (await response.json()) as EngineLinkSummary;
+        if (!cancelled) setLinks(data);
+      } catch {
+        if (!cancelled) setLoadError(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [engine.id]);
+
+  async function confirmDelete() {
+    setDeleting(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/engines", {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ id: engine.id }),
+      });
+      const data = (await response.json()) as { id?: string; error?: string };
+      if (!response.ok || !data.id) throw new Error(data.error || "Delete failed");
+      onDeleted(data.id);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : "Delete failed");
+      setDeleting(false);
+    }
+  }
+
+  const codeMatches = confirmCode.trim() === engine.code;
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal" role="dialog" aria-modal="true" aria-labelledby="engine-delete-title" tabIndex={-1}>
+        <div className="modal-header">
+          <div><span className="eyebrow">MM SYSTEM</span><h2 id="engine-delete-title">{t.deleteConfirmTitle(engine.code)}</h2><p>{t.deleteConfirmIntro(engine.code)}</p></div>
+          <button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button>
+        </div>
+        {!links && !loadError && <LoadingState size="inline" label={t.deleteConfirmLoading} />}
+        {loadError && <EmptyState variant="error" size="inline" icon="!" title={t.deleteConfirmLoadError} />}
+        {links && (
+          <ul className="engine-delete-links">
+            <li>{t.deleteConfirmServiceRecords(links.serviceRecords)}</li>
+            <li>{t.deleteConfirmRaceEntries(links.raceEntries)}</li>
+            <li>{t.deleteConfirmDocuments(links.documents)}</li>
+            <li>{links.activeLoanRecipient ? t.deleteConfirmLoan(links.activeLoanRecipient) : t.deleteConfirmNotLoaned}</li>
+          </ul>
+        )}
+        <label className="full-field"><span>{t.deleteConfirmCodeLabel(engine.code)}</span>
+          <input value={confirmCode} onChange={(event) => setConfirmCode(event.target.value)} autoFocus autoComplete="off" spellCheck={false} />
+        </label>
+        {error && <p className="form-error">{friendlyEngineError(error, locale)}</p>}
+        <div className="modal-actions">
+          <span className="modal-actions-spacer" />
+          <button className="secondary-compact" type="button" onClick={onClose} disabled={deleting}>{t.cancel}</button>
+          <button className="danger-button" type="button" onClick={confirmDelete} disabled={!codeMatches || deleting || !links}>{deleting ? t.deleting : t.deleteConfirmButton}</button>
+        </div>
       </section>
     </div>
   );

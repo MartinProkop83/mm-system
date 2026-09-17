@@ -1164,6 +1164,14 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 /* Řádek s variantou zůstává o stupeň menší než název položky (hierarchie), ale ne drobný
    tisk — obsah, kvůli kterému uživatel řádek rozbalil. */
 .sc-history-detail-cell .sc-record-items li small { font-size: var(--wrc-text-sm); }
+/* Shrnutí v modalu trvalého smazání — nadpis a hodnota nad sebou, ne v mřížce, protože
+   „Položky" může nést víc řádků materiálu a mřížka by je nerovnoměrně roztáhla. */
+.sc-purge-summary { display: flex; flex-direction: column; gap: var(--wrc-space-12); margin: 0; padding: var(--wrc-space-12) 0; border-block: 1px solid var(--wrc-line); }
+.sc-purge-summary dt { color: var(--wrc-ink-faint); font-size: var(--wrc-text-micro); font-weight: 800; text-transform: uppercase; letter-spacing: var(--wrc-tracking-wide); }
+.sc-purge-summary dd { margin: var(--wrc-space-2) 0 0; color: var(--wrc-ink); font-size: var(--wrc-text-sm); }
+.sc-purge-item { display: block; }
+.sc-purge-item:not(:last-child) { margin-bottom: var(--wrc-space-6); }
+.sc-purge-item small { display: block; color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); }
 .record-modal { width: min(680px, 100%); }
 .service-modal { width: min(820px, 100%); }
 .modal-header p { max-width: 600px; margin: var(--wrc-space-6) 0 0; color: var(--wrc-ink-soft); font-size: var(--wrc-text-xs); line-height: 1.45; }
@@ -1300,13 +1308,11 @@ th { color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); text-transform:
 .engine-color-preview i { width: 17px; height: 17px; border: 1px solid rgba(16,24,40,.2); border-radius: var(--wrc-radius-circle); }
 .engine-color-preview strong { font-size: var(--wrc-text-base); }
 .engine-color-preview small { color: var(--wrc-ink-faint); font-size: var(--wrc-text-sm); }
-.engine-color-picker { display: flex; align-items: center; flex-wrap: wrap; gap: var(--wrc-space-6); }
-.engine-no-color { min-height: 28px; padding: 0 var(--wrc-space-8); color: var(--wrc-ink-soft); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface); cursor: pointer; font-size: var(--wrc-text-xs); font-weight: 700; }
-.engine-color-swatch { width: 28px; height: 28px; padding: 0; border: 1px solid rgba(16,24,40,.2); border-radius: var(--wrc-radius-md); cursor: pointer; box-shadow: inset 0 0 0 1px rgba(255,255,255,.35); }
-.engine-color-swatch:hover, .engine-color-swatch.selected, .engine-no-color.selected { outline: 3px solid var(--wrc-red-glow); border-color: var(--wrc-red); transform: translateY(-1px); }
-.engine-custom-color { min-height: 30px; display: flex !important; grid-auto-flow: column; align-items: center; gap: var(--wrc-space-6) !important; padding: var(--wrc-space-2) var(--wrc-space-4) var(--wrc-space-2) var(--wrc-space-8); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface); }
-.engine-custom-color input { width: 34px !important; min-height: 24px !important; height: 24px; padding: 0 !important; border: 0 !important; cursor: pointer; }
 .form-hint { margin: 0; padding: var(--wrc-space-8) var(--wrc-space-12); color: var(--wrc-ink-soft); border-radius: var(--wrc-radius-sm); background: var(--wrc-surface-2); font-size: var(--wrc-text-sm); line-height: 1.45; }
+/* Přehled vazeb v potvrzení mazání motoru — čtyři řádky, i když je motor prázdný (pak stojí
+   výslovně "Žádné servisní záznamy" apod., ne nic). */
+.engine-delete-links { display: grid; gap: var(--wrc-space-6); margin: var(--wrc-space-12) 0; padding: var(--wrc-space-12); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface-2); list-style: none; }
+.engine-delete-links li { color: var(--wrc-ink-soft); font-size: var(--wrc-text-sm); }
 .full-field { grid-column: 1 / -1; }
 .modal-actions { display: flex; justify-content: flex-end; gap: var(--wrc-space-8); margin-top: 23px; padding-top: 18px; border-top: 1px solid var(--wrc-line); }
 .modal-actions-spacer { flex: 1; }

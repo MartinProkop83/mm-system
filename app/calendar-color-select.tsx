@@ -4,12 +4,21 @@ import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { raceCalendarColors } from "./race-calendar-colors";
 import { EmptyState } from "./empty-state";
 
-export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { name: string; defaultValue?: string; locale: "cs" | "en" }) {
+export function CalendarColorSelect({ name, defaultValue = "sky", locale, allowNone = false, onChange }: {
+  name: string; defaultValue?: string; locale: "cs" | "en";
+  /** Přidá do seznamu "Bez barvy", která se ukládá jako prázdný string. Typ závodu tuhle
+   *  volbu nepotřebuje (barvu má vždy), motor ji potřebuje. */
+  allowNone?: boolean;
+  /** Nepovinné — komponenta zůstává neřízená (hodnota jde ven přes skrytý input pro formulář),
+   *  tohle je jen pro živý náhled mimo formulář (viz náhled barvy motoru). */
+  onChange?: (id: string) => void;
+}) {
   const [value, setValue] = useState(defaultValue);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const rootRef = useRef<HTMLDivElement>(null);
-  const selected = raceCalendarColors.find((color) => color.id === value) ?? raceCalendarColors[0];
+  const noneLabel = locale === "cs" ? "Bez barvy" : "No colour";
+  const selected = value === "" && allowNone ? null : raceCalendarColors.find((color) => color.id === value) ?? raceCalendarColors[0];
   const locKey = locale === "cs" ? "cs" : "en";
   const normalizedQuery = query.trim().toLocaleLowerCase(locKey);
   const filtered = normalizedQuery
@@ -29,6 +38,7 @@ export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { na
     setValue(id);
     setOpen(false);
     setQuery("");
+    onChange?.(id);
   }
 
   function dotStyle(color: (typeof raceCalendarColors)[number]) {
@@ -38,7 +48,7 @@ export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { na
   return <div className={`country-select calendar-color-select${open ? " is-open" : ""}`} ref={rootRef}>
     <input type="hidden" name={name} value={value} />
     <button type="button" className="country-select-trigger" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-      <span><i className="calendar-color-swatch-dot" style={dotStyle(selected)} />{locale === "cs" ? selected.labelCs : selected.labelEn}</span><b>⌄</b>
+      <span>{selected && <i className="calendar-color-swatch-dot" style={dotStyle(selected)} />}{selected ? (locale === "cs" ? selected.labelCs : selected.labelEn) : noneLabel}</span><b>⌄</b>
     </button>
     {open && <div className="country-select-menu" role="listbox" aria-label={locale === "cs" ? "Barva v kalendáři" : "Calendar color"}>
       <input type="text" className="country-select-search" autoFocus aria-label={locale === "cs" ? "Hledat barvu" : "Search color"} placeholder={locale === "cs" ? "Hledat barvu…" : "Search color…"} value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => {
@@ -46,6 +56,9 @@ export function CalendarColorSelect({ name, defaultValue = "sky", locale }: { na
         if (event.key === "Enter") { event.preventDefault(); if (filtered.length > 0) commit(filtered[0].id); }
       }} />
       <div className="country-select-options">
+        {allowNone && <button type="button" role="option" aria-selected={value === ""} className={value === "" ? "selected" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => commit("")}>
+          {noneLabel}
+        </button>}
         {filtered.length === 0 && <EmptyState size="compact" variant="filtered" title={locale === "cs" ? "Žádná barva nenalezena" : "No color found"} />}
         {filtered.map((color) => <button key={color.id} type="button" role="option" aria-selected={color.id === value} className={color.id === value ? "selected" : ""} onMouseDown={(event) => event.preventDefault()} onClick={() => commit(color.id)}>
           <i className="calendar-color-swatch-dot" style={dotStyle(color)} />{locale === "cs" ? color.labelCs : color.labelEn}

@@ -18,6 +18,7 @@ import type { CircuitRecord } from "./circuits-page";
 import { formatCount, pluralForm, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
+import { raceCalendarColorAccent } from "./race-calendar-colors";
 
 const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
 const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
@@ -976,7 +977,8 @@ function weatherIcon(code: number) {
 
 function EquipmentValue({ code, configuration = "", upgradeCode = "", labelColor = "", columnWidth }: { code: string; configuration?: string; upgradeCode?: string; labelColor?: string; columnWidth?: number }) {
   const widthStyle = equipmentColumnStyle(columnWidth);
-  return <span className={code ? "equipment-code" : "equipment-empty"} style={code && labelColor ? { borderLeft: `7px solid ${labelColor}`, ...widthStyle } : widthStyle}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
+  const accent = raceCalendarColorAccent(labelColor);
+  return <span className={code ? "equipment-code" : "equipment-empty"} style={code && accent ? { borderLeft: `7px solid ${accent}`, ...widthStyle } : widthStyle}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
 }
 
 function ExtraEquipmentRow({ extra, engine, locale, canManage, onRemove }: { extra: RaceExtra; engine?: EngineChoice; locale: Locale; canManage: boolean; onRemove: () => Promise<void> }) {
@@ -1084,7 +1086,8 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
         const option = equipmentOption(choice, type, entry, selectedIds, position, plan, locale);
         const disabled = option.disabled && choice.id !== value;
         const equipment = equipmentDisplay(choice.code, type === "engine" ? choice.currentConfiguration ?? "" : "", type === "engine" ? choice.upgradeCode ?? "" : "");
-        return <button key={choice.id} type="button" role="option" aria-selected={selected === choice.id} className={`${option.tone}${selected === choice.id ? " selected" : ""}`} disabled={disabled} style={type === "engine" && choice.labelColor ? { borderLeft: `7px solid ${choice.labelColor}` } : undefined} onClick={() => { void change(choice.id); }}><strong>{equipment}</strong><span>{option.description}</span></button>;
+        const optionAccent = type === "engine" ? raceCalendarColorAccent(choice.labelColor) : "";
+        return <button key={choice.id} type="button" role="option" aria-selected={selected === choice.id} className={`${option.tone}${selected === choice.id ? " selected" : ""}`} disabled={disabled} style={optionAccent ? { borderLeft: `7px solid ${optionAccent}` } : undefined} onClick={() => { void change(choice.id); }}><strong>{equipment}</strong><span>{option.description}</span></button>;
       })}
     </div>}
     {saving && <small className="no-print">{locale === "cs" ? "Ukládám…" : "Saving…"}</small>}

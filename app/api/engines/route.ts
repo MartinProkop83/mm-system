@@ -4,6 +4,7 @@ import { getApiUser } from "../../server-auth";
 import { buildTechnicalChangeLog, type TechnicalValueWrite } from "../../engine-technical-log";
 import { generatePublicCode } from "../../engine-public-code";
 import { applyMiniAutoService } from "../../engine-auto-service";
+import { raceCalendarColors } from "../../race-calendar-colors";
 
 const allowedStatuses = new Set(["ready", "service_soon", "service", "rebuild", "storage", "retired"]);
 const allowedFamilies = new Set(["MINI", "OKJ", "OKN", "OKN-J", "OK", "KZ"]);
@@ -59,7 +60,9 @@ function normalizeEnginePayload(payload: EnginePayload) {
   const kzGeneration = family === "KZ" ? payload.kzGeneration?.trim().toUpperCase() || null : null;
   const currentConfiguration = family === "MINI" ? payload.currentConfiguration?.trim().toUpperCase() || "MINI" : null;
   const upgradeCode = payload.upgradeCode?.trim().toUpperCase() ?? "";
-  const labelColor = payload.labelColor?.trim().toUpperCase() ?? "";
+  // Jméno z `raceCalendarColors` (stejný uzavřený seznam jako u typu závodu), nebo "" bez barvy —
+  // ne hex string jako dřív.
+  const labelColor = payload.labelColor?.trim().toLowerCase() ?? "";
   const purchaseDate = payload.purchaseDate?.trim() || null;
   const notes = payload.notes?.trim() ?? "";
 
@@ -73,7 +76,7 @@ function normalizeEnginePayload(payload: EnginePayload) {
   else if (upgradeCode && !/^[\p{L}\p{N} ()/._+*\-]{1,40}$/u.test(upgradeCode)) {
     error = "Úprava motoru může mít nejvýše 40 znaků; povolena jsou písmena, čísla, mezery, závorky, tečka, lomítko, +, *, _ a pomlčka.";
   }
-  if (!error && labelColor && !/^#[0-9A-F]{6}$/.test(labelColor)) error = "Neplatná barva motoru";
+  if (!error && labelColor && !raceCalendarColors.some((c) => c.id === labelColor)) error = "Neplatná barva motoru";
   if (!error && purchaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(purchaseDate)) error = "Invalid purchase date";
 
   return { code, family, ignition, status, kzGeneration, currentConfiguration, upgradeCode, labelColor, purchaseDate, notes, error };
@@ -131,6 +134,28 @@ export async function GET(request: Request) {
 
   await ensureRuntimeSchema();
   const d1 = getD1();
+
+  // Přehled vazeb pro potvrzení mazání motoru — jen superadmin, jen počty, žádná těžká data.
+  // Samostatná větev, ne součást hlavního seznamu níž, aby se pro tenhle dotaz nenačítalo
+  // úplně všechno (technické údaje, zápůjčky, přiřazení...).
+  const linkedTo = new URL(request.url).searchParams.get("linkedTo");
+  if (linkedTo) {
+    if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
+    const [serviceRecords, legacyEntries, raceEntries, documents, activeLoan] = await Promise.all([
+      d1.prepare("SELECT COUNT(*) AS count FROM service_records WHERE engine_id = ?").bind(linkedTo).first<{ count: number }>(),
+      d1.prepare("SELECT COUNT(*) AS count FROM engine_service_entries WHERE engine_id = ?").bind(linkedTo).first<{ count: number }>(),
+      d1.prepare("SELECT COUNT(*) AS count FROM race_entries WHERE ? IN (engine_1_id, engine_2_id, engine_3_id)").bind(linkedTo).first<{ count: number }>(),
+      d1.prepare("SELECT COUNT(*) AS count FROM engine_documents WHERE engine_id = ?").bind(linkedTo).first<{ count: number }>(),
+      d1.prepare("SELECT recipient_name_snapshot AS recipientName FROM engine_loans WHERE engine_id = ? AND actual_return_date IS NULL LIMIT 1").bind(linkedTo).first<{ recipientName: string }>(),
+    ]);
+    return Response.json({
+      serviceRecords: (serviceRecords?.count ?? 0) + (legacyEntries?.count ?? 0),
+      raceEntries: raceEntries?.count ?? 0,
+      documents: documents?.count ?? 0,
+      activeLoanRecipient: activeLoan?.recipientName ?? null,
+    });
+  }
+
   await applyMiniAutoService(d1);
   const [result, assignmentResult, loanResult, layoutResult, sectionResult, fieldResult, optionResult, valueResult] = await Promise.all([
     d1.prepare(`
@@ -233,7 +258,7 @@ export async function POST(request: Request) {
   const d1 = getD1();
   const id = crypto.randomUUID();
   const now = Date.now();
-  const duplicate = await d1.prepare("SELECT id FROM engines WHERE code = ? AND category = ? LIMIT 1").bind(code, category).first<{ id: string }>();
+  const duplicate = await d1.prepare("SELECT id FROM engines WHERE code = ? AND category = ? AND archived_at IS NULL LIMIT 1").bind(code, category).first<{ id: string }>();
   if (duplicate) return Response.json({ error: "Engine code already exists in this category" }, { status: 409 });
 
   try {
@@ -368,7 +393,7 @@ export async function PUT(request: Request) {
     return Response.json({ error: "Permanent engine fields cannot be changed" }, { status: 400 });
   }
 
-  const duplicate = await d1.prepare("SELECT id FROM engines WHERE code = ? AND category = ? AND id != ? LIMIT 1").bind(code, category, payload.id).first<{ id: string }>();
+  const duplicate = await d1.prepare("SELECT id FROM engines WHERE code = ? AND category = ? AND archived_at IS NULL AND id != ? LIMIT 1").bind(code, category, payload.id).first<{ id: string }>();
   if (duplicate) return Response.json({ error: "Engine code already exists in this category" }, { status: 409 });
 
   const now = Date.now();

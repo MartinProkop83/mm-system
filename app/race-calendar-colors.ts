@@ -60,3 +60,14 @@ export function raceCalendarColorDefinition(value: unknown) {
   const normalized = normalizeRaceCalendarColor(value);
   return raceCalendarColors.find((color) => color.id === normalized) ?? raceCalendarColors[0];
 }
+
+/**
+ * Skutečná hex hodnota pojmenované barvy — pro místa, která barvu motoru dřív držela jako
+ * hex string a teď dostávají jméno z `raceCalendarColors`. Na rozdíl od `normalizeRaceCalendarColor`
+ * nespadá na "sky": prázdná/neznámá hodnota zůstává prázdná, protože u motoru "bez barvy" znamená
+ * bez barvy, ne výchozí modrou.
+ */
+export function raceCalendarColorAccent(value: unknown): string {
+  const candidate = String(value ?? "").trim();
+  return raceCalendarColors.find((color) => color.id === candidate)?.accent ?? "";
+}

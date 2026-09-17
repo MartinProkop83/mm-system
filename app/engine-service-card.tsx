@@ -113,6 +113,12 @@ const content = {
     savedNew: "Servisní záznam byl uložen.",
     savedEdit: "Servisní záznam byl opraven.",
     savedCancel: "Servisní záznam byl stornován.",
+    purgeRecord: "Smazat natrvalo",
+    purgeTitle: "Smazat servisní záznam natrvalo?",
+    purgeIntro: "Smaže se záznam i jeho položky — nezůstane po nich nikde žádná stopa. Nejde vrátit zpět.",
+    purgeConfirm: "Smazat natrvalo",
+    purging: "Mažu…",
+    savedPurge: "Servisní záznam byl trvale smazán.",
   },
   en: {
     heading: "Service card",
@@ -187,6 +193,12 @@ const content = {
     savedNew: "Service entry saved.",
     savedEdit: "Service record corrected.",
     savedCancel: "Service record cancelled.",
+    purgeRecord: "Delete permanently",
+    purgeTitle: "Permanently delete this service record?",
+    purgeIntro: "This deletes the record and its items — nothing about them will remain anywhere. This cannot be undone.",
+    purgeConfirm: "Delete permanently",
+    purging: "Deleting…",
+    savedPurge: "The service record was permanently deleted.",
   },
 } as const;
 
@@ -220,10 +232,12 @@ function nowTimeInputValue() {
  * Dokud kategorie nemá `serviceCardMigrated`, vykreslí se `renderLegacy()` — dnešní karta beze
  * změny, včetně resetu počítadel píst/ojnice. Přepíná se to v Nastavení → Servisní karta.
  */
-export function EngineServiceCard({ engine, locale, currentUserName, openEntryOnMount = false, onEntryClosed, onSaved, onOpenHours, renderLegacy }: {
+export function EngineServiceCard({ engine, locale, currentUserName, isSuperadmin = false, openEntryOnMount = false, onEntryClosed, onSaved, onOpenHours, renderLegacy }: {
   engine: { id: string; code: string; family: string };
   locale: Locale;
   currentUserName: string;
+  /** Trvalé smazání stornovaného záznamu je jen pro superadmina — viz `ServiceHistory`. */
+  isSuperadmin?: boolean;
   /** Vstup z fronty na servis — formulář zápisu se otevře rovnou, bez dalšího kliknutí. */
   openEntryOnMount?: boolean;
   onEntryClosed?: () => void;
@@ -238,6 +252,7 @@ export function EngineServiceCard({ engine, locale, currentUserName, openEntryOn
   const [formOpen, setFormOpen] = useState(openEntryOnMount);
   const [editing, setEditing] = useState<ServiceRecord | null>(null);
   const [cancelling, setCancelling] = useState<ServiceRecord | null>(null);
+  const [purging, setPurging] = useState<ServiceRecord | null>(null);
   const [notice, setNotice] = useState("");
 
   const load = useCallback(async () => {
@@ -324,8 +339,8 @@ export function EngineServiceCard({ engine, locale, currentUserName, openEntryOn
       {data.records.length === 0 ? (
         <EmptyState size="inline" title={t.noHistory} description={t.noHistoryHelp} />
       ) : (
-        <ServiceHistory t={t} locale={locale} records={data.records} tracksCounter={tracksCounter}
-          onEdit={setEditing} onCancel={setCancelling} />
+        <ServiceHistory t={t} locale={locale} records={data.records} tracksCounter={tracksCounter} isSuperadmin={isSuperadmin}
+          onEdit={setEditing} onCancel={setCancelling} onPurge={setPurging} />
       )}
 
       {(formOpen || editing) && (
@@ -351,14 +366,23 @@ export function EngineServiceCard({ engine, locale, currentUserName, openEntryOn
           onCancelled={(records) => { applyRecords(records, t.savedCancel); setCancelling(null); }}
         />
       )}
+
+      {purging && (
+        <PurgeRecordModal
+          t={t} locale={locale} record={purging}
+          onClose={() => setPurging(null)}
+          onPurged={(records) => { applyRecords(records, t.savedPurge); setPurging(null); }}
+        />
+      )}
     </section>
   );
 }
 
-function ServiceHistory({ t, locale, records, tracksCounter, onEdit, onCancel }: {
-  t: Copy; locale: Locale; records: ServiceRecord[]; tracksCounter: boolean;
+function ServiceHistory({ t, locale, records, tracksCounter, isSuperadmin, onEdit, onCancel, onPurge }: {
+  t: Copy; locale: Locale; records: ServiceRecord[]; tracksCounter: boolean; isSuperadmin: boolean;
   onEdit: (record: ServiceRecord) => void;
   onCancel: (record: ServiceRecord) => void;
+  onPurge: (record: ServiceRecord) => void;
 }) {
   // Jeden zdroj pravdy pro hlavičku i pro colSpan rozbaleného detailu — vykreslují se ze
   // stejného pole, takže se přidání/odebrání sloupce v `<thead>` nemůže s colSpanem rozejít.
@@ -449,6 +473,13 @@ function ServiceHistory({ t, locale, records, tracksCounter, onEdit, onCancel }:
                         <div className="record-actions" onClick={(event) => event.stopPropagation()}>
                           {canEdit && <button type="button" onClick={() => onEdit(record)}>{t.edit}</button>}
                           <button className="delete" type="button" onClick={() => onCancel(record)}>{t.cancelRecord}</button>
+                        </div>
+                      )}
+                      {/* Trvalé smazání jde jen u už stornovaného záznamu a jen superadminovi —
+                          server tu samou podmínku vyžaduje znovu, tlačítko je jen zkratka. */}
+                      {cancelled && isSuperadmin && (
+                        <div className="record-actions" onClick={(event) => event.stopPropagation()}>
+                          <button className="delete" type="button" onClick={() => onPurge(record)}>{t.purgeRecord}</button>
                         </div>
                       )}
                     </td>
@@ -868,6 +899,70 @@ function CancelRecordModal({ t, record, onClose, onCancelled }: {
           <button className="primary-button" type="submit" disabled={saving}>{saving ? t.cancelling : t.cancelConfirm}</button>
         </footer>
       </form>
+    </div>
+  );
+}
+
+/** Shrnutí přesně toho, co trvalým smazáním zmizí — datum, typ, položky i důvod storna. */
+function PurgeRecordModal({ t, locale, record, onClose, onPurged }: {
+  t: Copy; locale: Locale; record: ServiceRecord;
+  onClose: () => void;
+  onPurged: (records: ServiceRecord[]) => void;
+}) {
+  const dialogRef = useModalA11y(onClose);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const groups = groupServiceRecordItems(record.items);
+
+  async function confirm() {
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(API, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ recordId: record.id, permanent: true }),
+      });
+      const payload = (await response.json()) as { records?: ServiceRecord[]; error?: string };
+      if (!response.ok || !payload.records) throw new Error(payload.error || "purge_failed");
+      onPurged(payload.records);
+    } catch {
+      setError(t.errorGeneric);
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section ref={dialogRef as React.RefObject<HTMLElement>} className="modal settings-user-modal" role="dialog" aria-modal="true" aria-labelledby="sc-purge-title" tabIndex={-1}>
+        <header className="modal-header">
+          <div><span className="eyebrow">SERVICE CARD</span><h2 id="sc-purge-title">{t.purgeTitle}</h2><p>{t.purgeIntro}</p></div>
+          <button className="close-button" type="button" onClick={onClose} aria-label={t.cancel}>×</button>
+        </header>
+        <dl className="sc-purge-summary">
+          <div><dt>{t.date}</dt><dd>{formatDate(record.serviceDate, locale)}{record.serviceTime && ` ${record.serviceTime}`}</dd></div>
+          <div><dt>{t.type}</dt><dd>{localizedServiceTypeSnapshot(record, locale) || t.noType}</dd></div>
+          <div><dt>{t.mechanic}</dt><dd>{record.mechanicNameSnapshot || record.createdBy}</dd></div>
+          <div>
+            <dt>{t.items}</dt>
+            <dd>
+              {groups.length === 0 ? "—" : groups.map((group) => (
+                <span key={group.key} className="sc-purge-item">
+                  {localized(locale, group.itemNameCsSnapshot, group.itemNameEnSnapshot)}
+                  {formatVariantList(group.variants).map((line, lineIndex) => <small key={lineIndex}>{line}</small>)}
+                </span>
+              ))}
+            </dd>
+          </div>
+          <div><dt>{t.cancelled}</dt><dd>{record.cancelledReason}</dd></div>
+        </dl>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <footer className="modal-actions">
+          <span className="modal-actions-spacer" />
+          <button className="secondary-compact" type="button" onClick={onClose}>{t.cancel}</button>
+          <button className="primary-button" type="button" onClick={confirm} disabled={saving}>{saving ? t.purging : t.purgeConfirm}</button>
+        </footer>
+      </section>
     </div>
   );
 }

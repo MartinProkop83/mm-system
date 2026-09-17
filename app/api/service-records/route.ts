@@ -34,6 +34,8 @@ type Payload = {
   cancelledReason?: string;
   /** Varianta C: srovnat technické údaje podle vybraného materiálu (výchozí ano). */
   syncTechnicalValues?: boolean;
+  /** Trvalé smazání už stornovaného záznamu — jen superadmin, viz DELETE. */
+  permanent?: boolean;
 };
 
 type EngineRow = { id: string; code: string; family: string; totalMinutes: number };
@@ -619,6 +621,43 @@ export async function PATCH(request: Request) {
 }
 
 /** Storno s povinným důvodem. Záznam se nikdy nemaže — v historii zůstává přeškrtnutý. */
+/**
+ * Trvalé smazání stornovaného záznamu. Jen superadmin, jen záznam, který je už stornovaný
+ * (`cancelled_at IS NOT NULL` přímo v DELETE, ne jen v aplikační kontrole) — storno samo
+ * zůstává jediná cesta pro živý záznam. Než položky i záznam zmizí, uloží se jejich snapshot
+ * do audit_logs, protože jinak by po smazání nezůstala žádná stopa, co přesně to bylo.
+ */
+async function purgeCancelledRecord(d1: ReturnType<typeof getD1>, recordId: string, actorEmail: string) {
+  const existing = await d1.prepare(`
+    SELECT id, engine_id AS engineId, service_type_id AS serviceTypeId, service_type_snapshot_cs AS serviceTypeSnapshotCs,
+           service_type_snapshot_en AS serviceTypeSnapshotEn, service_date AS serviceDate, service_time AS serviceTime,
+           counter_minutes AS counterMinutes, mechanic_id AS mechanicId, mechanic_name_snapshot AS mechanicNameSnapshot,
+           note, cancelled_reason AS cancelledReason, cancelled_at AS cancelledAt, cancelled_by AS cancelledBy,
+           created_by AS createdBy, created_at AS createdAt
+    FROM service_records WHERE id = ?
+  `).bind(recordId).first<Record<string, unknown> & { engineId: string; cancelledAt: number | null }>();
+  if (!existing) return { error: Response.json({ error: "Record not found" }, { status: 404 }) } as const;
+  if (!existing.cancelledAt) return { error: Response.json({ error: "not_cancelled" }, { status: 409 }) } as const;
+
+  const items = await d1.prepare(`
+    SELECT item_name_cs_snapshot AS itemNameCsSnapshot, item_name_en_snapshot AS itemNameEnSnapshot,
+           material_variant_id AS materialVariantId, material_snapshot AS materialSnapshot, quantity
+    FROM service_record_items WHERE service_record_id = ?
+  `).bind(recordId).all<Record<string, unknown>>();
+
+  const now = Date.now();
+  await d1.batch([
+    d1.prepare("DELETE FROM service_record_items WHERE service_record_id = ?").bind(recordId),
+    d1.prepare("DELETE FROM service_records WHERE id = ? AND cancelled_at IS NOT NULL").bind(recordId),
+    d1.prepare(`
+      INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at)
+      VALUES (?, ?, 'purge_service_record', 'engine', ?, ?, ?)
+    `).bind(crypto.randomUUID(), actorEmail, existing.engineId, JSON.stringify({ recordId, record: existing, items: items.results }), now),
+  ]);
+
+  return { engineId: existing.engineId } as const;
+}
+
 export async function DELETE(request: Request) {
   const auth = await getApiUser(request);
   if (auth.error) return auth.error;
@@ -629,6 +668,14 @@ export async function DELETE(request: Request) {
   await ensureRuntimeSchema();
   const d1 = getD1();
   const recordId = clean(body.payload.recordId, 80);
+
+  if (body.payload.permanent) {
+    if (user.role !== "superadmin") return Response.json({ error: "Forbidden" }, { status: 403 });
+    const purged = await purgeCancelledRecord(d1, recordId, user.email);
+    if (purged.error) return purged.error;
+    return Response.json({ records: await loadRecords(d1, purged.engineId) });
+  }
+
   const reason = clean(body.payload.cancelledReason, 500);
   if (!reason) return Response.json({ error: "reason_required" }, { status: 400 });
 
