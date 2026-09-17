@@ -191,6 +191,17 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
   const [trackDriveMinutes, setTrackDriveMinutes] = useState<number | null>(accommodation?.trackDriveMinutes ?? null);
   const [locatingAccommodation, setLocatingAccommodation] = useState(false);
   const selectedRace = races.find((race) => race.id === selectedRaceId);
+  // Nabídka při zakládání nového záznamu má skrývat závody skončené víc než týden zpátky —
+  // po návratu se ještě doplňují faktury a zpáteční letenky. Záznam navázaný na starší závod
+  // (editace) si svůj závod musí v nabídce udržet, i když je dávno po termínu, ať se omylem
+  // nepřepíše na jiný. `endDate || startDate` je jen pojistka pro řádek bez vyplněného konce —
+  // u jednodenního závodu je `endDate` běžně rovné `startDate`, nikdy prázdné.
+  const selectableRaces = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    const cutoffIso = `${cutoff.getFullYear()}-${String(cutoff.getMonth() + 1).padStart(2, "0")}-${String(cutoff.getDate()).padStart(2, "0")}`;
+    return races.filter((race) => (race.endDate || race.startDate) >= cutoffIso || race.id === record?.raceId);
+  }, [races, record?.raceId]);
 
   function invalidateAccommodationRoute() {
     setTrackDistanceKm(null);
@@ -254,7 +265,7 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
   }
 
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal logistics-modal" role="dialog" aria-modal="true" aria-labelledby="logistics-form-title" tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MM TRAVEL</span><h2 id="logistics-form-title">{recordId ? (locale === "cs" ? "Upravit" : "Edit") : (locale === "cs" ? "Nový záznam" : "New record")} · {kindTitle(kind, locale).toLocaleLowerCase(locale === "cs" ? "cs" : "en")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div><form ref={formRef} onSubmit={submit}><div className="form-grid">
-    {lockedRaceId ? <div className="form-readonly full-field"><span>{locale === "cs" ? "Závod a termín" : "Race and dates"}</span><strong>{raceFormLabel(races.find((race) => race.id === lockedRaceId), locale)}</strong></div> : <label className="full-field"><span>{locale === "cs" ? "Závod a termín" : "Race and dates"} *</span><select name="raceId" required autoFocus value={selectedRaceId} onChange={(event) => { setSelectedRaceId(event.target.value); if (kind === "accommodation") invalidateAccommodationRoute(); }}><option value="">{locale === "cs" ? "Vyber závod…" : "Select race…"}</option>{races.map((race) => <option key={race.id} value={race.id}>{raceFormLabel(race, locale)}</option>)}</select></label>}
+    {lockedRaceId ? <div className="form-readonly full-field"><span>{locale === "cs" ? "Závod a termín" : "Race and dates"}</span><strong>{raceFormLabel(races.find((race) => race.id === lockedRaceId), locale)}</strong></div> : <label className="full-field"><span>{locale === "cs" ? "Závod a termín" : "Race and dates"} *</span><select name="raceId" required autoFocus value={selectedRaceId} onChange={(event) => { setSelectedRaceId(event.target.value); if (kind === "accommodation") invalidateAccommodationRoute(); }}><option value="">{locale === "cs" ? "Vyber závod…" : "Select race…"}</option>{selectableRaces.map((race) => <option key={race.id} value={race.id}>{raceFormLabel(race, locale)}</option>)}</select></label>}
     {kind === "accommodation" ? <>
       <label><span>{locale === "cs" ? "Název ubytování" : "Accommodation name"} *</span><input name="name" required value={accommodationName} onChange={(event) => { setAccommodationName(event.target.value); invalidateAccommodationRoute(); }} /></label><label><span>{locale === "cs" ? "Místo / adresa" : "Location / address"} *</span><input name="address" required value={accommodationAddress} onChange={(event) => { setAccommodationAddress(event.target.value); invalidateAccommodationRoute(); }} /></label>
       <label><span>{locale === "cs" ? "Web ubytování" : "Accommodation website"}</span><input name="websiteUrl" inputMode="url" placeholder="https://hotel…" defaultValue={accommodation?.websiteUrl ?? ""} /></label><label><span>{locale === "cs" ? "Odkaz na Booking" : "Booking link"}</span><input name="bookingUrl" inputMode="url" placeholder="https://booking.com/…" defaultValue={accommodation?.bookingUrl ?? ""} /></label>
