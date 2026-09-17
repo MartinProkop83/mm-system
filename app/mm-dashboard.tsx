@@ -19,6 +19,7 @@ import { ServiceOrdersPage } from "./service-orders-page";
 import { formatHours } from "./format-hours";
 import { ServiceQueuePage } from "./service-queue-page";
 import { ChecklistsPage } from "./checklist-pages";
+import { DocumentLibraryPage } from "./document-library";
 import Link from "next/link";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
@@ -32,10 +33,10 @@ import { CalendarColorSelect } from "./calendar-color-select";
 import { raceCalendarColorAccent } from "./race-calendar-colors";
 
 type Locale = "cs" | "en";
-type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "qrCodes" | "sales" | "serviceOrders" | "inventory" | "documents" | "settings";
+type View = "dashboard" | "tasks" | "calendar" | "races" | "raceTypes" | "circuits" | "teams" | "drivers" | "customers" | "engines" | "carburetors" | "mechanics" | "clothing" | "vehicles" | "accommodation" | "flights" | "rentals" | "service" | "serviceHistory" | "qrCodes" | "sales" | "serviceOrders" | "inventory" | "fileLibrary" | "documents" | "settings";
 // Views whose own page component already renders its own eyebrow/title/description hero —
 // the shared topbar skips its generic title there instead of repeating it.
-const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "qrCodes", "sales", "serviceOrders", "inventory", "documents", "settings"];
+const VIEWS_WITH_OWN_HERO: View[] = ["tasks", "calendar", "races", "raceTypes", "circuits", "teams", "drivers", "customers", "engines", "carburetors", "mechanics", "clothing", "vehicles", "accommodation", "flights", "rentals", "service", "serviceHistory", "qrCodes", "sales", "serviceOrders", "inventory", "fileLibrary", "documents", "settings"];
 // Views backed by CatalogPage — its own detail sub-view (driver/team/mechanic/vehicle/carburetor card)
 // replaces the list and already carries its own back button + hero, so the topbar hides entirely there.
 const CATALOG_BACKED_VIEWS: View[] = ["raceTypes", "teams", "drivers", "carburetors", "mechanics", "vehicles"];
@@ -261,7 +262,8 @@ const copy = {
     customerToCheck: "K mé kontrole",
     customerAwaitingPickup: (days: number) => `Čeká na vyzvednutí déle než ${days} dní`,
     inventory: "Sklad",
-    documents: "Dokumenty",
+    fileLibrary: "Dokumenty",
+    documents: "Nástroje",
     settings: "Nastavení",
     nextRace: "Příští závod",
     openRace: "Otevřít závod",
@@ -388,7 +390,8 @@ const copy = {
     customerToCheck: "For my check",
     customerAwaitingPickup: (days: number) => `Awaiting pickup for more than ${days} days`,
     inventory: "Inventory",
-    documents: "Documents",
+    fileLibrary: "Documents",
+    documents: "Tools",
     settings: "Settings",
     nextRace: "Next race",
     openRace: "Open race",
@@ -508,6 +511,7 @@ const nav: Array<{ id: View; mark: string }> = [
   { id: "sales", mark: "¤" },
   { id: "serviceOrders", mark: "⚒" },
   { id: "inventory", mark: "□" },
+  { id: "fileLibrary", mark: "▥" },
   { id: "documents", mark: "≡" },
   { id: "settings", mark: "⚙" },
 ];
@@ -528,7 +532,7 @@ const navGroups: Array<{ labelCs: string; labelEn: string; items: View[] }> = [
   { labelCs: "Tým", labelEn: "Team", items: ["drivers", "teams", "customers", "mechanics", "clothing"] },
   { labelCs: "Vybavení", labelEn: "Equipment", items: ["engines", "carburetors", "vehicles", "service", "serviceHistory", "qrCodes", "inventory"] },
   { labelCs: "Logistika", labelEn: "Logistics", items: ["accommodation", "flights", "rentals"] },
-  { labelCs: "Obchod", labelEn: "Business", items: ["sales", "serviceOrders", "documents"] },
+  { labelCs: "Obchod", labelEn: "Business", items: ["sales", "serviceOrders", "fileLibrary", "documents"] },
   { labelCs: "Nastavení", labelEn: "Settings", items: ["settings"] },
 ];
 
@@ -1093,6 +1097,7 @@ export default function Home({ initialEngineId = "" }: { initialEngineId?: strin
             onInitialStatusFilterConsumed={() => setDeepLinkOrderStatus(null)} />
         )}
         {view === "inventory" && <InventoryPage locale={locale} role={session?.role ?? "mechanic"} />}
+        {view === "fileLibrary" && <DocumentLibraryPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "documents" && <ChecklistsPage locale={locale} role={session?.role ?? "mechanic"} />}
         {view === "settings" && session && (
           <SettingsPage

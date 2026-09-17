@@ -29,10 +29,31 @@ const signatures: Signature[] = [
   },
 ];
 
-export async function sniffFileType(file: File): Promise<{ type: string; extension: string } | null> {
+// Kancelářské formáty (docx/xlsx/pptx) jsou uvnitř ZIP kontejner — ze samotných úvodních bajtů
+// nejde poznat, který konkrétní z nich to je (obyčejný .zip má stejnou signaturu). Přípona
+// z názvu souboru tady nerozhoduje o PŘIJETÍ (to dál hlídá jen bajtová signatura kontejneru),
+// jen vybere, kterou konkrétní příponu/typ z už ověřené rodiny přiřadit — přejmenovaný .exe
+// v .zip kontejneru nebude, takže tímhle se bezpečnostní kontrola neobchází.
+const zipSignature = (b: Uint8Array) => b.length >= 4 && b[0] === 0x50 && b[1] === 0x4b && b[2] === 0x03 && b[3] === 0x04;
+const oleSignature = (b: Uint8Array) => b.length >= 8 && b[0] === 0xd0 && b[1] === 0xcf && b[2] === 0x11 && b[3] === 0xe0 && b[4] === 0xa1 && b[5] === 0xb1 && b[6] === 0x1a && b[7] === 0xe1;
+const zipOfficeTypes: Record<string, { type: string; extension: string }> = {
+  docx: { type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document", extension: "docx" },
+  xlsx: { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", extension: "xlsx" },
+  pptx: { type: "application/vnd.openxmlformats-officedocument.presentationml.presentation", extension: "pptx" },
+};
+const oleOfficeTypes: Record<string, { type: string; extension: string }> = {
+  doc: { type: "application/msword", extension: "doc" },
+  xls: { type: "application/vnd.ms-excel", extension: "xls" },
+  ppt: { type: "application/vnd.ms-powerpoint", extension: "ppt" },
+};
+
+export async function sniffFileType(file: File, declaredName = ""): Promise<{ type: string; extension: string } | null> {
   const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
   for (const signature of signatures) {
     if (signature.check(head)) return { type: signature.type, extension: signature.extension };
   }
+  const declaredExtension = declaredName.split(".").pop()?.toLowerCase() ?? "";
+  if (zipSignature(head)) return zipOfficeTypes[declaredExtension] ?? { type: "application/zip", extension: "zip" };
+  if (oleSignature(head)) return oleOfficeTypes[declaredExtension] ?? null;
   return null;
 }

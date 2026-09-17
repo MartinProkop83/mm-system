@@ -988,6 +988,34 @@ async function createRuntimeSchema() {
         created_at INTEGER NOT NULL
       )
     `),
+    // Samostatná knihovna dokumentů (sekce "Dokumenty") — vlastní strom složek, nevázaný na
+    // motor, auto ani závod. `parent_id`/`folder_id` prázdný string = kořen (ne NULL — SQLite
+    // by NULL v UNIQUE indexu považoval za pořád jiný, takže by se dvě složky "Homologace"
+    // v kořeni nesrazily). `depth` se počítá jednou při vytvoření (kořenová složka = 1),
+    // takže kontrola na maximální zanoření je jen porovnání čísla, ne procházení stromu.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS document_folders (
+        id TEXT PRIMARY KEY NOT NULL,
+        parent_id TEXT NOT NULL DEFAULT '',
+        name TEXT NOT NULL,
+        depth INTEGER NOT NULL,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS document_files (
+        id TEXT PRIMARY KEY NOT NULL,
+        folder_id TEXT NOT NULL DEFAULT '',
+        file_name TEXT NOT NULL,
+        object_key TEXT NOT NULL,
+        content_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        created_by TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS audit_logs (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1397,6 +1425,11 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS service_order_waiting_parts_engine_idx ON service_order_waiting_parts (order_engine_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS service_order_photos_order_idx ON service_order_photos (order_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS races_start_date_idx ON races (start_date)"),
+    // Dvě složky stejného jména vedle sebe ve stejném rodiči nedovolit (case-insensitive,
+    // stejný vzor jako u service_catalog_name_unique_idx); v jiném rodiči stejné jméno vadit nemá.
+    d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS document_folders_parent_name_idx ON document_folders (parent_id, LOWER(name))"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS document_folders_parent_idx ON document_folders (parent_id, LOWER(name))"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS document_files_folder_idx ON document_files (folder_id, LOWER(file_name))"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sales_date_idx ON sales (sale_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sale_items_sale_idx ON sale_items (sale_id)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS sale_items_resource_idx ON sale_items (item_type, resource_id)"),

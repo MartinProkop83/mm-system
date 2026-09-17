@@ -4339,6 +4339,29 @@ table.latest-carb-table tr.clickable-row:hover td { background: var(--wrc-red-gl
 .engine-documents-note-text { color: var(--wrc-ink-soft) !important; font-style: italic; }
 .engine-documents-actions { display: flex; flex: none; gap: var(--wrc-space-6); }
 
+/* Knihovna dokumentů — samostatný strom složek/souborů (viz document-library.tsx). */
+.document-breadcrumb { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: var(--wrc-space-12); font-size: var(--wrc-text-base); }
+.document-breadcrumb button { padding: var(--wrc-space-2) var(--wrc-space-4); color: var(--wrc-ink-soft); border: 0; border-radius: var(--wrc-radius-sm); background: transparent; cursor: pointer; font: inherit; font-weight: var(--wrc-weight-semibold); }
+.document-breadcrumb button:hover:not(:disabled) { color: var(--wrc-red); background: var(--wrc-red-dim); }
+.document-breadcrumb button:disabled { color: var(--wrc-ink); cursor: default; }
+.document-breadcrumb span { color: var(--wrc-ink-faint); }
+.document-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--wrc-space-8); margin-bottom: var(--wrc-space-16); }
+.document-sort-toggle { display: flex; gap: var(--wrc-space-2); margin-left: auto; padding: var(--wrc-space-2); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface-2); }
+.document-sort-toggle button { padding: var(--wrc-space-4) var(--wrc-space-12); color: var(--wrc-ink-soft); border: 0; border-radius: var(--wrc-radius-sm); background: transparent; cursor: pointer; font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); white-space: nowrap; }
+.document-sort-toggle button.active { color: var(--wrc-red); background: var(--wrc-red-dim); }
+.document-empty-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--wrc-space-12); padding: var(--wrc-space-16); border: 1px dashed var(--wrc-line-hi); border-radius: var(--wrc-radius-md); background: var(--wrc-surface-2); color: var(--wrc-ink-soft); }
+.document-listing { display: flex; flex-direction: column; gap: var(--wrc-space-20); }
+.document-group h3 { margin: 0 0 var(--wrc-space-8); color: var(--wrc-ink-faint); font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-black); text-transform: uppercase; letter-spacing: var(--wrc-tracking-wide); }
+.document-rows { display: flex; flex-direction: column; gap: var(--wrc-space-6); }
+.document-row { display: flex; align-items: center; gap: var(--wrc-space-12); padding: var(--wrc-space-8) var(--wrc-space-12); border: 1px solid var(--wrc-line); border-radius: var(--wrc-radius-md); background: var(--wrc-surface); }
+.document-row-open { display: flex; flex: 1; align-items: baseline; gap: var(--wrc-space-8); min-width: 0; padding: 0; border: 0; background: transparent; cursor: pointer; text-align: left; text-decoration: none; }
+.document-row-open strong { overflow: hidden; color: var(--wrc-ink); font-size: var(--wrc-text-base); font-weight: var(--wrc-weight-bold); text-overflow: ellipsis; white-space: nowrap; }
+.document-row-open small { flex: none; color: var(--wrc-ink-faint); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-regular); }
+.document-row:hover { border-color: var(--wrc-line-hi); background: var(--wrc-surface-2); }
+.document-row-delete { flex: none; min-height: 34px; padding: 0 var(--wrc-space-12); color: var(--wrc-red); border: 1px solid var(--wrc-red); border-radius: var(--wrc-radius-xs); background: transparent; cursor: pointer; font-size: var(--wrc-text-xs); font-weight: var(--wrc-weight-bold); opacity: 0; transition: opacity .12s ease, color .12s ease, background .12s ease; }
+.document-row:hover .document-row-delete, .document-row-delete:focus-visible { opacity: 1; }
+.document-row-delete:hover, .document-row-delete:focus-visible { color: #fff; background: var(--wrc-red); }
+
 .settings-checkbox-row { display: flex; align-items: center; gap: var(--wrc-space-8); margin-top: var(--wrc-space-8); }
 .settings-checkbox-row input { width: 18px; height: 18px; }
 .settings-checkbox-row span { color: var(--wrc-ink); font-size: var(--wrc-text-sm); font-weight: var(--wrc-weight-semibold); }

@@ -703,6 +703,31 @@ export const travelAttachments = sqliteTable("travel_attachments", {
   index("travel_attachments_entity_idx").on(table.entityType, table.entityId, table.createdAt),
 ]);
 
+export const documentFolders = sqliteTable("document_folders", {
+  id: text("id").primaryKey(),
+  parentId: text("parent_id").notNull().default(""),
+  name: text("name").notNull(),
+  depth: integer("depth").notNull(),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  uniqueIndex("document_folders_parent_name_idx").on(table.parentId, table.name),
+]);
+
+export const documentFiles = sqliteTable("document_files", {
+  id: text("id").primaryKey(),
+  folderId: text("folder_id").notNull().default(""),
+  fileName: text("file_name").notNull(),
+  objectKey: text("object_key").notNull(),
+  contentType: text("content_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull().default(0),
+  createdBy: text("created_by").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+}, (table) => [
+  index("document_files_folder_idx").on(table.folderId, table.fileName),
+]);
+
 export const sales = sqliteTable("sales", {
   id: text("id").primaryKey(),
   raceId: text("race_id"),

@@ -87,7 +87,7 @@ export function RaceChecklistPanel({ race, locale, role, vehicles }: { race: Rac
     {attaching && (
       <div className="race-checklist-attach no-print">
         {templates.length === 0
-          ? <p className="form-hint">{locale === "cs" ? "V Dokumentech zatím nemáš žádnou šablonu checklistu. Vytvoř ji tam a vrať se sem." : "You don't have any checklist template in Documents yet. Create one there and come back."}</p>
+          ? <p className="form-hint">{locale === "cs" ? "V Nástrojích zatím nemáš žádnou šablonu checklistu. Vytvoř ji tam a vrať se sem." : "You don't have any checklist template in Tools yet. Create one there and come back."}</p>
           : <>
             <label><span>{locale === "cs" ? "Šablona" : "Template"}</span>
               <select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
@@ -114,7 +114,7 @@ export function RaceChecklistPanel({ race, locale, role, vehicles }: { race: Rac
       <EmptyState
         icon="☑"
         title={locale === "cs" ? "Zatím žádný checklist" : "No checklist yet"}
-        description={locale === "cs" ? "Přiřaď šablonu z Dokumentů a odškrtávej vybavení před odjezdem." : "Attach a template from Documents and tick off equipment before departure."}
+        description={locale === "cs" ? "Přiřaď šablonu checklistu z Nástrojů a odškrtávej vybavení před odjezdem." : "Attach a checklist template from Tools and tick off equipment before departure."}
       />
     )}
     {!loading && !error && checklists.length > 0 && <div className="race-checklist-list">
