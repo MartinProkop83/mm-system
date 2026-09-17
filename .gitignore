@@ -53,3 +53,7 @@ next-env.d.ts
 **/* 2.mjs
 .claude/
 design-reference/
+
+# Demo-data seeding manifests/cleanup scripts — real record IDs, never commit.
+demo-manifest.json
+demo-cleanup.sql

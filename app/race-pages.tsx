@@ -18,7 +18,7 @@ import type { CircuitRecord } from "./circuits-page";
 import { formatCount, pluralForm, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
 import { useModalA11y } from "./use-modal-a11y";
-import { raceCalendarColorAccent } from "./race-calendar-colors";
+import { raceCalendarColorAccent, raceCalendarColorDefinition } from "./race-calendar-colors";
 
 const DRIVER_FORMS: PluralForms = { cs: ["pilot", "piloti", "pilotů"], en: ["driver", "drivers"] };
 const RACE_FORMS: PluralForms = { cs: ["závod", "závody", "závodů"], en: ["race", "races"] };
@@ -455,7 +455,17 @@ function RaceDetail({ race, catalog, engines, locale, role, previousRace, onBack
       // Column width is driven by the widest code actually assigned at that position across
       // the whole category, so real codes never truncate; header + row chips share the exact
       // same px number, which is what keeps them aligned regardless of content length.
-      const engineColumnWidths = engineHeaderLabels.map((text, index) => equipmentColumnWidth(text, uniqueStrings(entries.map((entry) => [entry.engine1Code, entry.engine2Code, entry.engine3Code][index]))));
+      // Measured against the full displayed label (code + configuration + upgrade code), not
+      // just the bare code — a MINI engine's "· MINI" suffix or an upgrade tag would otherwise
+      // overflow a column sized only for the shorter raw code.
+      const engineColumnWidths = engineHeaderLabels.map((text, index) => equipmentColumnWidth(text, uniqueStrings(entries.map((entry) => {
+        const entryCode = [entry.engine1Code, entry.engine2Code, entry.engine3Code][index];
+        if (!entryCode) return "";
+        const entryId = [entry.engine1Id, entry.engine2Id, entry.engine3Id][index];
+        const entryConfiguration = [entry.engine1Configuration, entry.engine2Configuration, entry.engine3Configuration][index];
+        const entryUpgradeCode = engines.find((engine) => engine.id === entryId)?.upgradeCode ?? "";
+        return equipmentDisplay(entryCode, entryConfiguration, entryUpgradeCode);
+      }))));
       const carburetorColumnWidths = carburetorHeaderLabels.map((text, index) => equipmentColumnWidth(text, uniqueStrings(entries.map((entry) => [entry.carburetor1Code, entry.carburetor2Code, entry.carburetor3Code][index]))));
       return <article className={`dash-panel race-category category-${category.toLowerCase().replaceAll(" ", "-")}`} key={category}>
         <header><div className="category-heading"><span>{l.category}</span><h2>{category}</h2></div><CategoryLoadoutStats locale={locale} pilotCount={entries.length} engineCount={assignedEngineIds.length} extraEngineCount={extraEngineIds.length} carburetorCount={assignedCarburetorIds.length} extraCarburetorCount={extraCarburetorIds.length} /><div className="category-print-context print-only"><div><strong>{race.name}</strong><small>{formatDateRange(race.startDate, race.endDate, locale)} · {race.track}</small></div><img src="/machac-motors-logo.jpg" alt="Macháč Motors" /></div><div className="category-actions no-print">{canManage && <><button className="secondary-compact" type="button" onClick={() => setExtraForm(category)}>＋ {l.addExtra}</button><button className="primary-button" type="button" onClick={() => setEntryForm({ category, entry: null })}>＋ {l.addDriver}</button></>}</div></header>
@@ -977,8 +987,12 @@ function weatherIcon(code: number) {
 
 function EquipmentValue({ code, configuration = "", upgradeCode = "", labelColor = "", columnWidth }: { code: string; configuration?: string; upgradeCode?: string; labelColor?: string; columnWidth?: number }) {
   const widthStyle = equipmentColumnStyle(columnWidth);
-  const accent = raceCalendarColorAccent(labelColor);
-  return <span className={code ? "equipment-code" : "equipment-empty"} style={code && accent ? { borderLeft: `7px solid ${accent}`, ...widthStyle } : widthStyle}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
+  // The background/text pair from the color definition is designed to read together regardless
+  // of the app's own light/dark mode — unlike an accent-only border, it doesn't depend on what
+  // surface color happens to sit behind it.
+  const color = code && labelColor ? raceCalendarColorDefinition(labelColor) : null;
+  const colorStyle = color ? { background: color.background, color: color.text, border: `1px solid ${color.accent}` } : undefined;
+  return <span className={code ? "equipment-code" : "equipment-empty"} style={{ ...widthStyle, ...colorStyle }}>{code ? equipmentDisplay(code, configuration, upgradeCode) : "—"}</span>;
 }
 
 function ExtraEquipmentRow({ extra, engine, locale, canManage, onRemove }: { extra: RaceExtra; engine?: EngineChoice; locale: Locale; canManage: boolean; onRemove: () => Promise<void> }) {
@@ -1039,6 +1053,10 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
   const selectedConfiguration = type === "engine" ? (selectedChoice?.currentConfiguration ?? (selected === value ? configuration : "")) : "";
   const selectedUpgradeCode = type === "engine" ? (selectedChoice?.upgradeCode ?? (selected === value ? upgradeCode : "")) : "";
   const selectedLabelColor = type === "engine" ? (selectedChoice?.labelColor ?? (selected === value ? labelColor : "")) : "";
+  // `selectedLabelColor` is a color *id* (e.g. "cayenne"), not a CSS color — it has to go through
+  // the definition lookup before it can be used in a style, the same as everywhere else engine
+  // colors get rendered.
+  const selectedColor = selectedCode && selectedLabelColor ? raceCalendarColorDefinition(selectedLabelColor) : null;
 
   // The menu is a viewport-fixed overlay (positioned from the trigger's own rect) rather than
   // absolutely positioned inside the row — a plain absolute child gets visually buried under
@@ -1079,7 +1097,7 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
   const addLabel = `${type === "engine" ? (locale === "cs" ? "Přidat motor" : "Add engine") : (locale === "cs" ? "Přidat karburátor" : "Add carburetor")} · ${entry.driverName}`;
   const widthStyle = isEmptyAddSlot ? undefined : equipmentColumnStyle(columnWidth);
   return <div ref={containerRef} className={`equipment-picker${open ? " is-open" : ""}${isEmptyAddSlot ? " equipment-picker-add" : ""}`} style={widthStyle} onBlur={(event) => { if (!containerRef.current?.contains(event.relatedTarget as Node | null)) setOpen(false); }}>
-    <button ref={triggerRef} className="equipment-picker-trigger no-print" type="button" aria-label={isEmptyAddSlot ? addLabel : label} aria-haspopup="listbox" aria-expanded={open} disabled={saving} style={selectedCode && selectedLabelColor ? { borderColor: selectedLabelColor, borderLeft: `9px solid ${selectedLabelColor}`, backgroundColor: `${selectedLabelColor}38`, boxShadow: `inset 0 0 0 1px ${selectedLabelColor}55` } : undefined} onClick={() => (open ? setOpen(false) : openMenu())}>{isEmptyAddSlot ? <span aria-hidden="true">＋</span> : <><span>{selectedCode || (locale === "cs" ? "— Vybrat" : "— Select")}</span><b>⌄</b></>}</button>
+    <button ref={triggerRef} className="equipment-picker-trigger no-print" type="button" aria-label={isEmptyAddSlot ? addLabel : label} aria-haspopup="listbox" aria-expanded={open} disabled={saving} style={selectedColor ? { background: selectedColor.background, color: selectedColor.text, borderColor: selectedColor.accent } : undefined} onClick={() => (open ? setOpen(false) : openMenu())}>{isEmptyAddSlot ? <span aria-hidden="true">＋</span> : <><span>{selectedCode || (locale === "cs" ? "— Vybrat" : "— Select")}</span><b style={selectedColor ? { color: "inherit" } : undefined}>⌄</b></>}</button>
     {open && <div className="equipment-picker-menu no-print" style={menuStyle} role="listbox" aria-label={label}>
       <button type="button" className={!selected ? "selected" : ""} role="option" aria-selected={!selected} onClick={() => { void change(""); }}><strong>—</strong><span>{locale === "cs" ? "Bez přiřazení" : "Unassigned"}</span></button>
       {choices.map((choice) => {
@@ -1091,7 +1109,7 @@ function InlineEquipmentPicker({ type, position, entry, value, code, configurati
       })}
     </div>}
     {saving && <small className="no-print">{locale === "cs" ? "Ukládám…" : "Saving…"}</small>}
-    {!isEmptyAddSlot && <span className={`print-only ${selectedCode ? "equipment-code" : "equipment-empty"}`} style={selectedCode && selectedLabelColor ? { borderLeft: `7px solid ${selectedLabelColor}` } : undefined}>{selectedCode ? equipmentDisplay(selectedCode, selectedConfiguration, selectedUpgradeCode) : "—"}</span>}
+    {!isEmptyAddSlot && <span className={`print-only ${selectedCode ? "equipment-code" : "equipment-empty"}`} style={selectedColor ? { background: selectedColor.background, color: selectedColor.text, border: `1px solid ${selectedColor.accent}` } : undefined}>{selectedCode ? equipmentDisplay(selectedCode, selectedConfiguration, selectedUpgradeCode) : "—"}</span>}
   </div>;
 }
 
