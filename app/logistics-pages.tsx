@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { countryFlag } from "./countries";
 import { formatCount, type PluralForms } from "./pluralize";
 import { EmptyState, LoadingState } from "./empty-state";
@@ -45,12 +45,36 @@ export type AccommodationRecord = TravelBase & {
   paymentStatus: "unpaid" | "partial" | "paid";
 };
 
+/** Parkování na letišti patří k letence, ne jako vlastní sekce. Výjimečně jich může být víc
+ *  (dvě auta) — `vehicleOrDriver` pak odliší, které komu patří; u jediného bloku klidně prázdné. */
+export type FlightParkingBlock = {
+  id?: string; vehicleOrDriver: string; airport: string; from: string; to: string;
+  priceCzkCents: number; priceEurCents: number; reservationCode: string; note: string;
+};
+
+/** Rozpracovaný blok ve formuláři — ceny se editují jako text (prázdné = nevyplněno), ne
+ *  jako centy, stejně jako u ostatních peněžních polí ve formulářích v projektu. */
+type ParkingBlockDraft = {
+  key: string; id?: string; vehicleOrDriver: string; airport: string; from: string; to: string;
+  priceCzk: string; priceEur: string; reservationCode: string; note: string;
+};
+function draftFromParkingBlock(block: FlightParkingBlock): ParkingBlockDraft {
+  return {
+    key: block.id ?? crypto.randomUUID(), id: block.id, vehicleOrDriver: block.vehicleOrDriver,
+    airport: block.airport, from: block.from, to: block.to,
+    priceCzk: block.priceCzkCents ? (block.priceCzkCents / 100).toFixed(2) : "",
+    priceEur: block.priceEurCents ? (block.priceEurCents / 100).toFixed(2) : "",
+    reservationCode: block.reservationCode, note: block.note,
+  };
+}
+
 export type FlightRecord = TravelBase & {
   direction: "outbound" | "return" | "roundtrip" | "other"; departureAirport: string; arrivalAirport: string;
   departureAt: string; arrivalAt: string; airline: string; flightNumber: string; passengersNote: string;
   returnDepartureAirport: string; returnArrivalAirport: string; returnDepartureAt: string; returnArrivalAt: string;
   returnAirline: string; returnFlightNumber: string; returnReservationCode: string;
   passengers: TravelPassenger[]; baggage: string;
+  parkingBlocks: FlightParkingBlock[];
 };
 
 export type RentalRecord = TravelBase & {
@@ -131,6 +155,35 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
   const passengerOptions = useMemo(() => mergePassengers(travelers, flight?.passengers ?? []), [travelers, flight?.passengers]);
   const [selectedPassengers, setSelectedPassengers] = useState<string[]>(flight?.passengers.map((item) => item.id) ?? []);
   const [flightDirection, setFlightDirection] = useState<FlightRecord["direction"]>(flight?.direction ?? "outbound");
+  const formRef = useRef<HTMLFormElement>(null);
+  const [parkingBlocks, setParkingBlocks] = useState<ParkingBlockDraft[]>(() => (flight?.parkingBlocks ?? []).map(draftFromParkingBlock));
+  const [parkingEnabled, setParkingEnabled] = useState(parkingBlocks.length > 0);
+
+  // Zaškrtnutím se založí první blok, předvyplněný z toho, co je v letence právě zadané —
+  // letiště a začátek z cesty tam, konec z příletu zpět (jen u tam-a-zpět, jednosměrná cesta
+  // ho nechá prázdné). Když už nějaký blok existuje (znovu-zaškrtnutí ve stejném formuláři),
+  // nic se nepředvyplňuje znovu, ať se nepřepíše to, co už tam superadmin sám napsal.
+  function toggleParking(checked: boolean) {
+    setParkingEnabled(checked);
+    if (!checked || parkingBlocks.length > 0 || !formRef.current) return;
+    const fieldValue = (name: string) => (formRef.current!.elements.namedItem(name) as HTMLInputElement | null)?.value ?? "";
+    setParkingBlocks([{
+      key: crypto.randomUUID(), vehicleOrDriver: "",
+      airport: fieldValue("departureAirport"), from: fieldValue("departureAt"),
+      to: flightDirection === "roundtrip" ? fieldValue("returnArrivalAt") : "",
+      priceCzk: "", priceEur: "", reservationCode: "", note: "",
+    }]);
+  }
+
+  function addParkingBlock() {
+    setParkingBlocks((current) => [...current, { key: crypto.randomUUID(), vehicleOrDriver: "", airport: "", from: "", to: "", priceCzk: "", priceEur: "", reservationCode: "", note: "" }]);
+  }
+  function removeParkingBlock(key: string) {
+    setParkingBlocks((current) => current.filter((block) => block.key !== key));
+  }
+  function updateParkingBlock(key: string, patch: Partial<ParkingBlockDraft>) {
+    setParkingBlocks((current) => current.map((block) => block.key === key ? { ...block, ...patch } : block));
+  }
   const [selectedRaceId, setSelectedRaceId] = useState(lockedRaceId ?? record?.raceId ?? "");
   const [accommodationName, setAccommodationName] = useState(accommodation?.name ?? "");
   const [accommodationAddress, setAccommodationAddress] = useState(accommodation?.address ?? "");
@@ -175,10 +228,11 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
     event.preventDefault(); setSaving(true); setError("");
     const payload = Object.fromEntries(new FormData(event.currentTarget).entries());
     const passengers = passengerOptions.filter((item) => selectedPassengers.includes(item.id));
+    const parkingBlocksPayload = parkingEnabled ? parkingBlocks.map((block) => ({ vehicleOrDriver: block.vehicleOrDriver, airport: block.airport, from: block.from, to: block.to, priceCzk: block.priceCzk, priceEur: block.priceEur, reservationCode: block.reservationCode, note: block.note })) : [];
     try {
       const raceId = lockedRaceId ?? selectedRaceId;
       const calculatedTravel = kind === "accommodation" && (trackDistanceKm === null || trackDriveMinutes === null) ? await locateAccommodation(true) : null;
-      const response = await fetch("/api/logistics", { method: recordId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: kind, id: recordId || undefined, raceId, passengers, trackDistanceKm: calculatedTravel?.distanceKm ?? trackDistanceKm ?? "", trackDriveMinutes: calculatedTravel?.driveMinutes ?? trackDriveMinutes ?? "" }) });
+      const response = await fetch("/api/logistics", { method: recordId ? "PUT" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, type: kind, id: recordId || undefined, raceId, passengers, parkingBlocks: parkingBlocksPayload, trackDistanceKm: calculatedTravel?.distanceKm ?? trackDistanceKm ?? "", trackDriveMinutes: calculatedTravel?.driveMinutes ?? trackDriveMinutes ?? "" }) });
       const result = (await response.json()) as { id?: string; error?: string };
       if (!response.ok || !result.id) throw new Error(result.error || "Save failed");
       setRecordId(result.id);
@@ -199,7 +253,7 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
     } catch (saveError) { setError(localizeLogisticsError(saveError instanceof Error ? saveError.message : "Save failed", locale)); setSaving(false); }
   }
 
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal logistics-modal" role="dialog" aria-modal="true" aria-labelledby="logistics-form-title" tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MM TRAVEL</span><h2 id="logistics-form-title">{recordId ? (locale === "cs" ? "Upravit" : "Edit") : (locale === "cs" ? "Nový záznam" : "New record")} · {kindTitle(kind, locale).toLocaleLowerCase(locale === "cs" ? "cs" : "en")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div><form onSubmit={submit}><div className="form-grid">
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={dialogRef as React.RefObject<HTMLElement>} className="modal logistics-modal" role="dialog" aria-modal="true" aria-labelledby="logistics-form-title" tabIndex={-1}><div className="modal-header"><div><span className="eyebrow">MM TRAVEL</span><h2 id="logistics-form-title">{recordId ? (locale === "cs" ? "Upravit" : "Edit") : (locale === "cs" ? "Nový záznam" : "New record")} · {kindTitle(kind, locale).toLocaleLowerCase(locale === "cs" ? "cs" : "en")}</h2></div><button className="close-button" type="button" onClick={onClose} aria-label={locale === "cs" ? "Zavřít" : "Close"}>×</button></div><form ref={formRef} onSubmit={submit}><div className="form-grid">
     {lockedRaceId ? <div className="form-readonly full-field"><span>{locale === "cs" ? "Závod a termín" : "Race and dates"}</span><strong>{raceFormLabel(races.find((race) => race.id === lockedRaceId), locale)}</strong></div> : <label className="full-field"><span>{locale === "cs" ? "Závod a termín" : "Race and dates"} *</span><select name="raceId" required autoFocus value={selectedRaceId} onChange={(event) => { setSelectedRaceId(event.target.value); if (kind === "accommodation") invalidateAccommodationRoute(); }}><option value="">{locale === "cs" ? "Vyber závod…" : "Select race…"}</option>{races.map((race) => <option key={race.id} value={race.id}>{raceFormLabel(race, locale)}</option>)}</select></label>}
     {kind === "accommodation" ? <>
       <label><span>{locale === "cs" ? "Název ubytování" : "Accommodation name"} *</span><input name="name" required value={accommodationName} onChange={(event) => { setAccommodationName(event.target.value); invalidateAccommodationRoute(); }} /></label><label><span>{locale === "cs" ? "Místo / adresa" : "Location / address"} *</span><input name="address" required value={accommodationAddress} onChange={(event) => { setAccommodationAddress(event.target.value); invalidateAccommodationRoute(); }} /></label>
@@ -224,6 +278,20 @@ function LogisticsForm({ kind, locale, races, travelers, record, lockedRaceId, o
       </div></fieldset>}
       <fieldset className="travel-passenger-picker full-field"><legend>{locale === "cs" ? "Kdo letí" : "Passengers"}</legend><div>{passengerOptions.map((passenger) => <label key={passenger.id}><input type="checkbox" checked={selectedPassengers.includes(passenger.id)} onChange={(event) => setSelectedPassengers((current) => event.target.checked ? [...current, passenger.id] : current.filter((id) => id !== passenger.id))} /><span>{passenger.name}</span><small>{passenger.kind === "mechanic" ? (locale === "cs" ? "Mechanik" : "Mechanic") : (locale === "cs" ? "Člen týmu" : "Team member")}</small></label>)}</div>{!passengerOptions.length && <p>{locale === "cs" ? "Nejdřív přidej mechaniky nebo uživatele týmu." : "Add mechanics or team users first."}</p>}</fieldset>
       <label><span>{locale === "cs" ? "Další cestující / poznámka" : "Other passengers / note"}</span><input name="passengersNote" defaultValue={flight?.passengersNote ?? ""} placeholder={locale === "cs" ? "Např. Piero letí samostatně" : "E.g. Piero travels separately"} /></label><label><span>{locale === "cs" ? "Zavazadla" : "Baggage"}</span><input name="baggage" defaultValue={flight?.baggage ?? ""} /></label>
+      <label className="settings-check full-field"><input type="checkbox" checked={parkingEnabled} onChange={(event) => toggleParking(event.target.checked)} /><span>{locale === "cs" ? "Parkování na letišti" : "Airport parking"}</span></label>
+      {parkingEnabled && <div className="full-field travel-parking-blocks">
+        {parkingBlocks.map((block, index) => <fieldset key={block.key} className="travel-flight-leg full-field"><legend>{locale === "cs" ? "Parkování" : "Parking"}{parkingBlocks.length > 1 ? ` #${index + 1}` : ""}</legend>{index > 0 && <button type="button" className="close-button travel-parking-remove" aria-label={locale === "cs" ? "Odebrat toto parkování" : "Remove this parking"} onClick={() => removeParkingBlock(block.key)}>×</button>}<div className="travel-flight-leg-grid">
+          <label className="full-field"><span>{locale === "cs" ? "Auto nebo řidič" : "Vehicle or driver"}</span><input value={block.vehicleOrDriver} onChange={(event) => updateParkingBlock(block.key, { vehicleOrDriver: event.target.value })} placeholder={locale === "cs" ? "Např. dodávka / Koudelka František" : "E.g. van / John Smith"} /></label>
+          <label><span>{locale === "cs" ? "Letiště" : "Airport"} *</span><input required value={block.airport} onChange={(event) => updateParkingBlock(block.key, { airport: event.target.value })} placeholder="PRG" /></label>
+          <label><span>{locale === "cs" ? "Parkování od" : "Parking from"} *</span><input type="datetime-local" required value={block.from} onChange={(event) => updateParkingBlock(block.key, { from: event.target.value })} /></label>
+          <label><span>{locale === "cs" ? "Parkování do" : "Parking to"}</span><input type="datetime-local" value={block.to} onChange={(event) => updateParkingBlock(block.key, { to: event.target.value })} /></label>
+          <label><span>{locale === "cs" ? "Cena (CZK)" : "Price (CZK)"}</span><input type="number" min="0" step="0.01" value={block.priceCzk} onChange={(event) => updateParkingBlock(block.key, { priceCzk: event.target.value })} /></label>
+          <label><span>{locale === "cs" ? "Cena (EUR)" : "Price (EUR)"}</span><input type="number" min="0" step="0.01" value={block.priceEur} onChange={(event) => updateParkingBlock(block.key, { priceEur: event.target.value })} /></label>
+          <label><span>{locale === "cs" ? "Rezervační kód / číslo místa" : "Booking code / space number"}</span><input value={block.reservationCode} onChange={(event) => updateParkingBlock(block.key, { reservationCode: event.target.value })} /></label>
+          <label className="full-field"><span>{locale === "cs" ? "Poznámka" : "Note"}</span><input value={block.note} onChange={(event) => updateParkingBlock(block.key, { note: event.target.value })} /></label>
+        </div></fieldset>)}
+        <button className="secondary-compact" type="button" onClick={addParkingBlock}>＋ {locale === "cs" ? "Přidat další parkování" : "Add another parking"}</button>
+      </div>}
     </> : <>
       <label><span>{locale === "cs" ? "Společnost / půjčovna" : "Rental company"} *</span><input name="company" required defaultValue={rental?.company ?? ""} /></label><label><span>{locale === "cs" ? "Typ auta" : "Vehicle type"}</span><input name="vehicleType" defaultValue={rental?.vehicleType ?? ""} placeholder={locale === "cs" ? "Dodávka, osobní auto…" : "Van, car…"} /></label>
       <label><span>{locale === "cs" ? "Místo převzetí" : "Pickup place"} *</span><input name="pickupPlace" required defaultValue={rental?.pickupPlace ?? ""} /></label><label><span>{locale === "cs" ? "Kde se auto vrací" : "Return location"} *</span><input name="returnPlace" required defaultValue={rental?.returnPlace ?? ""} /></label>
@@ -313,7 +381,7 @@ function recordSummary(kind: LogisticsKind, record: TravelRecord, locale: Locale
 function detailFields(kind: LogisticsKind, record: TravelRecord, locale: Locale): Array<[string, string]> {
   const common: Array<[string, string]> = [[locale === "cs" ? "Rezervační kód" : "Booking code", record.reservationCode], [locale === "cs" ? "Cena" : "Price", money(record.totalCents, record.currency, locale)], [locale === "cs" ? "Stav" : "Status", statusText(record.status, locale)]];
   if (kind === "accommodation") { const item = record as AccommodationRecord; return [[locale === "cs" ? "Název" : "Name", item.name], [locale === "cs" ? "Místo / adresa" : "Location / address", item.address], [locale === "cs" ? "Cesta na trať" : "Trip to circuit", formatAccommodationRoute(item, locale)], ["Check-in", dateOnly(item.checkInDate, locale)], ["Check-out", dateOnly(item.checkOutDate, locale)], [locale === "cs" ? "Pokoje / hosté" : "Rooms / guests", `${item.roomCount} / ${item.guestCount}`], [locale === "cs" ? "Platba" : "Payment", paymentLabel(item.paymentStatus, locale)], ...common]; }
-  if (kind === "flight") { const item = record as FlightRecord; const mainIsReturn = item.direction === "return"; const mainCs = mainIsReturn ? "Cesta zpět" : "Cesta tam"; const mainEn = mainIsReturn ? "Return" : "Outbound"; const fields: Array<[string, string]> = [[locale === "cs" ? "Typ cesty" : "Trip type", directionLabel(item.direction, locale)], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "odlet" : "departure"}`, `${item.departureAirport} · ${dateTime(item.departureAt, locale)}`], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "přílet" : "arrival"}`, `${item.arrivalAirport} · ${dateTime(item.arrivalAt, locale)}`], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "aerolinka / let" : "airline / flight"}`, [item.airline, item.flightNumber].filter(Boolean).join(" · ")], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "rezervační kód" : "booking code"}`, item.reservationCode]]; if (item.direction === "roundtrip") fields.push([locale === "cs" ? "Cesta zpět – odlet" : "Return – departure", `${item.returnDepartureAirport} · ${dateTime(item.returnDepartureAt, locale)}`], [locale === "cs" ? "Cesta zpět – přílet" : "Return – arrival", `${item.returnArrivalAirport} · ${dateTime(item.returnArrivalAt, locale)}`], [locale === "cs" ? "Cesta zpět – aerolinka / let" : "Return – airline / flight", [item.returnAirline, item.returnFlightNumber].filter(Boolean).join(" · ")], [locale === "cs" ? "Cesta zpět – rezervační kód" : "Return – booking code", item.returnReservationCode]); return [...fields, [locale === "cs" ? "Zavazadla" : "Baggage", item.baggage], ...common.slice(1)]; }
+  if (kind === "flight") { const item = record as FlightRecord; const mainIsReturn = item.direction === "return"; const mainCs = mainIsReturn ? "Cesta zpět" : "Cesta tam"; const mainEn = mainIsReturn ? "Return" : "Outbound"; const fields: Array<[string, string]> = [[locale === "cs" ? "Typ cesty" : "Trip type", directionLabel(item.direction, locale)], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "odlet" : "departure"}`, `${item.departureAirport} · ${dateTime(item.departureAt, locale)}`], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "přílet" : "arrival"}`, `${item.arrivalAirport} · ${dateTime(item.arrivalAt, locale)}`], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "aerolinka / let" : "airline / flight"}`, [item.airline, item.flightNumber].filter(Boolean).join(" · ")], [`${locale === "cs" ? mainCs : mainEn} – ${locale === "cs" ? "rezervační kód" : "booking code"}`, item.reservationCode]]; if (item.direction === "roundtrip") fields.push([locale === "cs" ? "Cesta zpět – odlet" : "Return – departure", `${item.returnDepartureAirport} · ${dateTime(item.returnDepartureAt, locale)}`], [locale === "cs" ? "Cesta zpět – přílet" : "Return – arrival", `${item.returnArrivalAirport} · ${dateTime(item.returnArrivalAt, locale)}`], [locale === "cs" ? "Cesta zpět – aerolinka / let" : "Return – airline / flight", [item.returnAirline, item.returnFlightNumber].filter(Boolean).join(" · ")], [locale === "cs" ? "Cesta zpět – rezervační kód" : "Return – booking code", item.returnReservationCode]); item.parkingBlocks.forEach((block, index) => { const label = item.parkingBlocks.length > 1 ? `${locale === "cs" ? "Parkování" : "Parking"} #${index + 1}${block.vehicleOrDriver ? ` (${block.vehicleOrDriver})` : ""}` : (locale === "cs" ? "Parkování" : "Parking"); fields.push([`${label} – ${locale === "cs" ? "letiště" : "airport"}`, block.airport], [`${label} – ${locale === "cs" ? "od" : "from"}`, dateTime(block.from, locale)], [`${label} – ${locale === "cs" ? "do" : "to"}`, block.to ? dateTime(block.to, locale) : "—"], [`${label} – ${locale === "cs" ? "cena" : "price"}`, parkingPriceLabel(block, locale)], [`${label} – ${locale === "cs" ? "kód / místo" : "code / space"}`, block.reservationCode], [`${label} – ${locale === "cs" ? "poznámka" : "note"}`, block.note]); }); return [...fields, [locale === "cs" ? "Zavazadla" : "Baggage", item.baggage], ...common.slice(1)]; }
   const item = record as RentalRecord; return [[locale === "cs" ? "Společnost" : "Company", item.company], [locale === "cs" ? "Vozidlo / SPZ" : "Vehicle / plate", [item.vehicleType, item.licensePlate].filter(Boolean).join(" · ")], [locale === "cs" ? "Převzetí" : "Pickup", `${item.pickupPlace} · ${dateTime(item.pickupAt, locale)}`], [locale === "cs" ? "Vrácení" : "Return", `${item.returnPlace} · ${dateTime(item.returnAt, locale)}`], [locale === "cs" ? "Hlavní řidič" : "Main driver", item.driverName], ...common];
 }
 
@@ -327,6 +395,7 @@ function dateRange(start: string, end: string, locale: Locale) { return `${dateO
 function dateOnly(value: string, locale: Locale) { if (!value) return "—"; const [year, month, day] = value.split("-").map(Number); return new Intl.DateTimeFormat(locale === "cs" ? "cs-CZ" : "en-GB", { day: "numeric", month: "short", year: "numeric" }).format(new Date(year, month - 1, day)); }
 function dateTime(value: string, locale: Locale) { if (!value) return "—"; const [date, time] = value.split("T"); return `${dateOnly(date, locale)} · ${time || "—"}`; }
 function money(cents: number, currency: string, locale: Locale) { return new Intl.NumberFormat(locale === "cs" ? "cs-CZ" : "en-GB", { style: "currency", currency }).format(cents / 100); }
+function parkingPriceLabel(block: FlightParkingBlock, locale: Locale) { const parts = [block.priceCzkCents ? money(block.priceCzkCents, "CZK", locale) : "", block.priceEurCents ? money(block.priceEurCents, "EUR", locale) : ""].filter(Boolean); return parts.join(" / ") || "—"; }
 function paymentLabel(value: AccommodationRecord["paymentStatus"], locale: Locale) { if (value === "paid") return locale === "cs" ? "Zaplaceno" : "Paid"; if (value === "partial") return locale === "cs" ? "Částečně zaplaceno" : "Partially paid"; return locale === "cs" ? "Nezaplaceno" : "Unpaid"; }
 function directionLabel(value: FlightRecord["direction"], locale: Locale) { if (value === "outbound") return locale === "cs" ? "Let tam" : "Outbound"; if (value === "return") return locale === "cs" ? "Let zpět" : "Return"; if (value === "roundtrip") return locale === "cs" ? "Tam i zpět" : "Round trip"; return locale === "cs" ? "Další let" : "Other flight"; }
 function passengerNames(flight: FlightRecord, locale: Locale) { return flight.passengers.length ? flight.passengers.map((passenger) => passenger.name).join(", ") : (flight.passengersNote || (locale === "cs" ? "Nikdo není vybrán" : "No one selected")); }
@@ -335,4 +404,7 @@ function formatDecimal(value: number, locale: Locale) { return new Intl.NumberFo
 function formatDriveMinutes(value: number, locale: Locale) { const hours = Math.floor(value / 60); const minutes = Math.round(value % 60); if (!hours) return `${minutes} min`; return minutes ? `${hours} h ${minutes} min` : `${hours} h`; }
 function formatAccommodationRoute(item: AccommodationRecord, locale: Locale) { const parts: string[] = []; if (item.trackDistanceKm !== null) parts.push(`${formatDecimal(item.trackDistanceKm, locale)} km`); if (item.trackDriveMinutes !== null) parts.push(`≈ ${formatDriveMinutes(item.trackDriveMinutes, locale)}`); return parts.join(" · "); }
 function accommodationDirectionsUrl(item: AccommodationRecord) { const origin = item.address.trim(); const destination = (item.trackAddress || item.raceTrack).trim(); if (!origin || !destination) return ""; const url = new URL("https://www.google.com/maps/dir/"); url.search = new URLSearchParams({ api: "1", origin, destination }).toString(); return url.toString(); }
-function localizeLogisticsError(error: string, locale: Locale) { if (locale === "en") return error; const messages: Record<string, string> = { "Race not found": "Vyber platný závod.", "Accommodation, location, check-in and check-out are required": "Vyplň ubytování, místo, příjezd a odjezd.", "Check-out must be after check-in": "Check-out musí být po check-inu.", "Accommodation links must use HTTP or HTTPS": "Odkazy na ubytování musí být platné webové adresy.", "Race and accommodation address are required": "Nejdřív vyber závod a vyplň přesnou adresu ubytování.", "Accommodation location could not be determined": "Adresu ubytování se nepodařilo najít. Zkontroluj ji nebo vzdálenost doplň ručně.", "Circuit location could not be determined": "Polohu tratě se nepodařilo určit. Zkontroluj adresu tratě.", "Route to circuit could not be calculated": "Cestu z ubytování na trať se nepodařilo spočítat. Hodnoty můžeš doplnit ručně.", "Route calculation failed": "Výpočet cesty se nepodařil. Zkus to znovu nebo hodnoty doplň ručně.", "Flight route and times are required": "Vyplň trasu a časy letu.", "Arrival must be after departure": "Přílet musí být po odletu.", "Return flight route and times are required": "Vyplň trasu a časy zpátečního letu.", "Return flight must be after outbound arrival": "Zpáteční let musí začít po příletu cesty tam a přílet zpět musí být po odletu.", "Rental company, places and times are required": "Vyplň půjčovnu, místa a časy převzetí a vrácení.", "Rental return must be after pickup": "Vrácení musí být později než převzetí.", "Files must be PDF, PNG, JPG or WebP": "Přílohy musí být PDF, PNG, JPG nebo WebP.", "One of the files is larger than 15 MB": "Některý soubor je větší než 15 MB." }; return messages[error] ?? error; }
+function localizeLogisticsError(error: string, locale: Locale) { if (locale === "en") return error; const messages: Record<string, string> = { "Race not found": "Vyber platný závod.", "Accommodation, location, check-in and check-out are required": "Vyplň ubytování, místo, příjezd a odjezd.", "Check-out must be after check-in": "Check-out musí být po check-inu.", "Accommodation links must use HTTP or HTTPS": "Odkazy na ubytování musí být platné webové adresy.", "Race and accommodation address are required": "Nejdřív vyber závod a vyplň přesnou adresu ubytování.", "Accommodation location could not be determined": "Adresu ubytování se nepodařilo najít. Zkontroluj ji nebo vzdálenost doplň ručně.", "Circuit location could not be determined": "Polohu tratě se nepodařilo určit. Zkontroluj adresu tratě.", "Route to circuit could not be calculated": "Cestu z ubytování na trať se nepodařilo spočítat. Hodnoty můžeš doplnit ručně.", "Route calculation failed": "Výpočet cesty se nepodařil. Zkus to znovu nebo hodnoty doplň ručně.", "Flight route and times are required": "Vyplň trasu a časy letu.", "Arrival must be after departure": "Přílet musí být po odletu.", "Return flight route and times are required": "Vyplň trasu a časy zpátečního letu.", "Return flight must be after outbound arrival": "Zpáteční let musí začít po příletu cesty tam a přílet zpět musí být po odletu.",
+    "Parking airport and start time are required": "U parkování vyplň letiště a datum/čas začátku.",
+    "Invalid parking end time": "Neplatné datum/čas konce parkování.",
+    "Parking end must be after start": "Konec parkování musí být po jeho začátku.", "Rental company, places and times are required": "Vyplň půjčovnu, místa a časy převzetí a vrácení.", "Rental return must be after pickup": "Vrácení musí být později než převzetí.", "Files must be PDF, PNG, JPG or WebP": "Přílohy musí být PDF, PNG, JPG nebo WebP.", "One of the files is larger than 15 MB": "Některý soubor je větší než 15 MB." }; return messages[error] ?? error; }

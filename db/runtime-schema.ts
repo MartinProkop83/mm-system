@@ -896,6 +896,27 @@ async function createRuntimeSchema() {
         updated_at INTEGER NOT NULL
       )
     `),
+    // Parkování na letišti k letence — 1:N, protože u jedné cesty může výjimečně
+    // parkovat víc auct (`vehicle_or_driver` je pak odliší). Bez `archived_at`: při úpravě
+    // letenky se všechny řádky smažou a znovu vloží podle toho, co se právě odeslalo
+    // (stejný vzor jako `service_record_items`), a při smazání letenky zmizí s ní.
+    d1.prepare(`
+      CREATE TABLE IF NOT EXISTS race_flight_parking (
+        id TEXT PRIMARY KEY NOT NULL,
+        flight_id TEXT NOT NULL,
+        vehicle_or_driver TEXT NOT NULL DEFAULT '',
+        airport TEXT NOT NULL,
+        parking_from TEXT NOT NULL,
+        parking_to TEXT NOT NULL DEFAULT '',
+        price_czk_cents INTEGER NOT NULL DEFAULT 0,
+        price_eur_cents INTEGER NOT NULL DEFAULT 0,
+        reservation_code TEXT NOT NULL DEFAULT '',
+        note TEXT NOT NULL DEFAULT '',
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `),
     d1.prepare(`
       CREATE TABLE IF NOT EXISTS race_car_rentals (
         id TEXT PRIMARY KEY NOT NULL,
@@ -1356,6 +1377,7 @@ async function createRuntimeSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS race_team_visits_race_idx ON race_team_visits (race_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_accommodations_race_idx ON race_accommodations (race_id, check_in_date)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_flights_race_idx ON race_flights (race_id, departure_at)"),
+    d1.prepare("CREATE INDEX IF NOT EXISTS race_flight_parking_flight_idx ON race_flight_parking (flight_id, sort_order)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS race_car_rentals_race_idx ON race_car_rentals (race_id, pickup_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS travel_attachments_entity_idx ON travel_attachments (entity_type, entity_id, created_at)"),
     d1.prepare("CREATE UNIQUE INDEX IF NOT EXISTS engine_document_types_code_unique_idx ON engine_document_types (code)"),
@@ -1619,6 +1641,19 @@ async function createRuntimeSchema() {
   ].filter(([name]) => !existingFlightColumns.has(name));
   if (flightAdditions.length > 0) await d1.batch(flightAdditions.map(([, statement]) => d1.prepare(statement)));
   if (needsTripKindBackfill) await d1.prepare("UPDATE race_flights SET trip_kind = direction").run();
+
+  // Parkování na letišti krátce žilo jako 7 plochých parking_* sloupců přímo na
+  // race_flights, než vyšlo najevo, že u jedné cesty může výjimečně parkovat víc auct —
+  // to už se ploché sloupce neunesou. Nikdy se do nich nic neuložilo, takže žádná
+  // konverze dat, jen úklid. `d1.batch` běží jako jedna transakce: spadne-li kterýkoli
+  // DROP COLUMN, vrátí se všech 7 zpátky, ne že by půlka zmizela a půlka zůstala.
+  const legacyFlightParkingColumns = [
+    "parking_airport", "parking_from", "parking_to", "parking_price_czk_cents",
+    "parking_price_eur_cents", "parking_reservation_code", "parking_note",
+  ].filter((name) => existingFlightColumns.has(name));
+  if (legacyFlightParkingColumns.length > 0) {
+    await d1.batch(legacyFlightParkingColumns.map((name) => d1.prepare(`ALTER TABLE race_flights DROP COLUMN ${name}`)));
+  }
 
   const travelAttachmentColumns = await d1.prepare("PRAGMA table_info(travel_attachments)").all<{ name: string }>();
   if (!travelAttachmentColumns.results.some((column: { name: string }) => column.name === "leg")) {

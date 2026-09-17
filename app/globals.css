@@ -398,6 +398,7 @@
 .form-readonly span { color: var(--wrc-ink-faint); font-size: var(--wrc-text-micro); font-weight: 800; text-transform: uppercase; }
 .form-readonly strong { color: var(--wrc-ink); font-size: var(--wrc-text-base); }
 .travel-flight-leg {
+  position: relative;
   min-width: 0;
   margin: 0;
   padding: var(--wrc-space-12);
@@ -407,6 +408,9 @@
 }
 .travel-flight-leg.return-leg { border-color: #f3c7c5; background: #fff8f7; }
 .travel-flight-leg legend { padding: 0 var(--wrc-space-6); color: var(--wrc-info-ink); font-size: var(--wrc-text-sm); font-weight: 800; }
+/* Odebrání druhého a dalšího bloku parkování — první blok se odebírá jen odškrtnutím celé sekce. */
+.travel-parking-blocks { display: flex; flex-direction: column; gap: var(--wrc-space-12); }
+.travel-flight-leg .close-button.travel-parking-remove { position: absolute; top: var(--wrc-space-8); right: var(--wrc-space-8); width: 28px; height: 28px; font-size: var(--wrc-text-base); }
 .travel-flight-leg.return-leg legend { color: var(--wrc-red); }
 .travel-flight-leg-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--wrc-space-12); }
 .accommodation-route-box {

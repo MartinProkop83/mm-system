@@ -617,6 +617,22 @@ export const raceFlights = sqliteTable("race_flights", {
   updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
 });
 
+export const raceFlightParking = sqliteTable("race_flight_parking", {
+  id: text("id").primaryKey(),
+  flightId: text("flight_id").notNull(),
+  vehicleOrDriver: text("vehicle_or_driver").notNull().default(""),
+  airport: text("airport").notNull(),
+  parkingFrom: text("parking_from").notNull(),
+  parkingTo: text("parking_to").notNull().default(""),
+  priceCzkCents: integer("price_czk_cents").notNull().default(0),
+  priceEurCents: integer("price_eur_cents").notNull().default(0),
+  reservationCode: text("reservation_code").notNull().default(""),
+  note: text("note").notNull().default(""),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+});
+
 export const raceCarRentals = sqliteTable("race_car_rentals", {
   id: text("id").primaryKey(),
   raceId: text("race_id").notNull(),

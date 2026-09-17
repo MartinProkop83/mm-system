@@ -6,6 +6,10 @@ import { normalizeRaceCalendarColor } from "../../race-calendar-colors";
 
 type LogisticsType = "accommodation" | "flight" | "rental";
 type TravelPassengerPayload = { id?: string; name?: string; kind?: string };
+type FlightParkingBlockPayload = {
+  vehicleOrDriver?: string; airport?: string; from?: string; to?: string;
+  priceCzk?: string | number; priceEur?: string | number; reservationCode?: string; note?: string;
+};
 type LogisticsPayload = {
   type?: LogisticsType;
   id?: string;
@@ -42,6 +46,7 @@ type LogisticsPayload = {
   passengersNote?: string;
   passengers?: TravelPassengerPayload[];
   baggage?: string;
+  parkingBlocks?: FlightParkingBlockPayload[];
   company?: string;
   vehicleType?: string;
   pickupPlace?: string;
@@ -93,6 +98,13 @@ function moneyToCents(value: unknown) {
   const normalized = String(value ?? "0").replace(",", ".");
   const amount = Number(normalized);
   return Number.isFinite(amount) ? Math.max(0, Math.round(amount * 100)) : 0;
+}
+
+/** Vloží parkovací bloky letenky. Volající si napřed sám smaže staré řádky, když jde o úpravu. */
+function parkingInsertStatements(d1: ReturnType<typeof getD1>, flightId: string, blocks: Array<{ vehicleOrDriver: string; airport: string; from: string; to: string; priceCzkCents: number; priceEurCents: number; reservationCode: string; note: string }>, now: number) {
+  return blocks.map((block, index) => d1.prepare(
+    `INSERT INTO race_flight_parking (id, flight_id, vehicle_or_driver, airport, parking_from, parking_to, price_czk_cents, price_eur_cents, reservation_code, note, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).bind(crypto.randomUUID(), flightId, block.vehicleOrDriver, block.airport, block.from, block.to, block.priceCzkCents, block.priceEurCents, block.reservationCode, block.note, index, now, now));
 }
 
 function validType(value: unknown): value is LogisticsType {
@@ -182,10 +194,11 @@ export async function GET(request: Request) {
   ]);
   const mechanics = mechanicRows.results as Array<{ raceId: string; id: string; name: string }>;
   const vehicles = vehicleRows.results as Array<{ raceId: string; id: string; name: string; licensePlate: string }>;
-  const [attachmentRows, travelerMechanics, travelerUsers] = await Promise.all([
+  const [attachmentRows, travelerMechanics, travelerUsers, parkingRows] = await Promise.all([
     d1.prepare(`SELECT id, entity_type AS entityType, entity_id AS entityId, leg, file_name AS fileName, content_type AS contentType, size_bytes AS sizeBytes, created_at AS createdAt FROM travel_attachments ORDER BY created_at`).all<{ id: string; entityType: LogisticsType; entityId: string; leg: string; fileName: string; contentType: string; sizeBytes: number; createdAt: number }>(),
     d1.prepare("SELECT 'mechanic:' || id AS id, name, 'mechanic' AS kind FROM mechanics WHERE archived_at IS NULL ORDER BY name").all<{ id: string; name: string; kind: string }>(),
     d1.prepare("SELECT 'user:' || id AS id, full_name AS name, 'team' AS kind FROM app_users WHERE is_active = 1 ORDER BY full_name").all<{ id: string; name: string; kind: string }>(),
+    d1.prepare(`SELECT id, flight_id AS flightId, vehicle_or_driver AS vehicleOrDriver, airport, parking_from AS "from", parking_to AS "to", price_czk_cents AS priceCzkCents, price_eur_cents AS priceEurCents, reservation_code AS reservationCode, note FROM race_flight_parking ORDER BY sort_order`).all<{ id: string; flightId: string; vehicleOrDriver: string; airport: string; from: string; to: string; priceCzkCents: number; priceEurCents: number; reservationCode: string; note: string }>(),
   ]);
   const attachments = attachmentRows.results as Array<{ id: string; entityType: LogisticsType; entityId: string; leg: string; fileName: string; contentType: string; sizeBytes: number; createdAt: number }>;
   const availableMechanics = travelerMechanics.results as Array<{ id: string; name: string; kind: string }>;
@@ -195,6 +208,8 @@ export async function GET(request: Request) {
   const flightRecords = flights.results as Array<Record<string, unknown>>;
   const rentalRecords = rentals.results as Array<Record<string, unknown>>;
   const attachmentsFor = (entityType: LogisticsType, entityId: unknown) => attachments.filter((item) => item.entityType === entityType && item.entityId === entityId).map((item) => ({ ...item, url: `/api/logistics-attachments?id=${encodeURIComponent(item.id)}` }));
+  const parkingBlocks = parkingRows.results;
+  const parkingBlocksFor = (flightId: unknown) => parkingBlocks.filter((item) => item.flightId === flightId);
   const travelerMap = new Map<string, { id: string; name: string; kind: string }>();
   for (const traveler of [...availableMechanics, ...availableUsers]) {
     const key = traveler.name.trim().toLocaleLowerCase("cs");
@@ -211,7 +226,7 @@ export async function GET(request: Request) {
     races,
     travelers: Array.from(travelerMap.values()).sort((left, right) => left.name.localeCompare(right.name, "cs")),
     accommodations: accommodationRecords.map((item) => ({ ...item, attachments: attachmentsFor("accommodation", item.id) })),
-    flights: flightRecords.map((item) => ({ ...item, passengers: parsePassengers(item.passengersJson), attachments: attachmentsFor("flight", item.id) })),
+    flights: flightRecords.map((item) => ({ ...item, passengers: parsePassengers(item.passengersJson), attachments: attachmentsFor("flight", item.id), parkingBlocks: parkingBlocksFor(item.id) })),
     rentals: rentalRecords.map((item) => ({ ...item, attachments: attachmentsFor("rental", item.id) })),
   });
 }
@@ -236,6 +251,7 @@ export async function POST(request: Request) {
       : d1.prepare(`INSERT INTO race_car_rentals (id, race_id, company, vehicle_type, pickup_place, return_place, pickup_at, return_at, reservation_code, license_plate, driver_name, currency, total_cents, status, notes, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(id, normalized.raceId, normalized.company, normalized.vehicleType, normalized.pickupPlace, normalized.returnPlace, normalized.pickupAt, normalized.returnAt, normalized.reservationCode, normalized.licensePlate, normalized.driverName, normalized.currency, normalized.totalCents, normalized.status, normalized.notes, user.email, now, now);
   await d1.batch([
     recordStatement,
+    ...(normalized.type === "flight" ? parkingInsertStatements(d1, id, normalized.parkingBlocks, now) : []),
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'create', ?, ?, ?, ?)").bind(crypto.randomUUID(), user.email, normalized.type, id, JSON.stringify(normalized), now),
   ]);
   return Response.json({ id }, { status: 201 });
@@ -265,6 +281,9 @@ export async function PUT(request: Request) {
       : d1.prepare(`UPDATE race_car_rentals SET race_id = ?, company = ?, vehicle_type = ?, pickup_place = ?, return_place = ?, pickup_at = ?, return_at = ?, reservation_code = ?, license_plate = ?, driver_name = ?, currency = ?, total_cents = ?, status = ?, notes = ?, updated_at = ? WHERE id = ?`).bind(normalized.raceId, normalized.company, normalized.vehicleType, normalized.pickupPlace, normalized.returnPlace, normalized.pickupAt, normalized.returnAt, normalized.reservationCode, normalized.licensePlate, normalized.driverName, normalized.currency, normalized.totalCents, normalized.status, normalized.notes, now, id);
   await d1.batch([
     recordStatement,
+    // Parkovací bloky se při úpravě celé nahrazují — smaž staré, vlož znovu podle toho,
+    // co superadmin právě odeslal (stejný vzor jako u položek servisního záznamu).
+    ...(normalized.type === "flight" ? [d1.prepare("DELETE FROM race_flight_parking WHERE flight_id = ?").bind(id), ...parkingInsertStatements(d1, id, normalized.parkingBlocks, now)] : []),
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'update', ?, ?, ?, ?)").bind(crypto.randomUUID(), user.email, normalized.type, id, JSON.stringify({ before: existing, after: normalized }), now),
   ]);
   return Response.json({ id });
@@ -287,6 +306,9 @@ export async function DELETE(request: Request) {
   const result = await d1.batch([
     d1.prepare(`UPDATE ${table} SET archived_at = ?, updated_at = ? WHERE id = ? AND archived_at IS NULL`).bind(now, now, id),
     d1.prepare("DELETE FROM travel_attachments WHERE entity_type = ? AND entity_id = ?").bind(payload.type, id),
+    // Parkovací bloky nemají vlastní archived_at — patří k letence, takže při jejím smazání
+    // musí zmizet i ony, jinak by po ní v race_flight_parking zůstaly osiřelé řádky.
+    ...(payload.type === "flight" ? [d1.prepare("DELETE FROM race_flight_parking WHERE flight_id = ?").bind(id)] : []),
     d1.prepare("INSERT INTO audit_logs (id, actor_email, action, entity_type, entity_id, details, created_at) VALUES (?, ?, 'archive', ?, ?, '{}', ?)").bind(crypto.randomUUID(), user.email, payload.type, id, now),
   ]);
   if (!result[0].meta.changes) return Response.json({ error: "Record not found" }, { status: 404 });
@@ -340,7 +362,22 @@ async function normalize(payload: LogisticsPayload) {
   if (direction === "roundtrip" && (!returnDepartureAirport || !returnArrivalAirport || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(returnDepartureAt) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(returnArrivalAt))) return Response.json({ error: "Return flight route and times are required" }, { status: 400 });
   if (direction === "roundtrip" && (returnDepartureAt >= returnArrivalAt || returnDepartureAt < arrivalAt)) return Response.json({ error: "Return flight must be after outbound arrival" }, { status: 400 });
   const passengers = Array.isArray(payload.passengers) ? payload.passengers.slice(0, 80).map((item) => ({ id: clean(item.id, 120), name: clean(item.name, 160), kind: ["mechanic", "team", "other"].includes(clean(item.kind, 20)) ? clean(item.kind, 20) : "other" })).filter((item) => item.name) : [];
-  return { ...common, type: "flight" as const, direction, storageDirection: direction === "roundtrip" ? "outbound" : direction, departureAirport, arrivalAirport, departureAt, arrivalAt, airline: clean(payload.airline, 120), flightNumber: clean(payload.flightNumber, 40).toUpperCase(), returnDepartureAirport, returnArrivalAirport, returnDepartureAt, returnArrivalAt, returnAirline: direction === "roundtrip" ? clean(payload.returnAirline, 120) : "", returnFlightNumber: direction === "roundtrip" ? clean(payload.returnFlightNumber, 40).toUpperCase() : "", reservationCode: clean(payload.reservationCode, 100).toUpperCase(), returnReservationCode: direction === "roundtrip" ? clean(payload.returnReservationCode, 100).toUpperCase() : "", passengersNote: clean(payload.passengersNote, 500), passengers, baggage: clean(payload.baggage, 300) };
+  // Parkuje se, protože se letí — parkovací bloky patří k letence, ne jako vlastní sekce.
+  // Výjimečně jich může být víc (dvě auta), proto vlastní tabulka `race_flight_parking`,
+  // ne ploché sloupce. Prázdné pole bloků = nezaškrtnuto, nic se neuloží.
+  const parkingBlocksInput = Array.isArray(payload.parkingBlocks) ? payload.parkingBlocks.slice(0, 8) : [];
+  const parkingBlocks: Array<{ vehicleOrDriver: string; airport: string; from: string; to: string; priceCzkCents: number; priceEurCents: number; reservationCode: string; note: string }> = [];
+  for (const block of parkingBlocksInput) {
+    const airport = clean(block.airport, 100).toUpperCase();
+    const from = clean(block.from, 16);
+    if (!airport && !from) continue; // celý prázdný blok (přidaný a hned nevyplněný) se tiše zahodí
+    if (!airport || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(from)) return Response.json({ error: "Parking airport and start time are required" }, { status: 400 });
+    const to = clean(block.to, 16);
+    if (to && !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(to)) return Response.json({ error: "Invalid parking end time" }, { status: 400 });
+    if (to && to < from) return Response.json({ error: "Parking end must be after start" }, { status: 400 });
+    parkingBlocks.push({ vehicleOrDriver: clean(block.vehicleOrDriver, 160), airport, from, to, priceCzkCents: moneyToCents(block.priceCzk), priceEurCents: moneyToCents(block.priceEur), reservationCode: clean(block.reservationCode, 100).toUpperCase(), note: clean(block.note, 500) });
+  }
+  return { ...common, type: "flight" as const, direction, storageDirection: direction === "roundtrip" ? "outbound" : direction, departureAirport, arrivalAirport, departureAt, arrivalAt, airline: clean(payload.airline, 120), flightNumber: clean(payload.flightNumber, 40).toUpperCase(), returnDepartureAirport, returnArrivalAirport, returnDepartureAt, returnArrivalAt, returnAirline: direction === "roundtrip" ? clean(payload.returnAirline, 120) : "", returnFlightNumber: direction === "roundtrip" ? clean(payload.returnFlightNumber, 40).toUpperCase() : "", reservationCode: clean(payload.reservationCode, 100).toUpperCase(), returnReservationCode: direction === "roundtrip" ? clean(payload.returnReservationCode, 100).toUpperCase() : "", passengersNote: clean(payload.passengersNote, 500), passengers, baggage: clean(payload.baggage, 300), parkingBlocks };
 }
 
 function parsePassengers(value: unknown) {
